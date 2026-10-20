@@ -1,0 +1,21 @@
+# Hospedagem/Deploy local de produção:  docker compose up --build   →  http://localhost:8080
+# Camada "Load Balancing & Scaling": a API é stateless (JWT em cookie). Para escalar, suba mais
+# réplicas atrás do nginx (upstream) e troque SQLite por Postgres e o cache em memória por Redis.
+services:
+  api:
+    build: ./backend
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      JWT_SECRET: ${JWT_SECRET:?defina JWT_SECRET no .env (openssl rand -hex 32)}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:8080}
+      ENABLE_LOCAL_LOGIN: ${ENABLE_LOCAL_LOGIN:-false}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+    volumes: [ "db-data:/data" ]
+  web:
+    build: ./frontend
+    restart: unless-stopped
+    depends_on: [ api ]
+    ports: [ "8080:80" ]
+volumes:
+  db-data:

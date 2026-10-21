@@ -3,6 +3,7 @@ export const PATHS = {
   login: '/login',
   dashboard: '/painel',
   purchases: '/lancamentos',
+  cashLedger: '/avulsos',
   cards: '/cartoes',
   vehicles: '/veiculos',
   budget: '/planilha',

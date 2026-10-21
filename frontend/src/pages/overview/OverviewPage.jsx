@@ -64,6 +64,13 @@ export default function OverviewPage() {
       {ov.error && <ErrorState error={ov.error} onRetry={ov.reload} />}
       {!d && !ov.error && <Spinner />}
       {d && (
+        <>
+        <section className="cash-kpis overview-cash-kpis" aria-label="Caixa avulso do mês atual">
+          <Card><span className="muted">Gastos avulsos no mês</span><strong><Money value={d.cashFlow.monthSpent} /></strong></Card>
+          <Card><span className="muted">Recebido no mês</span><strong><Money value={d.cashFlow.monthReceipts} tone="pos" /></strong></Card>
+          <Card><span className="muted">A receber</span><strong><Money value={d.cashFlow.totalReceivable} tone="warn" /></strong></Card>
+          <Card><span className="muted">Em atraso · {d.cashFlow.overdueCount}</span><strong><Money value={d.cashFlow.overdue} tone="neg" /></strong></Card>
+        </section>
         <Card className="sheet-card">
           <div className="table-wrap sheet-scroll">
             <table className="sheet">
@@ -85,6 +92,17 @@ export default function OverviewPage() {
                     {r.values.map((v, i) => <td key={i} className="num"><MoneyCell value={v} onSave={(n) => saveCell(r, i + 1, n)} /></td>)}
                     <td className="num total">{moneyPlain(r.total)}</td>
                     <td className="row-actions"><button className="icon-btn" onClick={() => removeRow(r)} aria-label={`Remover ${r.label}`}>×</button></td>
+                  </tr>
+                ))}
+                <tr className="sec-head"><th colSpan={15} className="sticky-col">Caixa avulso</th></tr>
+                {[
+                  { key: 'cash-expenses', label: 'Gastos avulsos', values: d.cashFlow.expenses },
+                  { key: 'cash-receipts', label: 'Recebimentos avulsos', values: d.cashFlow.receipts },
+                ].map((row) => (
+                  <tr key={row.key}>
+                    <td className="sticky-col">{row.label}</td>
+                    {row.values.map((value, index) => <td key={index} className="num">{value ? moneyPlain(value) : ''}</td>)}
+                    <td className="num total">{moneyPlain(row.values.reduce((sum, value) => sum + value, 0))}</td><td />
                   </tr>
                 ))}
                 <tr>
@@ -112,6 +130,7 @@ export default function OverviewPage() {
             </table>
           </div>
         </Card>
+        </>
       )}
     </>
   );

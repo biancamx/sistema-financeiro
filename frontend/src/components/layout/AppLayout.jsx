@@ -4,6 +4,7 @@ import {
   Calculator,
   Cake,
   Car,
+  CircleDollarSign,
   CreditCard,
   Bell,
   AlertTriangle,
@@ -29,6 +30,7 @@ const NAV = [
   { title: 'Finanças', items: [
     { to: PATHS.dashboard, label: 'Painel', icon: LayoutDashboard },
     { to: PATHS.purchases, label: 'Lançamentos', icon: ReceiptText },
+    { to: PATHS.cashLedger, label: 'Avulsos', icon: CircleDollarSign },
     { to: PATHS.cards, label: 'Cartões', icon: CreditCard },
     { to: PATHS.budget, label: 'Planilha mensal', icon: Table },
     { to: PATHS.overview, label: 'Visão geral', icon: Eye },
@@ -117,10 +119,12 @@ export default function AppLayout() {
     loadAlerts();
     const interval = setInterval(loadAlerts, 120_000);
     window.addEventListener('reminders:refresh', loadAlerts);
+    window.addEventListener('finance:refresh', loadAlerts);
     return () => {
       mounted = false;
       clearInterval(interval);
       window.removeEventListener('reminders:refresh', loadAlerts);
+      window.removeEventListener('finance:refresh', loadAlerts);
     };
   }, [pathname]);
 

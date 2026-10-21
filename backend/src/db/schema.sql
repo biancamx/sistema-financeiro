@@ -141,6 +141,57 @@ CREATE INDEX IF NOT EXISTS idx_purch_user ON purchases (user_id, person_id, card
 CREATE INDEX IF NOT EXISTS idx_rows_sheet ON budget_rows (sheet_id);
 CREATE INDEX IF NOT EXISTS idx_bday_user ON birthdays (user_id);
 
+CREATE TABLE IF NOT EXISTS cash_entries (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL CHECK (kind IN ('expense','sale','loan','refund')),
+  description TEXT NOT NULL,
+  total_cents INTEGER NOT NULL CHECK (total_cents >= 0),
+  category_id INTEGER REFERENCES categories(id) ON DELETE SET NULL,
+  person_id INTEGER REFERENCES people(id) ON DELETE SET NULL,
+  counterparty TEXT,
+  entry_date TEXT NOT NULL,
+  payment_method TEXT,
+  down_payment_cents INTEGER NOT NULL DEFAULT 0,
+  installment_count INTEGER NOT NULL DEFAULT 1,
+  first_due_date TEXT,
+  frequency TEXT NOT NULL DEFAULT 'monthly' CHECK (frequency IN ('monthly','biweekly','weekly')),
+  loan_term TEXT CHECK (loan_term IS NULL OR loan_term IN ('date','installments','none')),
+  interest_rate_bps INTEGER NOT NULL DEFAULT 0,
+  protocol TEXT,
+  expected_return_date TEXT,
+  refund_status TEXT CHECK (refund_status IS NULL OR refund_status IN ('requested','in_review','received','denied')),
+  vehicle_id INTEGER REFERENCES vehicles(id) ON DELETE SET NULL,
+  notes TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS cash_installments (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  entry_id INTEGER NOT NULL REFERENCES cash_entries(id) ON DELETE CASCADE,
+  number INTEGER NOT NULL,
+  count INTEGER NOT NULL,
+  amount_cents INTEGER NOT NULL CHECK (amount_cents >= 0),
+  due_date TEXT
+);
+
+CREATE TABLE IF NOT EXISTS cash_receipts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  installment_id INTEGER NOT NULL REFERENCES cash_installments(id) ON DELETE CASCADE,
+  amount_cents INTEGER NOT NULL CHECK (amount_cents > 0),
+  received_on TEXT NOT NULL,
+  payment_method TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_cash_entries_user_date ON cash_entries (user_id, entry_date);
+CREATE INDEX IF NOT EXISTS idx_cash_entries_user_person ON cash_entries (user_id, person_id);
+CREATE INDEX IF NOT EXISTS idx_cash_installments_user_due ON cash_installments (user_id, due_date);
+CREATE INDEX IF NOT EXISTS idx_cash_installments_entry ON cash_installments (entry_id);
+CREATE INDEX IF NOT EXISTS idx_cash_receipts_installment ON cash_receipts (installment_id);
+
 -- ───────── Gestão de Veículos (frota + histórico de gastos rastreável) ─────────
 CREATE TABLE IF NOT EXISTS vehicles (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -151,6 +202,8 @@ CREATE TABLE IF NOT EXISTS vehicles (
   year INTEGER,
   purchase_value REAL NOT NULL DEFAULT 0,
   status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','inactive','sold')),
+  sold_date TEXT,
+  sold_value_cents INTEGER,
   notes TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   UNIQUE (user_id, plate)

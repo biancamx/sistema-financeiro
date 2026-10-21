@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Bar as RBar, BarChart, Cell, ResponsiveContainer, Tooltip, XAxis } from 'recharts';
+import CashDashboard from './CashDashboard.jsx';
 import { usePeriod } from '../../context/PeriodContext.jsx';
 import { useFetch } from '../../hooks/useFetch.js';
 import { useFinanceRefresh } from '../../hooks/useFinanceRefresh.js';
@@ -10,11 +11,32 @@ import { MONTHS_SHORT, money, monthLabel } from '../../lib/format.js';
 export default function DashboardPage() {
   const { month, year, setMonth } = usePeriod();
   const [personId, setPersonId] = useState('');
+  const [tab, setTab] = useState(() => {
+    try { return localStorage.getItem('financeiro:painel-tab') === 'cash' ? 'cash' : 'cards'; } catch { return 'cards'; }
+  });
   const { data, loading, error, reload } = useFetch(() => dashboardApi.summary({ month, year, personId }), [month, year, personId]);
   useFinanceRefresh(reload);
 
-  if (error) return <ErrorState error={error} onRetry={reload} />;
-  if (!data) return <Spinner />;
+  useEffect(() => {
+    try { localStorage.setItem('financeiro:painel-tab', tab); } catch { /* storage is optional */ }
+  }, [tab]);
+
+  const tabs = (
+    <div className="tabs dashboard-tabs" role="tablist" aria-label="Painel">
+      <button role="tab" aria-selected={tab === 'cards'} className={tab === 'cards' ? 'on' : ''} onClick={() => setTab('cards')}>Cartões</button>
+      <button role="tab" aria-selected={tab === 'cash'} className={tab === 'cash' ? 'on' : ''} onClick={() => setTab('cash')}>Avulsos</button>
+    </div>
+  );
+
+  if (tab === 'cash') return (
+    <div>
+      <PageHeader title="Painel" subtitle="Resumo de entradas e saídas avulsas" />
+      {tabs}
+      <CashDashboard />
+    </div>
+  );
+  if (error) return <div><PageHeader title="Painel" subtitle={`Resumo de ${monthLabel(month, year)}`} />{tabs}<ErrorState error={error} onRetry={reload} /></div>;
+  if (!data) return <div><PageHeader title="Painel" subtitle={`Resumo de ${monthLabel(month, year)}`} />{tabs}<Spinner /></div>;
   const { totals, cardTotals, people, person, series, byCategory } = data;
   const maxCard = Math.max(...cardTotals.map((c) => c.amount), 1);
   const maxCat = Math.max(...byCategory.map((c) => c.amount), 1);
@@ -23,6 +45,7 @@ export default function DashboardPage() {
   return (
     <div className={loading ? 'is-loading' : ''}>
       <PageHeader title="Painel" subtitle={`Resumo de ${monthLabel(month, year)}`} />
+      {tabs}
 
       <section className="hero">
         <div className="hero-main">
@@ -44,6 +67,13 @@ export default function DashboardPage() {
             </BarChart>
           </ResponsiveContainer>
         </div>
+      </section>
+
+      <section className="cash-kpis dashboard-cash-kpis" aria-label="Resumo de caixa avulso">
+        <Card><span className="muted">Gastos avulsos no mês</span><strong><Money value={totals.cash.spent} /></strong></Card>
+        <Card><span className="muted">Recebido no mês</span><strong><Money value={totals.cash.received} tone="pos" /></strong></Card>
+        <Card><span className="muted">A receber</span><strong><Money value={totals.cash.totalReceivable} tone="warn" /></strong></Card>
+        <Card><span className="muted">Em atraso · {totals.cash.overdueCount}</span><strong><Money value={totals.cash.overdue} tone="neg" /></strong></Card>
       </section>
 
       <div className="grid-2">

@@ -40,15 +40,25 @@ export default function RescissionPage() {
             <div className="form-actions"><Button type="submit" variant="primary" disabled={busy}>Calcular</Button></div>
           </form>
         </Card>
-        <Card title="Total a receber">
+        <Card title="Resultado da rescisão">
           {!result ? <p className="muted">Preencha os dados e calcule.</p> : (
             <>
               <p className="muted">{result.yearsWorked} anos e {result.monthsWorked % 12} meses de casa</p>
               <div className="table-responsive"><table className="table">
                 <tbody>{result.items.map((i) => <tr key={i.key}><td>{i.label}</td><td className="num"><Money value={i.value} /></td></tr>)}</tbody>
-                <tfoot><tr><td>Total a receber</td><td className="num"><Money value={result.total} strong /></td></tr></tfoot>
+                <tfoot><tr><td>Total das verbas rescisórias</td><td className="num"><Money value={result.total} strong /></td></tr></tfoot>
               </table></div>
-              <p className="field-hint">Estimativa simples. Descontos (INSS, IRRF) e particularidades do contrato não estão incluídos.</p>
+              <div className="rescission-total">
+                <div className="rescission-total-row">
+                  <span>Saldo do FGTS</span>
+                  <Money value={result.fgtsBalance} />
+                </div>
+                <div className="rescission-total-row rescission-total-grand">
+                  <span>Estimativa total a receber</span>
+                  <Money value={result.totalToReceive} strong />
+                </div>
+              </div>
+              <p className="field-hint">O total soma as verbas rescisórias ao saldo do FGTS informado. A possibilidade de saque depende do motivo do desligamento e das regras aplicáveis. É uma estimativa; descontos (INSS, IRRF) e particularidades do contrato não estão incluídos.</p>
             </>
           )}
         </Card>

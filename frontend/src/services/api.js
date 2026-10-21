@@ -35,6 +35,22 @@ export const purchasesApi = {
   exportUrl: () => apiUrl('/purchases/export.csv'),
 };
 
+export const cashLedgerApi = {
+  list: (q) => get('/cash-ledger/entries', q),
+  summary: (q) => get('/cash-ledger/summary', q).then((r) => r.data),
+  dashboard: (q) => get('/cash-ledger/dashboard', q).then((r) => r.data),
+  personSummary: (personId) => get(`/cash-ledger/people/${personId}`).then((r) => r.data),
+  get: (id) => get(`/cash-ledger/entries/${id}`).then((r) => r.data),
+  create: (body) => post('/cash-ledger/entries', body).then((r) => r.data),
+  update: (id, body) => put(`/cash-ledger/entries/${id}`, body).then((r) => r.data),
+  remove: (id, confirm = false) => del(`/cash-ledger/entries/${id}${confirm ? '?confirm=true' : ''}`),
+  receive: (installmentId, body) => post(`/cash-ledger/installments/${installmentId}/receipts`, body).then((r) => r.data),
+  receiveMany: (ids, body) => post('/cash-ledger/installments/receive-selected', { ids, ...body }).then((r) => r.data),
+  undoReceipt: (receiptId) => del(`/cash-ledger/receipts/${receiptId}`),
+  setRefundStatus: (id, status) => patch(`/cash-ledger/entries/${id}/refund-status`, { status }).then((r) => r.data),
+  exportUrl: () => apiUrl('/cash-ledger/export.csv'),
+};
+
 export const vehiclesApi = {
   categories: () => get('/vehicles/categories').then((r) => r.data),
   list: () => get('/vehicles').then((r) => r.data),

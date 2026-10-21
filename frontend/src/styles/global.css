@@ -221,6 +221,10 @@ select.input { padding-right: 6px; }
 .split-sum .bad { color: var(--neg); }
 .tag { display: inline-block; margin-left: 8px; padding: 0 8px; font-size: 11px; font-weight: 500; line-height: 18px; border-radius: 99px; background: var(--primary-soft); color: var(--primary); vertical-align: middle; }
 .preview { margin-top: 14px; padding: 10px 12px; background: var(--primary-soft); border-radius: 8px; }
+.rescission-total { margin: 18px 0 12px; padding: 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--hover); }
+.rescission-total-row { display: flex; justify-content: space-between; align-items: center; gap: 16px; color: var(--muted); }
+.rescission-total-grand { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); color: var(--text); font-size: 17px; font-weight: 600; }
+.rescission-total-grand strong { color: var(--primary); font-size: 22px; }
 
 /* ───────── Página e cartões ───────── */
 .page-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; margin-bottom: 20px; flex-wrap: wrap; }
@@ -618,6 +622,94 @@ img, canvas { max-width: 100%; }
 .rounded-full { border-radius: 9999px; }
 .object-cover { object-fit: cover; }
 .border { border-width: 1px; border-style: solid; }
+
+/* ───────── Caixa avulso ───────── */
+.cash-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(155px, 1fr)); gap: 12px; margin: 14px 0 18px; }
+.cash-kpis .card { display: grid; gap: 6px; }
+.cash-kpis strong { font-size: 19px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.dashboard-cash-kpis { margin-top: 14px; }
+.overview-cash-kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.dashboard-tabs { margin: -4px 0 16px; }
+.cash-dashboard-toolbar { display: flex; align-items: flex-end; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 14px; padding: 14px 16px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
+.cash-dashboard-toolbar > div:first-child { display: grid; gap: 3px; }
+.cash-dashboard-period-label { font-size: 18px; text-transform: capitalize; }
+.cash-dashboard-period-controls, .cash-dashboard-shortcuts, .cash-dashboard-year-control { display: flex; align-items: center; gap: 8px; }
+.cash-dashboard-year-control strong { min-width: 46px; text-align: center; }
+.cash-dashboard-metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin: 14px 0 18px; }
+.cash-dashboard-metric { display: grid; align-content: start; gap: 6px; min-height: 104px; }
+.cash-dashboard-metric strong { font-size: 19px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.cash-dashboard-metric small { font-size: 12px; }
+.cash-dashboard-link { color: inherit; text-decoration: none; }
+.cash-dashboard-clickable { transition: border-color .15s, transform .15s; }
+.cash-dashboard-link:hover .cash-dashboard-clickable { border-color: var(--primary); transform: translateY(-1px); }
+.cash-trend-neg { color: var(--neg); }
+.cash-trend-pos { color: var(--pos); }
+.cash-dashboard-chart { width: 100%; min-width: 0; }
+.cash-chart-tooltip { padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); box-shadow: var(--shadow); font-size: 12px; }
+.cash-chart-tooltip > div { margin-top: 4px; }
+.cash-chart-caption { margin-top: 8px; font-size: 12px; }
+.cash-chart-legend { display: grid; gap: 7px; margin: 8px 0 0; padding: 0; list-style: none; }
+.cash-chart-legend li, .cash-chart-legend li > span { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.cash-chart-legend li { font-size: 12px; }
+.cash-chart-legend i { display: inline-block; width: 9px; height: 9px; flex: 0 0 9px; border-radius: 50%; }
+.cash-category-legend { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.cash-dashboard-ranking { display: grid; gap: 12px; margin: 0; padding: 0; list-style: none; }
+.cash-dashboard-ranking li { display: grid; gap: 6px; }
+.cash-dashboard-ranking-values { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--muted); }
+.cash-dashboard-list { display: grid; gap: 0; margin: 0; padding: 0; list-style: none; }
+.cash-dashboard-list li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.cash-dashboard-list li:last-child { border-bottom: 0; }
+.cash-dashboard-list li > a { display: grid; min-width: 0; gap: 3px; color: inherit; text-decoration: none; }
+.cash-dashboard-list li > a:hover strong { color: var(--primary); }
+.cash-dashboard-list small { color: var(--muted); overflow-wrap: anywhere; }
+.cash-dashboard-list .money, .cash-dashboard-list .cash-status { flex: 0 0 auto; }
+.cash-toolbar { align-items: flex-start; }
+.cash-period { display: flex; align-items: center; gap: 8px; white-space: nowrap; text-transform: capitalize; }
+.cash-filters { flex: 1 1 100%; }
+.cash-filters .input[type="search"] { flex: 1 1 220px; }
+.cash-table-card { overflow: hidden; }
+.cash-table { min-width: 1150px; }
+.cash-description { padding: 0; font: inherit; font-weight: 500; text-align: left; }
+.cash-subline { display: block; margin-top: 2px; }
+.cash-row-actions { white-space: nowrap; }
+.cash-row-actions .btn { margin: 2px; }
+.cash-status { display: inline-flex; align-items: center; border-radius: 999px; padding: 3px 9px; font-size: 11px; font-weight: 600; white-space: nowrap; }
+.cash-status-pending, .cash-status-partial { color: var(--warn-ink); background: var(--warn-bg); }
+.cash-status-overdue, .cash-status-denied { color: #fff; background: var(--neg); }
+.cash-status-received, .cash-status-expense { color: var(--pos); background: color-mix(in srgb, var(--pos) 13%, transparent); }
+.cash-row-overdue td { background: color-mix(in srgb, var(--neg) 5%, transparent); }
+.cash-bulk-actions { display: flex; align-items: center; justify-content: flex-end; gap: 12px; margin: 10px 0; }
+.cash-person-summary { margin-bottom: 14px; }
+.cash-person-totals { display: flex; flex-wrap: wrap; gap: 22px; margin-bottom: 8px; }
+.cash-person-totals > span { display: inline-flex; gap: 8px; align-items: baseline; }
+.cash-detail-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin-bottom: 18px; }
+.cash-detail-grid > div { display: grid; gap: 3px; min-width: 0; }
+.cash-detail-notes { grid-column: 1 / -1; }
+.cash-detail-grid h3 { margin-top: 4px; }
+.modal-content > h3 { margin: 18px 0 8px; }
+.cash-receipt-history { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.cash-receipt-history li { display: flex; align-items: center; gap: 12px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; }
+.cash-receipt-history li > span { flex: 1; }
+@media (max-width: 900px) {
+  .overview-cash-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .cash-detail-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .cash-dashboard-toolbar { align-items: flex-start; }
+}
+@media (max-width: 640px) {
+  .cash-toolbar { display: grid; }
+  .cash-filters, .cash-person-totals { display: grid; grid-template-columns: 1fr; }
+  .cash-filters .input { width: 100%; }
+  .cash-kpis, .overview-cash-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .cash-detail-grid { grid-template-columns: 1fr; }
+  .cash-receipt-history li { flex-wrap: wrap; }
+  .cash-dashboard-metrics { grid-template-columns: 1fr; }
+  .cash-dashboard-toolbar, .cash-dashboard-period-controls, .cash-dashboard-shortcuts { width: 100%; }
+  .cash-dashboard-period-controls { flex-wrap: wrap; }
+  .cash-dashboard-period-controls > .input { flex: 1 1 100%; width: 100%; }
+  .cash-dashboard-shortcuts > .btn { flex: 1 1 auto; }
+  .cash-dashboard-list li { align-items: flex-start; }
+  .cash-category-legend { grid-template-columns: 1fr; }
+}
 .border-emerald-500\/50 { border-color: rgba(16, 185, 129, 0.5); }
 .border-emerald-500\/30 { border-color: rgba(16, 185, 129, 0.3); }
 .bg-emerald-500\/20 { background-color: rgba(16, 185, 129, 0.2); }

@@ -9,6 +9,7 @@ import { PATHS } from './paths.js';
 const Login = lazy(() => import('../pages/auth/LoginPage.jsx'));
 const Dashboard = lazy(() => import('../pages/dashboard/DashboardPage.jsx'));
 const Purchases = lazy(() => import('../pages/purchases/PurchasesPage.jsx'));
+const CashLedger = lazy(() => import('../pages/cashLedger/CashLedgerPage.jsx'));
 const Vehicles = lazy(() => import('../pages/vehicles/VehiclesPage.jsx'));
 const Cards = lazy(() => import('../pages/cards/CardsPage.jsx'));
 const Budget = lazy(() => import('../pages/budget/BudgetPage.jsx'));
@@ -44,6 +45,7 @@ export const router = createBrowserRouter([
           { path: '/', element: <Navigate to={PATHS.dashboard} replace /> },
           { path: PATHS.dashboard, element: <Dashboard /> },
           { path: PATHS.purchases, element: <Purchases /> },
+          { path: PATHS.cashLedger, element: <CashLedger /> },
           { path: PATHS.cards, element: <Cards /> },
           { path: `${PATHS.vehicles}/:vehicleId?`, element: <Vehicles /> },
           { path: `${PATHS.budget}/:personId?/:year?`, element: <Budget /> },

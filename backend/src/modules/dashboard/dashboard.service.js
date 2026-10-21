@@ -3,9 +3,11 @@ import { badRequest } from '../../lib/errors.js';
 import { outstandingInstallmentCentsSql } from '../../lib/installments.js';
 import { createCardBilling } from '../../lib/cardBilling.js';
 import { createBudgetsService } from '../budgets/budgets.service.js';
+import { createCashLedgerService } from '../cashLedger/cashLedger.service.js';
 
 export function createDashboardService(db) {
   const budgets = createBudgetsService(db);
+  const cashLedger = createCashLedgerService(db);
   const billing = createCardBilling(db);
   return {
     /** Aba "Dashboard" + "dahbord cartoes": tudo que a tela inicial precisa em uma chamada */
@@ -14,6 +16,7 @@ export function createDashboardService(db) {
       const sum = (rows) => round2(rows.reduce((s, r) => s + r.amount, 0));
       const cardTotals = billing.listCards(userId, month, year)
         .map(({ invoice, ...card }) => ({ ...card, amount: invoice }));
+      const cash = cashLedger.summary(userId, month, year);
 
       // Quanto ainda falta pagar por pessoa no mês e daqui para frente.
       const people = db
@@ -63,7 +66,7 @@ export function createDashboardService(db) {
 
       return {
         period: { month, year },
-        totals: { month: sum(cardTotals), owed: round2(people.reduce((s, p) => s + p.owed, 0)), limit: round2(cardTotals.reduce((s, c) => s + c.limit, 0)), available: round2(cardTotals.reduce((s, c) => s + c.available, 0)) },
+        totals: { month: sum(cardTotals), owed: round2(people.reduce((s, p) => s + p.owed, 0)), limit: round2(cardTotals.reduce((s, c) => s + c.limit, 0)), available: round2(cardTotals.reduce((s, c) => s + c.available, 0)), cash },
         cardTotals, people, person, series, byCategory,
       };
     },
@@ -90,9 +93,24 @@ export function createDashboardService(db) {
       for (const r of fixed) r.total = round2(r.values.reduce((a, b) => a + b, 0));
 
       const totals = Array.from({ length: 12 }, (_, m) => round2(cards.reduce((s, c) => s + c.values[m], 0) + fixed.reduce((s, r) => s + r.values[m], 0)));
+      const cashFlow = cashLedger.yearSummary(userId, year);
+      const currentMonth = new Date().getMonth() + 1;
+      const cashCurrent = cashLedger.summary(userId, currentMonth, new Date().getFullYear());
+      cashFlow.expenses.forEach((amount, month) => { totals[month] = round2(totals[month] + amount); });
       const status = Array(12).fill('pending');
       for (const s of db.prepare('SELECT month, status FROM month_status WHERE user_id = ? AND person_id = ? AND year = ?').all(userId, personId, year)) status[s.month - 1] = s.status;
-      return { person, year, sheetId, cards, fixed, totals, yearTotal: round2(totals.reduce((a, b) => a + b, 0)), status };
+      return {
+        person, year, sheetId, cards, fixed, totals,
+        cashFlow: {
+          ...cashFlow,
+          monthSpent: cashCurrent.spent,
+          monthReceipts: cashCurrent.received,
+          totalReceivable: cashCurrent.totalReceivable,
+          overdue: cashCurrent.overdue,
+          overdueCount: cashCurrent.overdueCount,
+        },
+        yearTotal: round2(totals.reduce((a, b) => a + b, 0)), status,
+      };
     },
 
     setStatus(userId, { personId, year, month, status }) {

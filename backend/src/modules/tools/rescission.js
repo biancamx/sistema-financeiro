@@ -30,5 +30,14 @@ export function calcRescission({ salary, admission, dismissal, reason, notice, f
     { key: 'fgtsFine', label: 'Multa do FGTS (40%)', value: round2(fgtsFine) },
     { key: 'notice', label: 'Aviso prévio', value: round2(noticePay) },
   ];
-  return { monthsWorked: months, yearsWorked: years, items, total: round2(items.reduce((s, i) => s + i.value, 0)) };
+  const total = round2(items.reduce((sum, item) => sum + item.value, 0));
+  const availableFgtsBalance = round2(fgtsBalance);
+  return {
+    monthsWorked: months,
+    yearsWorked: years,
+    items,
+    total,
+    fgtsBalance: availableFgtsBalance,
+    totalToReceive: round2(total + availableFgtsBalance),
+  };
 }

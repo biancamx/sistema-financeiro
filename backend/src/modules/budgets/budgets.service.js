@@ -2,11 +2,13 @@ import { badRequest, notFound } from '../../lib/errors.js';
 import { round2 } from '../../lib/months.js';
 import { getInstallmentBalanceCents } from '../../lib/cardBilling.js';
 import { SECTIONS, SECTION_KEYS, createDefaultRows } from './budgets.defaults.js';
+import { createCashLedgerService } from '../cashLedger/cashLedger.service.js';
 
 const zeros = () => Array(12).fill(0);
 const sum12 = (arr) => round2(arr.reduce((a, b) => a + b, 0));
 
 export function createBudgetsService(db) {
+  const cashLedger = createCashLedgerService(db);
   const owned = (table, id, userId) => db.prepare(`SELECT 1 FROM ${table} WHERE id = ? AND user_id = ?`).get(id, userId);
 
   function ensureSheet(userId, personId, year) {
@@ -85,14 +87,16 @@ export function createBudgetsService(db) {
       });
 
       const tot = Object.fromEntries(sections.map((s) => [s.key, s.totals]));
+      const cashFlow = cashLedger.yearSummary(userId, year);
       const revenue = zeros().map((_, m) => round2(tot.income[m] + tot.benefits[m]));
+      const totalRevenue = revenue.map((amount, month) => round2(amount + cashFlow.receipts[month]));
       // "Contas fixas" (as linhas da Visão geral) são um espelho de Moradia/Alimentação/Veículo quando a pessoa já tem a
       // planilha detalhada (Pessoa 01, Pessoa 07): nesse caso não entram de novo no gasto, senão luz/água contariam em dobro.
       const detailed = SECTIONS.some((s) => !s.computed && s.kind === 'expense' && s.key !== 'fixed' && tot[s.key].some((v) => v !== 0));
       const countedSections = SECTIONS.filter((s) => s.kind === 'expense' && !(detailed && s.key === 'fixed'));
       const expenseKeys = countedSections.map((s) => s.key);
-      const spent = zeros().map((_, m) => round2(expenseKeys.reduce((a, k) => a + tot[k][m], 0)));
-      const balance = revenue.map((v, m) => round2(v - spent[m]));
+      const spent = zeros().map((_, m) => round2(expenseKeys.reduce((a, k) => a + tot[k][m], 0) + cashFlow.expenses[m]));
+      const balance = totalRevenue.map((v, m) => round2(v - spent[m]));
       const monthlyPurchases = db.prepare(
         `SELECT i.id AS installmentId, p.id AS purchaseId, p.description, p.observation,
                 p.shared_group AS sharedGroup, i.number, p.installments_count AS count,
@@ -147,15 +151,18 @@ export function createBudgetsService(db) {
         categories: [...monthlyCategories.values()]
           .map(({ totalCents, ...category }) => ({ ...category, total: totalCents / 100 }))
           .sort((a, b) => b.total - a.total),
+        cash: { expense: cashFlow.expenses[selectedMonth - 1], receipts: cashFlow.receipts[selectedMonth - 1] },
       };
       const summary = {
         lines: [
           { key: 'revenue', label: 'Receitas', values: revenue },
+          { key: 'cashReceipts', label: 'Recebimentos avulsos', values: cashFlow.receipts },
           ...countedSections.map((s) => ({ key: s.key, label: s.label, values: tot[s.key] })),
+          { key: 'cashExpenses', label: 'Gastos avulsos', values: cashFlow.expenses },
           { key: 'spent', label: 'Gasto final', values: spent },
           { key: 'balance', label: 'Saldo final', values: balance },
         ],
-        yearRevenue: sum12(revenue),
+        yearRevenue: sum12(totalRevenue),
         yearSpent: sum12(spent),
         yearBalance: sum12(balance),
       };

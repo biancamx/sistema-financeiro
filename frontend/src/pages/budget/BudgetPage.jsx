@@ -135,6 +135,8 @@ export default function BudgetPage() {
               <Card><span className="muted">Gasto em cartões</span><strong><Money value={d.monthly.total} /></strong></Card>
               <Card><span className="muted">Pago</span><strong><Money value={d.monthly.paid} tone="pos" /></strong></Card>
               <Card><span className="muted">Em aberto</span><strong><Money value={d.monthly.outstanding} tone={d.monthly.outstanding > 0 ? 'neg' : 'pos'} /></strong></Card>
+              <Card><span className="muted">Gastos avulsos</span><strong><Money value={d.monthly.cash.expense} /></strong></Card>
+              <Card><span className="muted">Recebimentos avulsos</span><strong><Money value={d.monthly.cash.receipts} tone="pos" /></strong></Card>
             </div>
             <div className="monthly-dashboard-breakdowns">
               <Card title="Gasto por cartão">

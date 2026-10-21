@@ -21,6 +21,7 @@ import { vehiclesRoutes } from './modules/vehicles/vehicles.routes.js';
 import { remindersRoutes } from './modules/reminders/reminders.routes.js';
 import { portalRoutes } from './modules/portal/portal.routes.js';
 import { importRoutes } from './modules/import/import.routes.js';
+import { cashLedgerRoutes } from './modules/cashLedger/cashLedger.routes.js';
 
 export function createApp(db) {
   const app = express();
@@ -73,6 +74,7 @@ export function createApp(db) {
   api.use('/tools', toolsRoutes());
   api.use('/reminders', remindersRoutes(db));
   api.use('/import', importRoutes(db));
+  api.use('/cash-ledger', cashLedgerRoutes(db));
 
   app.use('/api', api);
 

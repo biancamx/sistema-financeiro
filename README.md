@@ -38,10 +38,11 @@ Outros comandos: `npm test` (testes da API) · `npm run seed` (recria os dados d
 
 ## Rotas
 
-**Front:** `/login` · `/painel` · `/lancamentos` · `/cartoes` · `/veiculos/:id?` · `/planilha/:pessoa?/:ano?` · `/visao-geral/:pessoa?/:ano?` · `/pessoas` · `/aniversarios` · `/rescisao` · `/configuracoes`
+**Front:** `/login` · `/painel` · `/lancamentos` · `/avulsos` · `/cartoes` · `/veiculos/:id?` · `/planilha/:pessoa?/:ano?` · `/visao-geral/:pessoa?/:ano?` · `/pessoas` · `/aniversarios` · `/rescisao` · `/configuracoes`
 
 **API (`/api`):** `GET /health` `GET /ready` · `/auth/{config,local,register,login,google,me,logout}` ·
 `/dashboard/{summary,person-overview,status}` · `/purchases` (+ `/installments`, `/export.csv`, `/shared`) · `/budgets` (+ linhas e células) ·
+`/cash-ledger` (+ `/entries`, `/installments`, `/receipts`, `/people/:id`, `/summary`, `/dashboard`, `/export.csv`) ·
 `/cards` · `/people` · `/categories` · `/birthdays` · `/tools/rescission` · `/vehicles` (+ `/summary`, `/categories`, `/expenses`, `/expenses/export.csv`)
 
 ## Como a planilha virou sistema
@@ -55,6 +56,11 @@ Outros comandos: `npm test` (testes da API) · `npm run seed` (recria os dados d
 | *Financeiro Pessoa 01 / Pessoa 07* | **Planilha mensal** por pessoa e ano; linhas de cartão automáticas; células editáveis |
 | *financeiro geral* (cartão × mês + Status) | **Visão geral** com Pendente/Pago por mês |
 | Bloco de rescisão e Aniversários | **Calculadora de rescisão** e **Aniversários** |
+| Compras fora do cartão, vendas e valores a receber | **Avulsos**: caixa em dinheiro/Pix/débito, parcelas e histórico de recebimentos |
+
+### Avulsos (caixa e a receber)
+
+A aba **Avulsos** mantém saídas e recebíveis em tabelas próprias, sem criar compras ou parcelas de cartão. Valores são persistidos em centavos; parcelas e saldos são derivados do cronograma e do histórico de recebimentos. Vendas podem usar Pessoas e marcar um veículo como vendido. O Painel tem sub-abas de Cartões e Avulsos; o resumo de Avulsos usa dados agregados do serviço central e oferece filtros de período, gráficos e atalhos para os registros. A Visão geral e a Planilha mensal também mostram gastos avulsos e valores recebidos.
 
 Na aba **Cartões**, cada cartão pode ter banco/modelo visual, bandeira, cor, arte, últimos quatro dígitos e titular principal
 (o número completo nunca é solicitado ou armazenado). A barra de limite considera parcelas em aberto a partir do mês

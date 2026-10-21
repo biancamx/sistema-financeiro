@@ -88,6 +88,21 @@ const MIGRATIONS = [
       }
     },
   },
+  {
+    name: '013_vehicle_sale_details',
+    run(database) {
+      if (!columnExists(database, 'vehicles', 'sold_date')) database.exec('ALTER TABLE vehicles ADD COLUMN sold_date TEXT');
+      if (!columnExists(database, 'vehicles', 'sold_value_cents')) database.exec('ALTER TABLE vehicles ADD COLUMN sold_value_cents INTEGER');
+    },
+  },
+  {
+    name: '014_cash_ledger_down_payment',
+    run(database) {
+      if (!columnExists(database, 'cash_entries', 'down_payment_cents')) {
+        database.exec('ALTER TABLE cash_entries ADD COLUMN down_payment_cents INTEGER NOT NULL DEFAULT 0');
+      }
+    },
+  },
 ];
 
 export function openDb(dbPath) {

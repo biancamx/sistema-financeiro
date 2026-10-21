@@ -14,13 +14,14 @@ export function createVehiclesService(db) {
 
   // ───────────── Veículos ─────────────
   const vehicleSelect = `
-    SELECT v.id, v.kind, v.model, v.plate, v.year, v.purchase_value AS purchaseValue, v.status, v.notes,
+    SELECT v.id, v.kind, v.model, v.plate, v.year, v.purchase_value AS purchaseValue, v.status,
+           v.sold_date AS soldDate, v.sold_value_cents / 100.0 AS soldValue, v.notes,
            COALESCE((SELECT SUM(amount) FROM vehicle_expenses e WHERE e.vehicle_id = v.id), 0) AS totalSpent,
            (SELECT COUNT(*) FROM vehicle_expenses e WHERE e.vehicle_id = v.id) AS expensesCount,
            (SELECT MAX(km) FROM vehicle_expenses e WHERE e.vehicle_id = v.id) AS currentKm,
            (SELECT MAX(expense_date) FROM vehicle_expenses e WHERE e.vehicle_id = v.id) AS lastExpenseDate
     FROM vehicles v`;
-  const shapeVehicle = (r) => ({ ...r, totalSpent: round2(r.totalSpent) });
+  const shapeVehicle = (r) => ({ ...r, totalSpent: round2(r.totalSpent), soldValue: r.soldValue == null ? null : round2(r.soldValue) });
 
   const assertPlateFree = (userId, plate, exceptId = 0) => {
     if (db.prepare('SELECT 1 FROM vehicles WHERE user_id = ? AND plate = ? AND id <> ?').get(userId, plate, exceptId)) throw conflict('Já existe um veículo com esta placa');

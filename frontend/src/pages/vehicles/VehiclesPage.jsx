@@ -121,6 +121,10 @@ export default function VehiclesPage() {
                 <div><dt>Ano</dt><dd>{vehicle.year || '—'}</dd></div>
                 <div><dt>Valor de compra</dt><dd>{vehicle.purchaseValue > 0 ? <Money value={vehicle.purchaseValue} /> : '—'}</dd></div>
                 <div><dt>Status</dt><dd><span className={`pill ${vehicle.status === 'active' ? '' : 'pill-warn'}`} style={{ marginLeft: 0 }}>{statusLabel(vehicle.status)}</span></dd></div>
+                {vehicle.status === 'sold' && <>
+                  <div><dt>Data da venda</dt><dd>{vehicle.soldDate ? new Date(`${vehicle.soldDate}T00:00:00`).toLocaleDateString('pt-BR') : '—'}</dd></div>
+                  <div><dt>Valor de venda</dt><dd>{vehicle.soldValue != null ? <Money value={vehicle.soldValue} /> : '—'}</dd></div>
+                </>}
                 <div><dt>KM atual</dt><dd>{showKm(vehicle.currentKm)}</dd></div>
               </dl>
               {vehicle.notes && <p className="muted small" style={{ marginTop: 10 }}>{vehicle.notes}</p>}

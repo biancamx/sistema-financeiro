@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS cards (
   limit_amount REAL NOT NULL DEFAULT 0,
   due_day INTEGER DEFAULT 10,
   closing_day INTEGER DEFAULT 3,
+  closing_day_equal TEXT NOT NULL DEFAULT 'next' CHECK (closing_day_equal IN ('current', 'next')),
   issuer TEXT NOT NULL DEFAULT 'Outro',
   brand TEXT NOT NULL DEFAULT 'Outro',
   last_four TEXT,
@@ -61,6 +62,8 @@ CREATE TABLE IF NOT EXISTS purchases (
   -- Compra dividida entre várias pessoas: cada participante tem a sua própria compra (com a sua fatia das parcelas),
   -- e todas compartilham o mesmo shared_group. NULL = compra individual.
   shared_group TEXT,
+  observation TEXT NOT NULL DEFAULT '',
+  vehicle_expense_id INTEGER REFERENCES vehicle_expenses(id) ON DELETE CASCADE,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -168,6 +171,8 @@ CREATE TABLE IF NOT EXISTS vehicle_expenses (
   payer_id INTEGER NOT NULL REFERENCES people(id),
   shared INTEGER NOT NULL DEFAULT 0,
   split_mode TEXT NOT NULL DEFAULT 'equal' CHECK (split_mode IN ('equal','percent','amount')),
+  payment_method TEXT NOT NULL DEFAULT 'cash' CHECK (payment_method IN ('cash','card')),
+  request_id TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 

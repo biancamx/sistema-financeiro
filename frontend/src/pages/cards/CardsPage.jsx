@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { usePeriod } from '../../context/PeriodContext.jsx';
 import { useToast } from '../../context/ToastContext.jsx';
 import { useFetch } from '../../hooks/useFetch.js';
+import { notifyFinanceChanged, useFinanceRefresh } from '../../hooks/useFinanceRefresh.js';
 import { cardsApi, peopleApi } from '../../services/api.js';
 import { Button, Card, EmptyState, ErrorState, Field, Modal, Money, PageHeader, Select, Spinner } from '../../components/ui/ui.jsx';
 import { monthLabel, parseMoney } from '../../lib/format.js';
@@ -21,13 +22,12 @@ const templates = {
 };
 const issuerOptions = Object.keys(templates).map((name) => ({ value: name, label: name }));
 const brandOptions = ['Visa', 'Mastercard', 'Elo', 'American Express', 'Outro'].map((name) => ({ value: name, label: name }));
-const emptyCard = { name: '', limit: '', issuer: 'Outro', brand: 'Outro', lastFour: '', color: templates.Outro, imageData: null, ownerId: '', dueDay: '10', closingDay: '3' };
-const usageTone = (used, limit) => {
+const emptyCard = { name: '', limit: '', issuer: 'Outro', brand: 'Outro', lastFour: '', color: templates.Outro, imageData: null, ownerId: '', dueDay: '10', closingDay: '3', closingDayEqual: 'next' };
+const usageTone = (percent, limit) => {
   if (limit <= 0) return 'green';
-  const pct = Math.round((used / limit) * 100);
+  const pct = Math.round(percent);
   return pct <= 50 ? 'green' : pct <= 80 ? 'yellow' : 'red';
 };
-const pctUsed = (used, limit) => (limit > 0 ? Math.max(0, (used / limit) * 100) : 0);
 
 function processCardImage(file) {
   return new Promise((resolve, reject) => {
@@ -86,6 +86,7 @@ export default function CardsPage() {
   const { month, year } = usePeriod();
   const toast = useToast();
   const { data, error, reload } = useFetch(() => cardsApi.list({ month, year, withImages: true }), [month, year]);
+  useFinanceRefresh(reload);
   const people = useFetch(() => peopleApi.list(), []);
   const [editing, setEditing] = useState(null);
   const [paying, setPaying] = useState(null);
@@ -106,11 +107,13 @@ export default function CardsPage() {
       ownerId: form.ownerId ? Number(form.ownerId) : null,
       dueDay: Number.parseInt(form.dueDay, 10) || 10,
       closingDay: Number.parseInt(form.closingDay, 10) || 3,
+      closingDayEqual: form.closingDayEqual || 'next',
     };
     if (!body.name || Number.isNaN(body.limit)) return toast.error(new Error('Preencha o nome e um limite válido'));
     try {
       if (form.id) await cardsApi.update(form.id, body);
       else await cardsApi.create(body);
+      notifyFinanceChanged();
       toast.success('Cartão salvo');
       setEditing(null);
       reload();
@@ -118,7 +121,7 @@ export default function CardsPage() {
   };
   const remove = async (card) => {
     if (!window.confirm(`Excluir "${card.name}"? As compras feitas nele também serão apagadas.`)) return;
-    try { await cardsApi.remove(card.id); toast.success('Cartão excluído'); reload(); } catch (e) { toast.error(e); }
+    try { await cardsApi.remove(card.id); notifyFinanceChanged(); toast.success('Cartão excluído'); reload(); } catch (e) { toast.error(e); }
   };
   const editCard = (card) => setEditing({
     id: card.id,
@@ -132,6 +135,7 @@ export default function CardsPage() {
     ownerId: card.ownerId ? String(card.ownerId) : '',
     dueDay: card.dueDay ? String(card.dueDay) : '10',
     closingDay: card.closingDay ? String(card.closingDay) : '3',
+    closingDayEqual: card.closingDayEqual || 'next',
   });
   const setIssuer = (issuer) => setEditing((card) => ({ ...card, issuer, color: templates[issuer] }));
   const setImage = async (event) => {
@@ -148,16 +152,18 @@ export default function CardsPage() {
     if (!(amount > 0) || amount > paying.invoice) return toast.error(new Error('Informe um pagamento maior que zero e até o valor da fatura'));
     try {
       await cardsApi.payInvoice(paying.id, { month, year, amount });
+      notifyFinanceChanged();
       toast.success('Pagamento registrado; limite atualizado');
       setPaying(null);
       reload();
     } catch (e) { toast.error(e); }
   };
 
-  const totals = data.reduce((sum, card) => ({
-    used: sum.used + card.used,
-    available: sum.available + card.available,
+  const totalsCents = data.reduce((sum, card) => ({
+    used: sum.used + Math.round(card.used * 100),
+    available: sum.available + Math.round(card.available * 100),
   }), { used: 0, available: 0 });
+  const totals = { used: totalsCents.used / 100, available: totalsCents.available / 100 };
 
   return (
     <>
@@ -172,8 +178,8 @@ export default function CardsPage() {
       ) : (
         <section className="card-grid" aria-label="Seus cartões">
           {data.map((card) => {
-            const tone = usageTone(card.used, card.limit);
-            const percent = pctUsed(card.used, card.limit);
+            const percent = card.percentUsed;
+            const tone = usageTone(percent, card.limit);
             return (
               <article className="managed-card" key={card.id}>
                 <div className="managed-card-face" style={{ backgroundColor: card.color || templates.Outro }}>
@@ -215,7 +221,7 @@ export default function CardsPage() {
                     <span><small>Disponível</small>{card.limit > 0 ? <Money value={card.available} tone={card.available < 0 ? 'neg' : 'pos'} /> : <span className="muted">Sem limite</span>}</span>
                   </div>
                   <div className="card-invoice">
-                    <span>Fatura em aberto · {monthLabel(month, year)}</span>
+                    <span>Fatura em aberto · {monthLabel(month, year)}{card.invoiceDueDate ? ` · vence ${card.invoiceDueDate.split('-').reverse().join('/')}` : ''}</span>
                     <Money value={card.invoice} strong />
                     {card.invoice > 0 && <Button variant="ghost" size="sm" onClick={() => setPaying({ id: card.id, name: card.name, invoice: card.invoice, amount: String(card.invoice).replace('.', ',') })}>Pagar</Button>}
                   </div>
@@ -238,6 +244,7 @@ export default function CardsPage() {
             <Field label="Últimos 4 dígitos" hint="Não informe o número completo do cartão.">{(id) => <input id={id} className="input" inputMode="numeric" autoComplete="off" maxLength={4} pattern="\d{4}" placeholder="4821" value={editing.lastFour} onChange={(e) => setEditing({ ...editing, lastFour: e.target.value.replace(/\D/g, '').slice(0, 4) })} />}</Field>
             <Field label="Limite total (R$)" hint="Use 0 se não quiser controlar o limite">{(id) => <input id={id} className="input" inputMode="decimal" value={editing.limit} onChange={(e) => setEditing({ ...editing, limit: e.target.value })} />}</Field>
             <Field label="Dia do fechamento" hint="Dia que fecha a fatura do cartão.">{(id) => <input id={id} className="input" type="number" min="1" max="31" value={editing.closingDay} onChange={(e) => setEditing({ ...editing, closingDay: e.target.value })} />}</Field>
+            <Field label="Compra no dia do fechamento" hint="Como a compra é classificada quando cai exatamente no fechamento?">{(id) => <Select id={id} value={editing.closingDayEqual} onChange={(closingDayEqual) => setEditing({ ...editing, closingDayEqual })} options={[{ value: 'next', label: 'Próxima fatura (padrão)' }, { value: 'current', label: 'Fatura que fecha neste mês' }]} />}</Field>
             <Field label="Dia do vencimento" hint="Dia do pagamento da fatura.">{(id) => <input id={id} className="input" type="number" min="1" max="31" required value={editing.dueDay} onChange={(e) => setEditing({ ...editing, dueDay: e.target.value })} />}</Field>
             <Field label="Cor do cartão">{(id) => <div className="card-color-input"><input id={id} type="color" value={editing.color} onChange={(e) => setEditing({ ...editing, color: e.target.value })} /><span>{editing.color}</span></div>}</Field>
             <Field label="Foto ou arte do cartão" hint="A imagem é redimensionada antes de ser salva.">{(id) => <input id={id} className="input" type="file" accept="image/*" onChange={setImage} />}</Field>

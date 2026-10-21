@@ -1,4 +1,6 @@
 import { SECTIONS } from '../budgets/budgets.defaults.js';
+import { getInvoiceDueDate } from '../../lib/cardBilling.js';
+import { outstandingInstallmentCentsSql } from '../../lib/installments.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const EXPENSE_SECTIONS = SECTIONS
@@ -25,8 +27,9 @@ function getSystemAlerts(db, userId, today = new Date()) {
 
   const cardDebts = db.prepare(
     `SELECT c.id AS cardId, c.name AS cardName, c.due_day AS dueDay,
+            c.closing_day AS closingDay, c.closing_day_equal AS closingDayEqual,
             i.month, i.year, p.person_id AS personId, pe.name AS personName,
-            SUM(MAX(i.amount - COALESCE(i.paid_amount, 0), 0)) AS pendingAmount
+            SUM(${outstandingInstallmentCentsSql}) AS pendingCents
      FROM installments i
      JOIN purchases p ON p.id = i.purchase_id
      JOIN cards c ON c.id = p.card_id
@@ -35,13 +38,14 @@ function getSystemAlerts(db, userId, today = new Date()) {
        AND i.paid = 0
        AND (i.year < ? OR (i.year = ? AND i.month <= ?))
      GROUP BY c.id, i.month, i.year, p.person_id
-     HAVING pendingAmount > 0`,
+     HAVING pendingCents > 0`,
   ).all(userId, currentYear, currentYear, currentMonth);
 
   for (const debt of cardDebts) {
-    const daysInMonth = new Date(debt.year, debt.month, 0).getDate();
-    const dueDay = Math.min(debt.dueDay || 10, daysInMonth);
-    const dueDate = new Date(debt.year, debt.month - 1, dueDay);
+    const card = { dueDay: debt.dueDay, closingDay: debt.closingDay, closingDayEqual: debt.closingDayEqual };
+    const dueDateValue = getInvoiceDueDate(card, debt.year, debt.month);
+    const [, dueYear, dueMonth, dueDay] = dueDateValue.match(/^(\d{4})-(\d{2})-(\d{2})$/).map(Number);
+    const dueDate = new Date(dueYear, dueMonth - 1, dueDay);
     const diffDays = daysBetween(today, dueDate);
     let status;
     let severity;
@@ -64,12 +68,12 @@ function getSystemAlerts(db, userId, today = new Date()) {
       type: 'card_invoice',
       title: `Fatura ${debt.cardName} • ${debt.personName || 'Geral'}`,
       description: status === 'overdue'
-        ? `Venceu em ${String(dueDay).padStart(2, '0')}/${String(debt.month).padStart(2, '0')} e ainda há saldo pendente.`
+        ? `Venceu em ${String(dueDay).padStart(2, '0')}/${String(dueMonth).padStart(2, '0')} e ainda há saldo pendente.`
         : status === 'today'
           ? `Vence hoje, dia ${dueDay}.`
-          : `Vence em ${diffDays} dias, no dia ${String(dueDay).padStart(2, '0')}/${String(debt.month).padStart(2, '0')}.`,
-      amount: Math.round(debt.pendingAmount * 100) / 100,
-      dueDate: `${debt.year}-${String(debt.month).padStart(2, '0')}-${String(dueDay).padStart(2, '0')}`,
+          : `Vence em ${diffDays} dias, no dia ${String(dueDay).padStart(2, '0')}/${String(dueMonth).padStart(2, '0')}.`,
+      amount: debt.pendingCents / 100,
+      dueDate: dueDateValue,
       status,
       severity,
       personName: debt.personName,

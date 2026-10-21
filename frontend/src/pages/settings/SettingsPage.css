@@ -266,6 +266,149 @@
   filter: brightness(1.08);
 }
 
+.settings-card-copy h2 {
+  text-transform: none;
+}
+
+.settings-upload {
+  min-height: 240px;
+}
+
+.settings-file-button {
+  position: relative;
+  margin-top: 10px;
+  overflow: visible;
+}
+
+.settings-file-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  clip-path: inset(50%);
+}
+
+.settings-file-button svg,
+.settings-reset-option .btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+.settings-upload-hint {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.settings-preview {
+  display: grid;
+  gap: 20px;
+}
+
+.settings-count-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.settings-count {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  padding: 13px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--bg);
+}
+
+.settings-count span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.settings-count strong {
+  font-size: 20px;
+  font-variant-numeric: tabular-nums;
+}
+
+.settings-check {
+  display: grid;
+  gap: 10px;
+}
+
+.settings-check h3,
+.settings-check-ok {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.settings-check h3 svg,
+.settings-check-ok svg {
+  width: 17px;
+  height: 17px;
+  flex: 0 0 auto;
+  color: var(--pos);
+}
+
+.settings-check-ok {
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--pos) 28%, var(--line));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--pos) 7%, var(--surface));
+  color: var(--pos);
+}
+
+.settings-divergences {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.settings-divergences li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--neg) 25%, var(--line));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--neg) 6%, var(--surface));
+  color: var(--neg);
+  font-size: 12px;
+}
+
+.settings-divergences li span {
+  text-align: right;
+}
+
+.settings-confirm-copy {
+  display: grid;
+  gap: 16px;
+}
+
+.settings-confirm-copy > p {
+  line-height: 1.6;
+}
+
+.settings-danger .settings-reset-option .btn {
+  align-self: flex-start;
+}
+
+.settings-danger .settings-button-danger {
+  background: var(--neg);
+  border-color: var(--neg);
+  color: #fff;
+}
+
+.settings-danger .settings-button-danger:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
 @media (max-width: 700px) {
   .settings-card {
     padding: 16px;
@@ -297,6 +440,28 @@
 
   .settings-upload {
     padding: 22px 14px;
+  }
+
+  .settings-count-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .settings-divergences li {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .settings-divergences li span {
+    text-align: left;
+  }
+
+  .modal-foot {
+    flex-wrap: wrap;
+  }
+
+  .settings-card .btn,
+  .settings-danger .settings-reset-option .btn {
+    width: 100%;
   }
 
   .settings-form-actions {

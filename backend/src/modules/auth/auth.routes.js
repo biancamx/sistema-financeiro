@@ -5,29 +5,23 @@ import { loginWithGoogle } from './auth.service.js';
 export function authRoutes(db) {
   const router = Router();
 
-  // 1. Rota de Configuração pública esperada pelo LoginPage
-  router.get('/config', (_req, res) => {
+  // ROTA DE CONFIGURAÇÃO PÚBLICA (Consumida pelo LoginPage)
+  router.get('/config', (req, res) => {
     const googleClientId = process.env.GOOGLE_CLIENT_ID || null;
     const isLocalAllowed = process.env.NODE_ENV !== 'production';
 
-    const payload = {
+    res.json({
       google: {
         enabled: Boolean(googleClientId),
         clientId: googleClientId,
       },
-      localLogin: {
+      local: {
         enabled: isLocalAllowed,
       },
-    };
-
-    res.json({
-      data: payload,
-      ...payload,
-      local: payload.localLogin,
     });
   });
 
-  // 2. Rota de Login com Google
+  // Login com Google
   router.post('/google', async (req, res) => {
     try {
       const { credential } = req.body;
@@ -35,9 +29,13 @@ export function authRoutes(db) {
         return res.status(400).json({ error: 'Token do Google obrigatório' });
       }
 
+      if (!process.env.GOOGLE_CLIENT_ID) {
+        return res.status(501).json({ error: 'Login com Google não está configurado' });
+      }
+
       const { token, user } = await loginWithGoogle(credential);
 
-      // Sincroniza usuário do Google com o SQLite local
+      // Sincroniza usuário do Google com o SQLite
       const existingInSqlite = db.prepare('SELECT id FROM users WHERE email = ?').get(user.email.toLowerCase());
       if (!existingInSqlite) {
         db.prepare('INSERT INTO users (name, email, password_hash) VALUES (?, ?, ?)')
@@ -58,18 +56,18 @@ export function authRoutes(db) {
     }
   });
 
-  // 3. Retorna usuário logado
+  // Usuário autenticado
   router.get('/me', requireAuth(db), (req, res) => {
     res.json({ data: { user: req.user } });
   });
 
-  // 4. Logout
+  // Logout
   router.post('/logout', (req, res) => {
     res.clearCookie('caderno_token');
     res.json({ message: 'Desconectado com sucesso' });
   });
 
-  // 5. Modo local de desenvolvimento
+  // Modo local
   router.post('/local', (req, res) => {
     let user = db.prepare("SELECT id, name, email FROM users WHERE email = 'demo@local.dev'").get();
     if (!user) {

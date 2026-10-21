@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { validate } from '../../middleware/validate.js';
+import { createCardBilling } from '../../lib/cardBilling.js';
 import { getSystemAlerts } from './alerts.service.js';
 import { getPersonBillingSummary } from './reminders.service.js';
 
@@ -22,6 +23,7 @@ const reminderSettingsBody = z.object({
 
 export function remindersRoutes(db) {
   const router = Router();
+  const billing = createCardBilling(db);
 
   // Buscar configuração de lembretes (com fallback seguro contra travamento)
   router.get('/settings', (req, res) => {
@@ -110,23 +112,20 @@ export function remindersRoutes(db) {
     if (!person) return res.status(404).json({ error: 'Pessoa não encontrada' });
 
     const result = db.transaction(() => {
-      const installments = db.prepare(
-        `UPDATE installments
-         SET paid = 1, paid_amount = amount
-         WHERE user_id = ? AND paid = 0 AND id IN (
-           SELECT i.id
-           FROM installments i
-           JOIN purchases p ON p.id = i.purchase_id
-           WHERE p.user_id = ? AND p.person_id = ? AND i.month = ? AND i.year = ?
-         )`,
-      ).run(req.user.id, req.user.id, personId, month, year);
+      const installmentIds = db.prepare(
+        `SELECT i.id FROM installments i JOIN purchases p ON p.id = i.purchase_id
+         WHERE p.user_id = ? AND p.person_id = ? AND i.month = ? AND i.year = ? AND i.paid = 0`,
+      ).all(req.user.id, personId, month, year).map((item) => item.id);
+      const installments = installmentIds.length
+        ? billing.recordBulkPayment(req.user.id, installmentIds, true).updated
+        : 0;
       db.prepare(
         `INSERT INTO month_status (user_id, person_id, year, month, status)
          VALUES (?, ?, ?, ?, 'paid')
          ON CONFLICT(user_id, person_id, year, month) DO UPDATE SET status = 'paid'`,
       ).run(req.user.id, personId, year, month);
 
-      return installments.changes;
+      return installments;
     })();
 
     res.json({

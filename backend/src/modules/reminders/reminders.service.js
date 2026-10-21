@@ -1,17 +1,20 @@
 import { MONTHS_PT, round2 } from '../../lib/months.js';
 import { SECTIONS } from '../budgets/budgets.defaults.js';
+import { createCardBilling, getInstallmentBalanceCents, getInvoiceDueDate } from '../../lib/cardBilling.js';
 
 const brl = (value) => Number(value).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const capitalize = (value) => value.charAt(0).toLocaleUpperCase('pt-BR') + value.slice(1);
 
 export function getPersonBillingSummary(db, userId, personId, month, year) {
+  const billing = createCardBilling(db);
   const person = db.prepare('SELECT id, name, phone FROM people WHERE id = ? AND user_id = ?').get(personId, userId);
   if (!person) return null;
 
   const installments = db.prepare(
     `SELECT i.id AS installmentId, i.number AS installmentNumber, i.amount, i.paid_amount AS paidAmount, i.paid,
             p.id AS purchaseId, p.description, p.installments_count AS totalInstallments,
-            p.card_id AS cardId, c.name AS cardName, c.due_day AS dueDay, c.closing_day AS closingDay
+            p.card_id AS cardId, c.name AS cardName, c.due_day AS dueDay, c.closing_day AS closingDay,
+            c.closing_day_equal AS closingDayEqual
      FROM installments i
      JOIN purchases p ON p.id = i.purchase_id
      LEFT JOIN cards c ON c.id = p.card_id
@@ -53,6 +56,9 @@ export function getPersonBillingSummary(db, userId, personId, month, year) {
         cardName: item.cardName || 'Sem Cartão / Despesa Direta',
         dueDay: item.dueDay || null,
         closingDay: item.closingDay || null,
+        dueDate: item.cardId ? getInvoiceDueDate({
+          dueDay: item.dueDay, closingDay: item.closingDay, closingDayEqual: item.closingDayEqual,
+        }, year, month) : null,
         total: 0,
         items: [],
       });
@@ -61,9 +67,8 @@ export function getPersonBillingSummary(db, userId, personId, month, year) {
     const group = byCard.get(cardKey);
     const remaining = Math.max(0, item.totalInstallments - item.installmentNumber);
     const paid = Boolean(item.paid);
-    const balanceDue = paid ? 0 : round2(Math.max(0, item.amount - item.paidAmount));
+    const balanceDue = getInstallmentBalanceCents(item.amount, item.paidAmount, paid) / 100;
     totalCardsAmount += item.amount;
-    totalCardsPending += balanceDue;
     group.total += item.amount;
     group.items.push({
       description: item.description,
@@ -77,7 +82,7 @@ export function getPersonBillingSummary(db, userId, personId, month, year) {
   }
 
   totalCardsAmount = round2(totalCardsAmount);
-  totalCardsPending = round2(totalCardsPending);
+  totalCardsPending = billing.calculatePersonInvoice(userId, personId, month, year);
   const totalFixedExpenses = round2(fixedExpenses.reduce((total, expense) => total + expense.amount, 0));
   const grandTotal = round2(totalCardsAmount + totalFixedExpenses);
   const pendingFixedExpenses = monthStatus === 'paid' ? 0 : totalFixedExpenses;
@@ -91,7 +96,7 @@ export function getPersonBillingSummary(db, userId, personId, month, year) {
     message += 'Você não possui nenhuma pendência ou despesa registrada neste mês! Parabéns!';
   } else {
     for (const group of cards) {
-      const dueInfo = group.dueDay ? `(Vencimento dia ${String(group.dueDay).padStart(2, '0')})` : '';
+      const dueInfo = group.dueDate ? `(Vencimento ${group.dueDate.split('-').reverse().join('/')})` : '';
       message += `💳 *${group.cardName}* ${dueInfo}\n`;
       for (const item of group.items) {
         const statusIcon = item.paid ? '✅' : '⏳';

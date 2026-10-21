@@ -35,11 +35,20 @@ const expenseBody = z
     km: z.coerce.number().int().min(0).max(5_000_000).nullable().optional(),
     payerId: id,
     shared: z.boolean().default(false),
+    paymentMethod: z.enum(['cash', 'card']).default('cash'),
+    cardId: optId,
+    installmentCount: z.coerce.number().int().min(1).max(120).default(1),
+    startMonth: z.coerce.number().int().min(1).max(12).optional(),
+    startYear: z.coerce.number().int().min(2000).max(2100).optional(),
+    requestId: z.string().uuid().optional(),
     splitMode: z.enum(['equal', 'percent', 'amount']).default('equal'),
     participantIds: z.array(id).max(20).optional(),
     participants: z.array(z.object({ personId: id, value: z.coerce.number().positive().max(10_000_000).optional() })).max(20).optional(),
   })
   .superRefine((b, ctx) => {
+    if (b.paymentMethod === 'card' && !b.cardId) {
+      ctx.addIssue({ code: 'custom', message: 'Escolha o cartão', path: ['cardId'] });
+    }
     if (!b.shared) return;
     const list = b.participants ?? (b.participantIds || []).map((personId) => ({ personId }));
     const fail = (message) => ctx.addIssue({ code: 'custom', message, path: ['participants'] });

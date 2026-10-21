@@ -1,61 +1,40 @@
 import { randomUUID } from 'node:crypto';
-import { badRequest, notFound } from '../../lib/errors.js';
+import { badRequest, conflict, notFound } from '../../lib/errors.js';
 import { round2 } from '../../lib/months.js';
+import { buildSharedInstallments, createCardBilling, generateCardInstallments, generateInstallments, getFirstStatementPeriod, splitWeighted } from '../../lib/cardBilling.js';
 
-/** Divide o total em parcelas (centavos), jogando a diferença na última. */
-export function buildSchedule({ total, count, startYear, startMonth }) {
-  const base = round2(total / count);
-  const out = [];
-  for (let n = 0; n < count; n++) {
-    const idx = startYear * 12 + (startMonth - 1) + n;
-    out.push({
-      number: n + 1,
-      year: Math.floor(idx / 12),
-      month: (idx % 12) + 1,
-      amount: n === count - 1 ? round2(total - base * (count - 1)) : base,
-    });
-  }
-  return out;
-}
-
-/**
- * Divide um valor entre pessoas em centavos, na proporção dos `weights`, sem perder nem criar dinheiro
- * (maiores restos; empate = quem vem primeiro a partir de `offset`, que o chamador gira a cada parcela).
- * R$ 130,00 em partes iguais ÷ 2 = [65,00; 65,00] · ÷ 3 = [43,34; 43,33; 43,33] · 50%/25%/25% = [65,00; 32,50; 32,50].
- */
-export function splitWeighted(amount, weights, offset = 0) {
-  const n = weights.length;
-  const cents = BigInt(Math.round(amount * 100));
-  const w = weights.map((x) => BigInt(x));
-  const W = w.reduce((a, b) => a + b, 0n);
-  const base = w.map((x) => (cents * x) / W);
-  let rest = Number(cents - base.reduce((a, b) => a + b, 0n));
-  const order = w
-    .map((x, i) => ({ i, frac: (cents * x) % W, tie: (i - (offset % n) + n) % n }))
-    .sort((a, b) => (a.frac === b.frac ? a.tie - b.tie : a.frac > b.frac ? -1 : 1));
-  const out = base.map(Number);
-  for (const o of order) if (rest-- > 0) out[o.i] += 1;
-  return out.map((c) => c / 100);
-}
-
-/** Partes iguais (caso particular de splitWeighted). */
+export const buildSchedule = generateInstallments;
+export { splitWeighted };
 export const splitAmount = (amount, parts, offset = 0) => splitWeighted(amount, Array(parts).fill(1), offset);
-
-/** Cronograma da compra inteira (igual ao individual) + a fatia de cada participante em cada parcela. `weights`: lista de pesos, ou nº de pessoas (partes iguais). */
-export function buildSharedSchedule({ total, count, startYear, startMonth }, weights) {
-  const w = Array.isArray(weights) ? weights : Array(weights).fill(1);
-  return buildSchedule({ total, count, startYear, startMonth }).map((s, j) => ({ ...s, shares: splitWeighted(s.amount, w, j) }));
-}
+export const buildSharedSchedule = buildSharedInstallments;
 
 export function createPurchasesService(db) {
+  const billing = createCardBilling(db);
+  const scheduleFor = (userId, d) => {
+    const card = db.prepare(
+      'SELECT closing_day AS closingDay, closing_day_equal AS closingDayEqual FROM cards WHERE id = ? AND user_id = ?',
+    ).get(d.cardId, userId);
+    if (!card) throw badRequest('Cartão inválido');
+    return generateCardInstallments({ ...d, card });
+  };
+
+  const sharedScheduleFor = (userId, d, weights) => {
+    const schedule = scheduleFor(userId, d);
+    return schedule.map((installment, index) => ({
+      ...installment,
+      shares: splitWeighted(installment.amount, weights, index),
+    }));
+  };
+
   const assertOwned = (table, id, userId, label) => {
     if (!db.prepare(`SELECT 1 FROM ${table} WHERE id = ? AND user_id = ?`).get(id, userId)) throw badRequest(`${label} inválido(a)`);
   };
 
   const purchaseSelect = `
-    SELECT p.id, p.description, p.purchase_date AS purchaseDate, p.total, p.installments_count AS count,
+    SELECT p.id, p.description, p.observation, p.purchase_date AS purchaseDate, p.total, p.installments_count AS count,
            p.person_id AS personId, pe.name AS person, p.card_id AS cardId, c.name AS card,
            p.category_id AS categoryId, cat.name AS category, p.shared_group AS sharedGroup,
+           p.vehicle_expense_id AS vehicleExpenseId,
            (SELECT SUM(total) FROM purchases WHERE shared_group = p.shared_group) AS groupTotal,
            (SELECT GROUP_CONCAT(pe2.name, ', ') FROM purchases p2 JOIN people pe2 ON pe2.id = p2.person_id WHERE p2.shared_group = p.shared_group) AS participantsNames,
            (SELECT MIN(year * 12 + month) FROM installments WHERE purchase_id = p.id) AS firstIdx,
@@ -86,6 +65,17 @@ export function createPurchasesService(db) {
     if (r?.g) throw badRequest('Esta compra é compartilhada: edite ou exclua pela compra compartilhada (todos os participantes de uma vez).');
   };
 
+  const assertNotVehicleLinked = (userId, id) => {
+    const r = db.prepare('SELECT vehicle_expense_id AS vehicleExpenseId FROM purchases WHERE id = ? AND user_id = ?').get(id, userId);
+    if (r?.vehicleExpenseId) throw conflict('Este lançamento foi criado na Gestão de Veículos. Edite ou exclua pela aba Gestão de Veículos para evitar duplicidade.');
+  };
+
+  const assertGroupNotVehicleLinked = (userId, group) => {
+    if (db.prepare('SELECT 1 FROM purchases WHERE user_id = ? AND shared_group = ? AND vehicle_expense_id IS NOT NULL').get(userId, group)) {
+      throw conflict('Este lançamento foi criado na Gestão de Veículos. Edite ou exclua pela aba Gestão de Veículos para evitar duplicidade.');
+    }
+  };
+
   function filters(userId, q, alias = 'p') {
     const where = [`${alias}.user_id = ?`];
     const params = [userId];
@@ -107,6 +97,7 @@ export function createPurchasesService(db) {
           `SELECT i.id, i.purchase_id AS purchaseId, i.number, p.installments_count AS count, i.amount,
                   i.paid_amount AS paidAmount, i.paid,
                   p.description, pe.name AS person, c.name AS card, cat.name AS category, p.shared_group AS sharedGroup,
+                  p.vehicle_expense_id AS vehicleExpenseId,
                   (SELECT GROUP_CONCAT(pe2.name, ', ') FROM purchases p2 JOIN people pe2 ON pe2.id = p2.person_id
                    WHERE p2.shared_group = p.shared_group AND p2.id <> p.id) AS sharedWith
            FROM installments i
@@ -150,10 +141,10 @@ export function createPurchasesService(db) {
       if (d.categoryId) assertOwned('categories', d.categoryId, userId, 'Categoria');
       const id = db.transaction(() => {
         const pid = db
-          .prepare('INSERT INTO purchases (user_id, description, category_id, person_id, card_id, purchase_date, total, installments_count) VALUES (?,?,?,?,?,?,?,?)')
-          .run(userId, d.description, d.categoryId ?? null, d.personId, d.cardId, d.purchaseDate ?? null, d.total, d.count).lastInsertRowid;
+          .prepare('INSERT INTO purchases (user_id, description, category_id, person_id, card_id, purchase_date, total, installments_count, observation) VALUES (?,?,?,?,?,?,?,?,?)')
+          .run(userId, d.description, d.categoryId ?? null, d.personId, d.cardId, d.purchaseDate ?? null, d.total, d.count, d.observation ?? '').lastInsertRowid;
         const ins = db.prepare('INSERT INTO installments (user_id, purchase_id, number, year, month, amount) VALUES (?,?,?,?,?,?)');
-        for (const s of buildSchedule(d)) ins.run(userId, pid, s.number, s.year, s.month, s.amount);
+        for (const s of scheduleFor(userId, d)) ins.run(userId, pid, s.number, s.year, s.month, s.amount);
         return Number(pid);
       })();
       return this.get(userId, id);
@@ -162,20 +153,24 @@ export function createPurchasesService(db) {
     update(userId, id, d) {
       const cur = this.get(userId, id);
       assertNotShared(userId, id);
+      assertNotVehicleLinked(userId, id);
       assertOwned('people', d.personId, userId, 'Pessoa');
       assertOwned('cards', d.cardId, userId, 'Cartão');
       if (d.categoryId) assertOwned('categories', d.categoryId, userId, 'Categoria');
       const first = cur.first || { year: d.startYear, month: d.startMonth };
-      const scheduleChanged = cur.total !== d.total || cur.count !== d.count || first.year !== d.startYear || first.month !== d.startMonth;
+      const card = db.prepare('SELECT closing_day AS closingDay, closing_day_equal AS closingDayEqual FROM cards WHERE id = ? AND user_id = ?').get(d.cardId, userId);
+      const newFirst = getFirstStatementPeriod(d.purchaseDate, card, d);
+      const scheduleChanged = cur.total !== d.total || cur.count !== d.count || cur.cardId !== d.cardId
+        || cur.purchaseDate !== (d.purchaseDate ?? null) || first.year !== newFirst.year || first.month !== newFirst.month;
       db.transaction(() => {
-        db.prepare('UPDATE purchases SET description=?, category_id=?, person_id=?, card_id=?, purchase_date=?, total=?, installments_count=? WHERE id=? AND user_id=?').run(
-          d.description, d.categoryId ?? null, d.personId, d.cardId, d.purchaseDate ?? null, d.total, d.count, id, userId,
+        db.prepare('UPDATE purchases SET description=?, category_id=?, person_id=?, card_id=?, purchase_date=?, total=?, installments_count=?, observation=? WHERE id=? AND user_id=?').run(
+          d.description, d.categoryId ?? null, d.personId, d.cardId, d.purchaseDate ?? null, d.total, d.count, d.observation ?? cur.observation ?? '', id, userId,
         );
         if (scheduleChanged) {
           const paid = new Map(cur.installments.map((i) => [i.number, i.paidAmount]));
           db.prepare('DELETE FROM installments WHERE purchase_id = ?').run(id);
           const ins = db.prepare('INSERT INTO installments (user_id, purchase_id, number, year, month, amount, paid, paid_amount) VALUES (?,?,?,?,?,?,?,?)');
-          for (const s of buildSchedule(d)) {
+          for (const s of scheduleFor(userId, d)) {
             const paidAmount = Math.min(s.amount, paid.get(s.number) ?? 0);
             ins.run(userId, id, s.number, s.year, s.month, s.amount, paidAmount >= s.amount - 0.005 ? 1 : 0, paidAmount);
           }
@@ -186,8 +181,20 @@ export function createPurchasesService(db) {
 
     remove(userId, id) {
       assertNotShared(userId, id);
+      assertNotVehicleLinked(userId, id);
       const info = db.prepare('DELETE FROM purchases WHERE id = ? AND user_id = ?').run(id, userId);
       if (!info.changes) throw notFound('Compra não encontrada');
+    },
+
+    updateObservation(userId, id, observation) {
+      const purchase = db.prepare('SELECT shared_group AS sharedGroup FROM purchases WHERE id = ? AND user_id = ?').get(id, userId);
+      if (!purchase) throw notFound('Compra não encontrada');
+      if (purchase.sharedGroup) {
+        db.prepare('UPDATE purchases SET observation = ? WHERE user_id = ? AND shared_group = ?').run(observation, userId, purchase.sharedGroup);
+      } else {
+        db.prepare('UPDATE purchases SET observation = ? WHERE id = ? AND user_id = ?').run(observation, id, userId);
+      }
+      return { id, observation };
     },
 
     // ───────────── Compras compartilhadas (várias pessoas dividem a mesma compra) ─────────────
@@ -219,14 +226,14 @@ export function createPurchasesService(db) {
      * `paidAmounts` (opcional) preserva valores quitados por pessoa e número da parcela ao editar.
      */
     _insertShared(userId, group, parts, d, paidAmounts = new Map()) {
-      const schedule = buildSharedSchedule(d, parts.map((p) => p.weight));
+      const schedule = sharedScheduleFor(userId, d, parts.map((p) => p.weight));
       if (schedule.some((s) => s.shares.some((v) => !(v > 0)))) throw badRequest('Valor pequeno demais para dividir desse jeito entre as pessoas e parcelas');
-      const insP = db.prepare('INSERT INTO purchases (user_id, description, category_id, person_id, card_id, purchase_date, total, installments_count, shared_group) VALUES (?,?,?,?,?,?,?,?,?)');
+      const insP = db.prepare('INSERT INTO purchases (user_id, description, category_id, person_id, card_id, purchase_date, total, installments_count, shared_group, observation) VALUES (?,?,?,?,?,?,?,?,?,?)');
       const insI = db.prepare('INSERT INTO installments (user_id, purchase_id, number, year, month, amount, paid, paid_amount) VALUES (?,?,?,?,?,?,?,?)');
       parts.forEach(({ personId }, k) => {
         const mine = schedule.map((s) => ({ ...s, amount: s.shares[k] }));
         const total = round2(mine.reduce((a, s) => a + s.amount, 0));
-        const pid = insP.run(userId, d.description, d.categoryId ?? null, personId, d.cardId, d.purchaseDate ?? null, total, d.count, group).lastInsertRowid;
+        const pid = insP.run(userId, d.description, d.categoryId ?? null, personId, d.cardId, d.purchaseDate ?? null, total, d.count, group, d.observation ?? '').lastInsertRowid;
         for (const s of mine) {
           const paidAmount = Math.min(s.amount, Math.max(0, paidAmounts.get(`${personId}:${s.number}`) ?? 0));
           insI.run(userId, pid, s.number, s.year, s.month, s.amount, paidAmount >= s.amount - 0.005 ? 1 : 0, paidAmount);
@@ -262,7 +269,7 @@ export function createPurchasesService(db) {
       const totals = rows.map((r) => r.total);
       const splitMode = Math.max(...totals) - Math.min(...totals) <= 0.03 ? 'equal' : 'amount'; // partes quase idênticas = divisão igual
       return {
-        group, description: head.description, categoryId: head.categoryId, category: head.category, cardId: head.cardId, card: head.card,
+        group, vehicleExpenseId: head.vehicleExpenseId, description: head.description, observation: head.observation, categoryId: head.categoryId, category: head.category, cardId: head.cardId, card: head.card,
         purchaseDate: head.purchaseDate, total, count: head.count, perInstallment: installments[0]?.amount ?? round2(total / head.count),
         first: head.first, last: head.last,
         splitMode,
@@ -273,6 +280,7 @@ export function createPurchasesService(db) {
 
     updateShared(userId, group, d) {
       const cur = this.getShared(userId, group);
+      assertGroupNotVehicleLinked(userId, group);
       const parts = this._checkShared(userId, d);
       const paidAmounts = new Map();
       for (const i of cur.installments) for (const s of i.shares) paidAmounts.set(`${s.personId}:${i.number}`, s.paidAmount);
@@ -284,16 +292,17 @@ export function createPurchasesService(db) {
     },
 
     removeShared(userId, group) {
+      assertGroupNotVehicleLinked(userId, group);
       const info = db.prepare('DELETE FROM purchases WHERE shared_group = ? AND user_id = ?').run(group, userId);
       if (!info.changes) throw notFound('Compra compartilhada não encontrada');
     },
 
     setPaid(userId, installmentId, paid) {
-      const installment = db.prepare('SELECT amount FROM installments WHERE id = ? AND user_id = ?').get(installmentId, userId);
-      if (!installment) throw notFound('Parcela não encontrada');
-      const paidAmount = paid ? installment.amount : 0;
-      db.prepare('UPDATE installments SET paid = ?, paid_amount = ? WHERE id = ? AND user_id = ?').run(paid ? 1 : 0, paidAmount, installmentId, userId);
-      return { id: installmentId, paid };
+      return billing.recordPayment(userId, installmentId, paid);
+    },
+
+    setManyPaid(userId, installmentIds, paid = true) {
+      return billing.recordBulkPayment(userId, installmentIds, paid);
     },
 
     exportCsv(userId) {

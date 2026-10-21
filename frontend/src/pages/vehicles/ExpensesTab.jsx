@@ -49,7 +49,7 @@ export default function ExpensesTab({ vehicleId, year, people, categories, onEdi
         ) : (
           <div className="table-wrap">
             <table className="table">
-              <thead><tr><th>Data</th>{!vehicleId && <th>Veículo</th>}<th>Categoria</th><th>Descrição</th><th className="num">KM</th><th>Pagou</th><th>Rateio</th><th className="num">Valor</th><th /></tr></thead>
+              <thead><tr><th>Data</th>{!vehicleId && <th>Veículo</th>}<th>Categoria</th><th>Descrição</th><th className="num">KM</th><th>Pagou</th><th>Pagamento</th><th>Rateio</th><th className="num">Valor</th><th /></tr></thead>
               <tbody>
                 {data.data.map((e) => (
                   <tr key={e.id}>
@@ -59,6 +59,7 @@ export default function ExpensesTab({ vehicleId, year, people, categories, onEdi
                     <td>{e.description || <span className="muted">—</span>}</td>
                     <td className="num">{showKm(e.km)}</td>
                     <td>{e.payer}</td>
+                    <td>{e.paymentMethod === 'card' ? `Cartão · ${e.card || 'registrado'}` : 'Dinheiro / outro'}</td>
                     <td>
                       {e.shared
                         ? <span title={e.shares.map((s) => `${s.person}: ${money(s.amount)}`).join('\n')}><span className="tag tag-flush">Compartilhado</span> <span className="muted small">{e.shares.map((s) => s.person).join(', ')}</span></span>
@@ -72,7 +73,7 @@ export default function ExpensesTab({ vehicleId, year, people, categories, onEdi
                   </tr>
                 ))}
               </tbody>
-              <tfoot><tr><td colSpan={vehicleId ? 6 : 7}>Total dos {data.total} lançamento(s) filtrados</td><td className="num">{money(data.sum)}</td><td /></tr></tfoot>
+              <tfoot><tr><td colSpan={vehicleId ? 7 : 8}>Total dos {data.total} lançamento(s) filtrados</td><td className="num">{money(data.sum)}</td><td /></tr></tfoot>
             </table>
           </div>
         )}

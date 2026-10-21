@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Bar as RBar, BarChart, Cell, ResponsiveContainer, Tooltip, XAxis } from 'recharts';
 import { usePeriod } from '../../context/PeriodContext.jsx';
 import { useFetch } from '../../hooks/useFetch.js';
+import { useFinanceRefresh } from '../../hooks/useFinanceRefresh.js';
 import { dashboardApi } from '../../services/api.js';
 import { Bar, Card, EmptyState, ErrorState, Money, PageHeader, Select, Spinner } from '../../components/ui/ui.jsx';
 import { MONTHS_SHORT, money, monthLabel } from '../../lib/format.js';
@@ -10,6 +11,7 @@ export default function DashboardPage() {
   const { month, year, setMonth } = usePeriod();
   const [personId, setPersonId] = useState('');
   const { data, loading, error, reload } = useFetch(() => dashboardApi.summary({ month, year, personId }), [month, year, personId]);
+  useFinanceRefresh(reload);
 
   if (error) return <ErrorState error={error} onRetry={reload} />;
   if (!data) return <Spinner />;
@@ -28,7 +30,7 @@ export default function DashboardPage() {
           <strong className="hero-value">{money(totals.month)}</strong>
           <dl className="hero-stats">
             <div><dt>A pagar daqui para frente</dt><dd>{money(totals.owed)}</dd></div>
-            <div><dt>Limite disponível</dt><dd>{money(totals.available)}</dd></div>
+            <div><dt>Limite disponível</dt><dd><Money value={totals.available} /></dd></div>
           </dl>
         </div>
         <div className="hero-chart" aria-label={`Faturas mês a mês em ${year}`}>

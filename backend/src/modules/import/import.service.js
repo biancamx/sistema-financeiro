@@ -369,9 +369,9 @@ export async function processSpreadsheetImport(db, userId, fileBuffer, { replace
     if (replaceExisting) {
       db.prepare(`
         DELETE FROM installments
-        WHERE purchase_id IN (SELECT id FROM purchases WHERE user_id = ?)
+        WHERE purchase_id IN (SELECT id FROM purchases WHERE user_id = ? AND vehicle_expense_id IS NULL)
       `).run(userId);
-      results.purchasesReplaced = db.prepare('DELETE FROM purchases WHERE user_id = ?').run(userId).changes;
+      results.purchasesReplaced = db.prepare('DELETE FROM purchases WHERE user_id = ? AND vehicle_expense_id IS NULL').run(userId).changes;
     }
 
     for (const purchase of purchases) {
@@ -431,10 +431,10 @@ export function undoSpreadsheetImport(db, userId, batchId = null) {
   } else {
     // Apaga todas as compras e parcelas criadas por este usuário
     const deleteInstallments = db.prepare(`
-      DELETE FROM installments WHERE purchase_id IN (SELECT id FROM purchases WHERE user_id = ?)
+      DELETE FROM installments WHERE purchase_id IN (SELECT id FROM purchases WHERE user_id = ? AND vehicle_expense_id IS NULL)
     `).run(userId);
 
-    const deletePurchases = db.prepare('DELETE FROM purchases WHERE user_id = ?').run(userId);
+    const deletePurchases = db.prepare('DELETE FROM purchases WHERE user_id = ? AND vehicle_expense_id IS NULL').run(userId);
 
     return { undoneCount: deletePurchases.changes };
   }

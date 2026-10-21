@@ -194,7 +194,7 @@ export default function PortalPage() {
                             <span className="participant-card-info">
                               <strong>{card.cardName}</strong>
                               <span>
-                                {card.brand || card.bank || 'Cartão'} · vence dia {card.dueDay} · {card.items.length} item(ns)
+                                {card.brand || card.bank || 'Cartão'} · {card.dueDate ? `vence ${card.dueDate.split('-').reverse().join('/')}` : `vence dia ${card.dueDay}`} · {card.items.length} item(ns)
                               </span>
                             </span>
                             <span className="participant-card-totals">

@@ -7,6 +7,10 @@ const id = z.coerce.number().int().positive();
 const optId = z.coerce.number().int().positive().optional();
 const month = z.coerce.number().int().min(1).max(12);
 const year = z.coerce.number().int().min(2000).max(2100);
+const purchaseDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine((value) => {
+  const date = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
+}, 'Data da compra inválida');
 
 const listQuery = z.object({
   personId: optId, cardId: optId, categoryId: optId,
@@ -15,13 +19,17 @@ const listQuery = z.object({
   pageSize: z.coerce.number().int().min(1).max(200).default(30),
 });
 const monthQuery = listQuery.extend({ month, year });
+const installmentIds = z.object({
+  ids: z.array(id).min(1).max(5000).refine((ids) => new Set(ids).size === ids.length, 'Parcelas repetidas'),
+});
 
 const purchaseBody = z.object({
   description: z.string().trim().min(1).max(120),
-  categoryId: z.coerce.number().int().positive().nullable().optional(),
+  categoryId: z.union([z.null(), z.coerce.number().int().positive()]).optional(),
+  observation: z.string().max(1000).optional(),
   personId: id,
   cardId: id,
-  purchaseDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+  purchaseDate: purchaseDate.nullable().optional(),
   total: z.coerce.number().positive().max(10_000_000),
   count: z.coerce.number().int().min(1).max(120),
   startMonth: month,
@@ -59,9 +67,19 @@ export function purchasesRoutes(db) {
     res.set('Content-Type', 'text/csv; charset=utf-8').set('Content-Disposition', 'attachment; filename="lancamentos.csv"');
     res.send('\uFEFF' + svc.exportCsv(req.user.id));
   });
+  r.post('/installments/pay-selected', validate({ body: installmentIds }), (req, res) =>
+    res.json({ data: svc.setManyPaid(req.user.id, req.body.ids, true) }),
+  );
+  r.post('/installments/unpay-selected', validate({ body: installmentIds }), (req, res) =>
+    res.json({ data: svc.setManyPaid(req.user.id, req.body.ids, false) }),
+  );
   r.patch('/installments/:id', validate({ params: z.object({ id }), body: z.object({ paid: z.boolean() }) }), (req, res) =>
     res.json({ data: svc.setPaid(req.user.id, req.params.id, req.body.paid) }),
   );
+  r.patch('/:id/observation', validate({
+    params: z.object({ id }),
+    body: z.object({ observation: z.string().max(1000) }),
+  }), (req, res) => res.json({ data: svc.updateObservation(req.user.id, req.params.id, req.body.observation) }));
 
   // Compras compartilhadas (um grupo = uma compra dividida entre várias pessoas)
   r.post('/shared', validate({ body: sharedBody }), (req, res) => res.status(201).json({ data: svc.createShared(req.user.id, req.body) }));

@@ -1,6 +1,7 @@
+import { randomUUID } from 'node:crypto';
 import { badRequest, conflict, notFound } from '../../lib/errors.js';
 import { round2 } from '../../lib/months.js';
-import { splitWeighted } from '../purchases/purchases.service.js';
+import { generateCardInstallments, splitWeighted } from '../../lib/cardBilling.js';
 import { EXPENSE_CATEGORIES, EXPENSE_GROUPS, groupOf } from './vehicles.categories.js';
 
 export const normalizePlate = (p) => String(p).toUpperCase().replace(/[\s-]/g, '');
@@ -29,7 +30,13 @@ export function createVehiclesService(db) {
   const expenseSelect = `
     SELECT e.id, e.vehicle_id AS vehicleId, v.model AS vehicleModel, v.plate AS vehiclePlate,
            e.expense_date AS date, e.category, e.description, e.amount, e.km,
-           e.payer_id AS payerId, pe.name AS payer, e.shared, e.split_mode AS splitMode
+           e.payer_id AS payerId, pe.name AS payer, e.shared, e.split_mode AS splitMode,
+           e.payment_method AS paymentMethod, e.request_id AS requestId,
+           (SELECT p.card_id FROM purchases p WHERE p.vehicle_expense_id = e.id LIMIT 1) AS cardId,
+           (SELECT c.name FROM purchases p JOIN cards c ON c.id = p.card_id WHERE p.vehicle_expense_id = e.id LIMIT 1) AS card,
+           COALESCE((SELECT p.installments_count FROM purchases p WHERE p.vehicle_expense_id = e.id LIMIT 1), 1) AS installmentCount,
+           (SELECT i.month FROM purchases p JOIN installments i ON i.purchase_id = p.id WHERE p.vehicle_expense_id = e.id ORDER BY i.number, i.id LIMIT 1) AS startMonth,
+           (SELECT i.year FROM purchases p JOIN installments i ON i.purchase_id = p.id WHERE p.vehicle_expense_id = e.id ORDER BY i.number, i.id LIMIT 1) AS startYear
     FROM vehicle_expenses e
     JOIN vehicles v ON v.id = e.vehicle_id
     JOIN people pe ON pe.id = e.payer_id`;
@@ -105,7 +112,121 @@ export function createVehiclesService(db) {
     return { where, params };
   }
 
-  const expenseWriteCols = (userId, d, amount) => [d.vehicleId, d.date, d.category, d.description ?? '', amount, d.km ?? null, d.payerId, d.shared ? 1 : 0, d.shared ? d.splitMode : 'equal', userId];
+  const expenseWriteCols = (userId, d, amount) => [
+    d.vehicleId, d.date, d.category, d.description ?? '', amount, d.km ?? null, d.payerId,
+    d.shared ? 1 : 0, d.shared ? d.splitMode : 'equal', d.paymentMethod ?? 'cash', userId,
+  ];
+
+  const purchaseCategoryNames = (category, vehicleKind) => {
+    const label = EXPENSE_CATEGORIES.find((item) => item.key === category)?.label ?? category;
+    if (category === 'ipva') return [vehicleKind === 'motorcycle' ? 'IPVA moto' : 'IPVA carro', 'IPVA', label, 'Carro'];
+    if (category === 'licensing') return [vehicleKind === 'motorcycle' ? 'Licenciamento moto' : 'Licenciamento carro', 'Licenciamento', label, 'Carro'];
+    if (category === 'insurance') return ['Seguro carro', 'Seguro', label, 'Carro'];
+    if (category === 'financing') return ['Consórcio', 'Financiamento', label, 'Carro'];
+    if (category === 'fuel') return ['Vale combustível', 'Combustível', label, 'Carro'];
+    return [label, 'Carro'];
+  };
+
+  function linkedPurchaseCategoryId(userId, category, vehicleKind) {
+    const rows = db.prepare('SELECT id, name FROM categories WHERE user_id = ?').all(userId);
+    const normalize = (name) => name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('pt-BR');
+    const byName = new Map(rows.map((row) => [normalize(row.name.trim()), row.id]));
+    for (const name of purchaseCategoryNames(category, vehicleKind)) {
+      const id = byName.get(normalize(name));
+      if (id) return id;
+    }
+    const name = purchaseCategoryNames(category, vehicleKind)[0];
+    return Number(db.prepare('INSERT INTO categories (user_id, name) VALUES (?, ?)').run(userId, name).lastInsertRowid);
+  }
+
+  function linkedPurchaseDescription(expense, vehicle) {
+    const categoryLabel = EXPENSE_CATEGORIES.find((item) => item.key === expense.category)?.label ?? expense.category;
+    const details = expense.description?.trim() || categoryLabel;
+    return `Veículo ${vehicle.model} · ${details}`.slice(0, 120);
+  }
+
+  function createLinkedPurchases(userId, expenseId, d, shares, vehicle, paidAmounts = new Map()) {
+    const card = db.prepare(
+      'SELECT closing_day AS closingDay, closing_day_equal AS closingDayEqual FROM cards WHERE id = ? AND user_id = ?',
+    ).get(d.cardId, userId);
+    if (!card) throw badRequest('Cartão inválido');
+    const scheduleInput = {
+      total: round2(d.amount),
+      count: d.paymentMethod === 'card' ? d.installmentCount : 1,
+      purchaseDate: d.date,
+      card,
+      startYear: d.startYear,
+      startMonth: d.startMonth,
+    };
+    const group = d.shared ? randomUUID() : null;
+    const categoryId = linkedPurchaseCategoryId(userId, d.category, vehicle.kind);
+    const description = linkedPurchaseDescription(d, vehicle);
+    const insPurchase = db.prepare(
+      `INSERT INTO purchases
+       (user_id, description, category_id, person_id, card_id, purchase_date, total, installments_count, shared_group, observation, vehicle_expense_id)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+    );
+    const insInstallment = db.prepare(
+      'INSERT INTO installments (user_id, purchase_id, number, year, month, amount, paid, paid_amount) VALUES (?,?,?,?,?,?,?,?)',
+    );
+    const installmentsSchedule = generateCardInstallments(scheduleInput);
+    const schedule = d.shared
+      ? installmentsSchedule.map((item, index) => ({
+        ...item,
+        shares: splitWeighted(item.amount, shares.map((share) => Math.round(share.amount * 100)), index),
+      }))
+      : installmentsSchedule;
+    if (d.shared && schedule.some((item) => item.shares.some((share) => !(share > 0)))) {
+      throw badRequest('Valor pequeno demais para dividir desse jeito entre as pessoas e parcelas');
+    }
+
+    if (d.shared) {
+      shares.forEach((share, participantIndex) => {
+        const installments = schedule.map((item) => ({ ...item, amount: item.shares[participantIndex] }));
+        const total = round2(installments.reduce((sum, item) => sum + item.amount, 0));
+        const purchaseId = Number(insPurchase.run(
+          userId, description, categoryId, share.personId, d.cardId, d.date, total,
+          scheduleInput.count, group, d.observation ?? '', expenseId,
+        ).lastInsertRowid);
+        for (const item of installments) {
+          const paidAmount = Math.min(item.amount, Math.max(0, paidAmounts.get(`${share.personId}:${item.number}`) ?? 0));
+          insInstallment.run(
+            userId, purchaseId, item.number, item.year, item.month, item.amount,
+            paidAmount >= item.amount - 0.005 ? 1 : 0, paidAmount,
+          );
+        }
+      });
+      return;
+    }
+
+    const purchaseId = Number(insPurchase.run(
+      userId, description, categoryId, d.payerId, d.cardId, d.date, scheduleInput.total,
+      scheduleInput.count, null, d.observation ?? '', expenseId,
+    ).lastInsertRowid);
+    for (const item of schedule) {
+      const paidAmount = Math.min(item.amount, Math.max(0, paidAmounts.get(`${d.payerId}:${item.number}`) ?? 0));
+      insInstallment.run(
+        userId, purchaseId, item.number, item.year, item.month, item.amount,
+        paidAmount >= item.amount - 0.005 ? 1 : 0, paidAmount,
+      );
+    }
+  }
+
+  function existingPaidAmounts(expenseId) {
+    const rows = db.prepare(
+      `SELECT p.person_id AS personId, i.number, i.paid_amount AS paidAmount
+       FROM purchases p JOIN installments i ON i.purchase_id = p.id
+       WHERE p.vehicle_expense_id = ?`,
+    ).all(expenseId);
+    return new Map(rows.map((row) => [`${row.personId}:${row.number}`, row.paidAmount]));
+  }
+
+  function syncLinkedPurchases(userId, expenseId, d, shares, vehicle) {
+    const paidAmounts = existingPaidAmounts(expenseId);
+    const observation = db.prepare('SELECT observation FROM purchases WHERE vehicle_expense_id = ? LIMIT 1').get(expenseId)?.observation ?? '';
+    db.prepare('DELETE FROM purchases WHERE user_id = ? AND vehicle_expense_id = ?').run(userId, expenseId);
+    if (d.paymentMethod === 'card') createLinkedPurchases(userId, expenseId, { ...d, observation }, shares, vehicle, paidAmounts);
+  }
 
   return {
     categories: () => ({ groups: EXPENSE_GROUPS, categories: EXPENSE_CATEGORIES }),
@@ -163,14 +284,22 @@ export function createVehiclesService(db) {
 
     createExpense(userId, d) {
       assertOwned('vehicles', d.vehicleId, userId, 'Veículo');
+      if (d.paymentMethod === 'card') assertOwned('cards', d.cardId, userId, 'Cartão');
       const amount = round2(d.amount);
       const shares = computeShares(userId, d, amount);
       const id = db.transaction(() => {
+        if (d.requestId) {
+          const existing = db.prepare('SELECT id FROM vehicle_expenses WHERE user_id = ? AND request_id = ?').get(userId, d.requestId);
+          if (existing) return Number(existing.id);
+        }
         const eid = db
-          .prepare('INSERT INTO vehicle_expenses (vehicle_id, expense_date, category, description, amount, km, payer_id, shared, split_mode, user_id) VALUES (?,?,?,?,?,?,?,?,?,?)')
-          .run(...expenseWriteCols(userId, d, amount)).lastInsertRowid;
+          .prepare('INSERT INTO vehicle_expenses (vehicle_id, expense_date, category, description, amount, km, payer_id, shared, split_mode, payment_method, user_id, request_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)')
+          .run(...expenseWriteCols(userId, d, amount), d.requestId ?? null).lastInsertRowid;
         const ins = db.prepare('INSERT INTO vehicle_expense_shares (expense_id, user_id, person_id, amount) VALUES (?,?,?,?)');
         for (const s of shares) ins.run(eid, userId, s.personId, s.amount);
+        if (d.paymentMethod === 'card') {
+          createLinkedPurchases(userId, Number(eid), d, shares, this.getVehicle(userId, d.vehicleId));
+        }
         return Number(eid);
       })();
       return this.getExpense(userId, id);
@@ -179,15 +308,18 @@ export function createVehiclesService(db) {
     updateExpense(userId, id, d) {
       this.getExpense(userId, id);
       assertOwned('vehicles', d.vehicleId, userId, 'Veículo');
+      if (d.paymentMethod === 'card') assertOwned('cards', d.cardId, userId, 'Cartão');
       const amount = round2(d.amount);
       const shares = computeShares(userId, d, amount);
       db.transaction(() => {
-        db.prepare('UPDATE vehicle_expenses SET vehicle_id=?, expense_date=?, category=?, description=?, amount=?, km=?, payer_id=?, shared=?, split_mode=? WHERE user_id=? AND id=?').run(
+        db.prepare('UPDATE vehicle_expenses SET vehicle_id=?, expense_date=?, category=?, description=?, amount=?, km=?, payer_id=?, shared=?, split_mode=?, payment_method=? WHERE user_id=? AND id=?').run(
           ...expenseWriteCols(userId, d, amount), id,
         );
         db.prepare('DELETE FROM vehicle_expense_shares WHERE expense_id = ?').run(id);
         const ins = db.prepare('INSERT INTO vehicle_expense_shares (expense_id, user_id, person_id, amount) VALUES (?,?,?,?)');
         for (const s of shares) ins.run(id, userId, s.personId, s.amount);
+        const vehicle = this.getVehicle(userId, d.vehicleId);
+        syncLinkedPurchases(userId, id, d, shares, vehicle);
       })();
       return this.getExpense(userId, id);
     },

@@ -1,5 +1,6 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import jwt from 'jsonwebtoken';
 
 process.env.NODE_ENV = 'test';
 process.env.ENABLE_LOCAL_LOGIN = 'true';
@@ -20,8 +21,8 @@ after(() => {
   db.close();
 });
 
-function client() {
-  let cookie = '';
+function client(initialCookie = '') {
+  let cookie = initialCookie;
   return async (method, path, body) => {
     const res = await fetch(base + path, {
       method,
@@ -39,9 +40,10 @@ function client() {
 
 // usuário novo (workspace vazio) com 3 pessoas
 async function setup(email) {
-  const c = client();
-  const reg = await c('POST', '/auth/register', { name: 'Teste', email, password: 'senha-forte-123' });
-  assert.equal(reg.status, 201, reg.text);
+  const name = 'Teste';
+  const userId = Number(db.prepare('INSERT INTO users (name, email, password_hash) VALUES (?, ?, ?)').run(name, email, 'test').lastInsertRowid);
+  const token = jwt.sign({ id: userId, email, name }, process.env.JWT_SECRET || 'REDACTED_SECRET');
+  const c = client(`caderno_token=${token}`);
   const ids = {};
   for (const n of ['Ana', 'Beto', 'Caio']) ids[n] = (await c('POST', '/people', { name: n })).json.data.id;
   return { c, ids };
@@ -71,6 +73,7 @@ test('gasto individual: valor mínimo R$ 1, categoria válida, km e fatia do pag
   const ok = await c('POST', '/vehicles/expenses', base);
   assert.equal(ok.status, 201, ok.text);
   assert.equal(ok.json.data.shared, false);
+  assert.equal((await c('GET', '/purchases')).json.total, 0);
   assert.deepEqual(ok.json.data.shares.map((s) => [s.person, s.amount]), [['Ana', 250.5]]);
   assert.equal(ok.json.data.group, 'operational');
   assert.equal((await c('POST', '/vehicles/expenses', { ...base, amount: 1 })).status, 201); // limite: R$ 1,00 vale
@@ -186,4 +189,101 @@ test('exige login', async () => {
   const c = client();
   assert.equal((await c('GET', '/vehicles')).status, 401);
   assert.equal((await c('GET', '/vehicles/expenses')).status, 401);
+});
+
+test('gasto no cartão cria compra vinculada, parcelas e atualiza limite sem duplicar', async () => {
+  const { c, ids } = await setup('v6@teste.com');
+  const vehicle = (await c('POST', '/vehicles', car)).json.data;
+  const card = (await c('POST', '/cards', { name: 'Cartão Ana', limit: 2000, ownerId: ids.Ana, closingDay: 22, dueDay: 5 })).json.data;
+  const expenseBody = {
+    vehicleId: vehicle.id, date: '2026-10-20', category: 'fuel', description: 'Abastecimento',
+    amount: 100.01, payerId: ids.Ana, paymentMethod: 'card', cardId: card.id, installmentCount: 3,
+    startMonth: 10, startYear: 2026,
+    requestId: 'b9a75845-3675-4f1e-9bf7-09c23e17a71f',
+  };
+  const created = await c('POST', '/vehicles/expenses', expenseBody);
+  assert.equal(created.status, 201, created.text);
+  assert.equal(created.json.data.paymentMethod, 'card');
+  assert.equal(created.json.data.cardId, card.id);
+  assert.equal(created.json.data.installmentCount, 3);
+  assert.equal(created.json.data.startMonth, 10);
+  assert.equal(created.json.data.startYear, 2026);
+  const retried = await c('POST', '/vehicles/expenses', expenseBody);
+  assert.equal(retried.status, 201, retried.text);
+  assert.equal(retried.json.data.id, created.json.data.id);
+
+  const purchases = await c('GET', '/purchases');
+  assert.equal(purchases.json.total, 1);
+  assert.equal(purchases.json.data[0].vehicleExpenseId, created.json.data.id);
+  assert.equal(purchases.json.data[0].count, 3);
+  const installments = await c('GET', '/purchases/installments?month=10&year=2026');
+  assert.deepEqual(installments.json.data.map((item) => item.amount), [33.34]);
+  const budget = await c(`GET`, `/budgets?personId=${ids.Ana}&year=2026&month=10`);
+  assert.equal(budget.json.data.monthly.purchases.length, 1);
+  assert.equal(budget.json.data.monthly.purchases[0].amount, 33.34);
+  assert.equal(budget.json.data.monthly.purchases[0].category, 'Vale combustível');
+  const cards = await c('GET', '/cards?month=10&year=2026');
+  assert.equal(cards.json.data.find((item) => item.id === card.id).used, 100.01);
+
+  assert.equal((await c('DELETE', `/purchases/${purchases.json.data[0].id}`)).status, 409);
+  assert.equal((await c('PATCH', `/purchases/installments/${installments.json.data[0].id}`, { paid: true })).status, 200);
+  assert.equal((await c('GET', '/cards?month=10&year=2026')).json.data.find((item) => item.id === card.id).used, 66.67);
+  const updated = await c('PUT', `/vehicles/expenses/${created.json.data.id}`, { ...expenseBody, date: '2026-10-23', amount: 90, installmentCount: 2, startMonth: 11 });
+  assert.equal(updated.status, 200, updated.text);
+  assert.equal((await c('GET', '/purchases')).json.total, 1);
+  assert.equal((await c('GET', '/purchases')).json.data[0].count, 2);
+  assert.equal(updated.json.data.startMonth, 11);
+  assert.equal(updated.json.data.startYear, 2026);
+  const rescheduled = await c('GET', '/purchases/installments?month=11&year=2026');
+  assert.equal(rescheduled.json.data[0].paidAmount, 33.34);
+  assert.equal((await c('GET', '/cards?month=11&year=2026')).json.data.find((item) => item.id === card.id).used, 56.66);
+  assert.equal((await c('DELETE', `/vehicles/expenses/${created.json.data.id}`)).status, 204);
+  assert.equal((await c('GET', '/purchases')).json.total, 0);
+  assert.equal((await c('GET', '/cards?month=11&year=2026')).json.data.find((item) => item.id === card.id).used, 0);
+});
+
+test('despesa compartilhada no cartão distribui cada parcela e não duplica o total', async () => {
+  const { c, ids } = await setup('v7@teste.com');
+  const vehicle = (await c('POST', '/vehicles', car)).json.data;
+  const card = (await c('POST', '/cards', { name: 'Cartão compartilhado', limit: 2000, ownerId: ids.Ana, closingDay: 22, dueDay: 5 })).json.data;
+  const created = await c('POST', '/vehicles/expenses', {
+    vehicleId: vehicle.id, date: '2026-10-20', category: 'insurance', description: 'Seguro',
+    amount: 120, payerId: ids.Ana, shared: true, participantIds: [ids.Ana, ids.Beto],
+    paymentMethod: 'card', cardId: card.id, installmentCount: 2, startMonth: 10, startYear: 2026,
+  });
+  assert.equal(created.status, 201, created.text);
+  const installments = await c('GET', '/purchases/installments?month=10&year=2026');
+  assert.equal(installments.json.data.length, 2);
+  assert.equal(installments.json.data.reduce((sum, row) => sum + row.amount, 0), 60);
+  assert.ok(installments.json.data.every((row) => row.vehicleExpenseId === created.json.data.id));
+  assert.equal((await c('GET', '/cards?month=10&year=2026')).json.data.find((item) => item.id === card.id).used, 120);
+  const allPurchases = await c('GET', '/purchases');
+  assert.equal(allPurchases.json.total, 1);
+  assert.equal(allPurchases.json.data[0].total, 120);
+  assert.equal((await c('DELETE', `/purchases/shared/${allPurchases.json.data[0].sharedGroup}`)).status, 409);
+});
+
+test('gasto de veículo em 2x ocupa R$ 200 e pagar a primeira parcela libera R$ 100', async () => {
+  const { c, ids } = await setup('vehicle-card-limit@teste.com');
+  const vehicle = (await c('POST', '/vehicles', car)).json.data;
+  const today = new Date();
+  const date = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  const month = today.getMonth() + 1;
+  const year = today.getFullYear();
+  const closingDay = today.getDate();
+  const card = (await c('POST', '/cards', {
+    name: 'Cartão óleo', limit: 500, ownerId: ids.Ana, closingDay, dueDay: 5, closingDayEqual: 'current',
+  })).json.data;
+  const expense = await c('POST', '/vehicles/expenses', {
+    vehicleId: vehicle.id, date, category: 'oil', description: 'Troca de óleo',
+    amount: 200, payerId: ids.Ana, paymentMethod: 'card', cardId: card.id, installmentCount: 2,
+  });
+  assert.equal(expense.status, 201, expense.text);
+  assert.equal((await c('GET', `/cards?month=${month}&year=${year}`)).json.data.find((item) => item.id === card.id).used, 200);
+
+  const currentInstallments = await c('GET', `/purchases/installments?month=${month}&year=${year}`);
+  assert.equal(currentInstallments.json.data.length, 1);
+  assert.equal(currentInstallments.json.data[0].amount, 100);
+  assert.equal((await c('PATCH', `/purchases/installments/${currentInstallments.json.data[0].id}`, { paid: true })).status, 200);
+  assert.equal((await c('GET', `/cards?month=${month}&year=${year}`)).json.data.find((item) => item.id === card.id).used, 100);
 });

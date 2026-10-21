@@ -3,11 +3,18 @@ const BASE = (import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '');
 
 export class ApiError extends Error {
   constructor(status, body) {
-    super((typeof body?.error === 'string' ? body.error : body?.error?.message) || 'Erro de comunicação com o servidor');
+    const apiError = body?.error;
+    const message = typeof apiError === 'string' ? apiError : apiError?.message;
+    const validationDetails = apiError?.code === 'VALIDATION_ERROR' && Array.isArray(apiError.details)
+      ? apiError.details
+        .map((detail) => [detail.field, detail.message].filter(Boolean).join(': '))
+        .filter(Boolean)
+      : [];
+    super(validationDetails.length ? `${message}: ${validationDetails.join('; ')}` : message || 'Erro de comunicação com o servidor');
     this.status = status;
-    this.code = body?.error?.code;
-    this.details = body?.error?.details;
-    this.requestId = body?.error?.requestId;
+    this.code = apiError?.code;
+    this.details = apiError?.details;
+    this.requestId = apiError?.requestId;
   }
 }
 

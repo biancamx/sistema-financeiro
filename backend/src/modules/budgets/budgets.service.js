@@ -1,5 +1,6 @@
 import { badRequest, notFound } from '../../lib/errors.js';
 import { round2 } from '../../lib/months.js';
+import { getInstallmentBalanceCents } from '../../lib/cardBilling.js';
 import { SECTIONS, SECTION_KEYS, createDefaultRows } from './budgets.defaults.js';
 
 const zeros = () => Array(12).fill(0);
@@ -35,12 +36,16 @@ export function createBudgetsService(db) {
     },
 
     /** Planilha completa (linhas + células + cartões calculados + resumo geral) */
-    getSheet(userId, personId, year) {
+    getSheet(userId, personId, year, selectedMonth = new Date().getMonth() + 1) {
       const sheetId = ensureSheet(userId, personId, year);
       const rows = db.prepare('SELECT id, section, label, position, receivable_from AS receivableFrom, obs FROM budget_rows WHERE sheet_id = ? ORDER BY position, id').all(sheetId);
       const cells = db.prepare('SELECT row_id, month, value FROM budget_cells WHERE row_id IN (SELECT id FROM budget_rows WHERE sheet_id = ?)').all(sheetId);
-      const byRow = new Map(rows.map((r) => [r.id, { ...r, values: zeros() }]));
-      for (const c of cells) byRow.get(c.row_id).values[c.month - 1] = c.value;
+      const byRow = new Map(rows.map((r) => [r.id, { ...r, values: zeros(), enteredValues: [] }]));
+      for (const c of cells) {
+        const row = byRow.get(c.row_id);
+        row.values[c.month - 1] = c.value;
+        row.enteredValues.push(c.value);
+      }
 
       // Cartões: soma das parcelas da pessoa por cartão e mês (substitui os SUMIFS da planilha)
       const cardRows = db
@@ -53,14 +58,30 @@ export function createBudgetsService(db) {
       const cardMap = new Map();
       for (const r of cardRows) {
         if (!cardMap.has(r.cardId)) cardMap.set(r.cardId, { id: `card-${r.cardId}`, section: 'cards', label: r.label, computed: true, values: zeros() });
-        cardMap.get(r.cardId).values[r.month - 1] = round2(r.amount);
+        cardMap.get(r.cardId).values[r.month - 1] = r.amount;
       }
 
       const sections = SECTIONS.map((s) => {
         const list = s.computed ? [...cardMap.values()] : [...byRow.values()].filter((r) => r.section === s.key);
         const totals = zeros();
         for (const r of list) r.values.forEach((v, m) => (totals[m] += v));
-        return { key: s.key, label: s.label, kind: s.kind, computed: Boolean(s.computed), rows: list.map((r) => ({ ...r, total: sum12(r.values), min: Math.min(...r.values), max: Math.max(...r.values) })), totals: totals.map(round2) };
+        return {
+          key: s.key,
+          label: s.label,
+          kind: s.kind,
+          computed: Boolean(s.computed),
+          rows: list.map((r) => {
+            const { enteredValues, ...row } = r;
+            const extremes = s.computed || enteredValues.length === 0 ? row.values : enteredValues;
+            return {
+              ...row,
+              total: sum12(row.values),
+              min: Math.min(...extremes),
+              max: Math.max(...extremes),
+            };
+          }),
+          totals: totals.map(round2),
+        };
       });
 
       const tot = Object.fromEntries(sections.map((s) => [s.key, s.totals]));
@@ -72,6 +93,61 @@ export function createBudgetsService(db) {
       const expenseKeys = countedSections.map((s) => s.key);
       const spent = zeros().map((_, m) => round2(expenseKeys.reduce((a, k) => a + tot[k][m], 0)));
       const balance = revenue.map((v, m) => round2(v - spent[m]));
+      const monthlyPurchases = db.prepare(
+        `SELECT i.id AS installmentId, p.id AS purchaseId, p.description, p.observation,
+                p.shared_group AS sharedGroup, i.number, p.installments_count AS count,
+                i.amount, i.paid, i.paid_amount AS paidAmount, c.id AS cardId, c.name AS card,
+                cat.name AS category
+         FROM installments i
+         JOIN purchases p ON p.id = i.purchase_id
+         JOIN cards c ON c.id = p.card_id
+         LEFT JOIN categories cat ON cat.id = p.category_id
+         WHERE p.user_id = ? AND p.person_id = ? AND i.year = ? AND i.month = ?
+         ORDER BY c.name COLLATE NOCASE, cat.name COLLATE NOCASE, p.description COLLATE NOCASE, p.id`,
+      ).all(userId, personId, year, selectedMonth).map((purchase) => {
+        const amountCents = Math.round(purchase.amount * 100);
+        const paidCents = amountCents - getInstallmentBalanceCents(purchase.amount, purchase.paidAmount, purchase.paid);
+        return {
+          ...purchase,
+          paid: Boolean(purchase.paid),
+          amount: amountCents / 100,
+          paidAmount: paidCents / 100,
+          outstanding: Math.max(0, amountCents - paidCents) / 100,
+        };
+      });
+      const monthlyCards = new Map();
+      const monthlyCategories = new Map();
+      let monthlyPaidCents = 0;
+      let monthlyOutstandingCents = 0;
+      let monthlyTotalCents = 0;
+      for (const purchase of monthlyPurchases) {
+        const amountCents = Math.round(purchase.amount * 100);
+        const paidCents = Math.round(purchase.paidAmount * 100);
+        const outstandingCents = Math.round(purchase.outstanding * 100);
+        monthlyTotalCents += amountCents;
+        monthlyPaidCents += paidCents;
+        monthlyOutstandingCents += outstandingCents;
+        const card = monthlyCards.get(purchase.cardId) ?? { id: purchase.cardId, name: purchase.card, totalCents: 0 };
+        card.totalCents += amountCents;
+        monthlyCards.set(purchase.cardId, card);
+        const categoryName = purchase.category || 'Sem categoria';
+        const category = monthlyCategories.get(categoryName) ?? { name: categoryName, totalCents: 0 };
+        category.totalCents += amountCents;
+        monthlyCategories.set(categoryName, category);
+      }
+      const monthly = {
+        month: selectedMonth,
+        total: monthlyTotalCents / 100,
+        paid: monthlyPaidCents / 100,
+        outstanding: monthlyOutstandingCents / 100,
+        purchases: monthlyPurchases,
+        cards: [...monthlyCards.values()]
+          .map(({ totalCents, ...card }) => ({ ...card, total: totalCents / 100 }))
+          .sort((a, b) => b.total - a.total),
+        categories: [...monthlyCategories.values()]
+          .map(({ totalCents, ...category }) => ({ ...category, total: totalCents / 100 }))
+          .sort((a, b) => b.total - a.total),
+      };
       const summary = {
         lines: [
           { key: 'revenue', label: 'Receitas', values: revenue },
@@ -83,7 +159,7 @@ export function createBudgetsService(db) {
         yearSpent: sum12(spent),
         yearBalance: sum12(balance),
       };
-      return { sheetId, personId, year, sections, summary };
+      return { sheetId, personId, year, sections, summary, monthly };
     },
 
     addRow(userId, sheetId, { section, label }) {

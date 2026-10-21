@@ -28,7 +28,7 @@ export function Select({ value, onChange, options, placeholder, id, ...rest }) {
   );
 }
 
-export function Modal({ open, title, onClose, children, footer, wide }) {
+export function Modal({ open, title, onClose, children, footer, wide, className = '' }) {
   const ref = useRef(null);
   useEffect(() => {
     const d = ref.current;
@@ -37,7 +37,7 @@ export function Modal({ open, title, onClose, children, footer, wide }) {
     if (!open && d.open) d.close();
   }, [open]);
   return (
-    <dialog ref={ref} className={`modal ${wide ? 'modal-wide' : ''}`} onClose={onClose} onClick={(e) => e.target === ref.current && onClose()}>
+    <dialog ref={ref} className={`modal ${wide ? 'modal-wide' : ''} ${className}`} onClose={onClose} onClick={(e) => e.target === ref.current && onClose()}>
       {open && (
         <div className="modal-body">
           <header className="modal-head">

@@ -2,9 +2,10 @@ import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useToast } from '../../context/ToastContext.jsx';
 import { useFetch } from '../../hooks/useFetch.js';
-import { budgetApi, peopleApi } from '../../services/api.js';
-import { Button, Card, EmptyState, ErrorState, Money, PageHeader, Select, Spinner } from '../../components/ui/ui.jsx';
-import { MONTHS_SHORT, moneyPlain, yearsAround } from '../../lib/format.js';
+import { useFinanceRefresh, notifyFinanceChanged } from '../../hooks/useFinanceRefresh.js';
+import { budgetApi, peopleApi, purchasesApi } from '../../services/api.js';
+import { Button, Card, EmptyState, ErrorState, Modal, Money, PageHeader, Select, Spinner } from '../../components/ui/ui.jsx';
+import { MONTHS, MONTHS_SHORT, moneyPlain, yearsAround } from '../../lib/format.js';
 import MoneyCell from '../../components/MoneyCell.jsx';
 import { PATHS } from '../../app/paths.js';
 
@@ -14,6 +15,7 @@ export default function BudgetPage() {
   const params = useParams();
   const people = useFetch(() => peopleApi.list(), []);
   const thisYear = new Date().getFullYear();
+  const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
   const personId = Number(params.personId) || people.data?.[0]?.id;
   const year = Number(params.year) || thisYear;
 
@@ -21,9 +23,11 @@ export default function BudgetPage() {
     if (!params.personId && personId) nav(`${PATHS.budget}/${personId}/${year}`, { replace: true });
   }, [params.personId, personId, year, nav]);
 
-  const sheet = useFetch(() => budgetApi.get({ personId, year }), [personId, year], { enabled: Boolean(personId) });
+  const sheet = useFetch(() => budgetApi.get({ personId, year, month: selectedMonth }), [personId, year, selectedMonth], { enabled: Boolean(personId) });
+  useFinanceRefresh(sheet.reload);
   const [lastEdit, setLastEdit] = useState({}); // rowId -> { month, value } para "repetir até dezembro"
   const [adding, setAdding] = useState(null); // { section, label }
+  const [monthlySummaryOpen, setMonthlySummaryOpen] = useState(false);
 
   if (people.error) return <ErrorState error={people.error} onRetry={people.reload} />;
   if (!people.data) return <Spinner />;
@@ -56,6 +60,45 @@ export default function BudgetPage() {
     if (!adding.label.trim()) return;
     try { await budgetApi.addRow(d.sheetId, { section: adding.section, label: adding.label.trim() }); setAdding(null); sheet.reload(); } catch (err) { toast.error(err); }
   };
+  const togglePurchasePaid = async (purchase) => {
+    const paid = !purchase.paid;
+    sheet.setData((current) => ({
+      ...current,
+      monthly: {
+        ...current.monthly,
+        purchases: current.monthly.purchases.map((item) => item.installmentId === purchase.installmentId
+          ? { ...item, paid, paidAmount: paid ? item.amount : 0, outstanding: paid ? 0 : item.amount }
+          : item),
+        paid: Math.round((current.monthly.paid + (paid ? purchase.outstanding : -purchase.paidAmount)) * 100) / 100,
+        outstanding: Math.round((current.monthly.outstanding + (paid ? -purchase.outstanding : purchase.paidAmount)) * 100) / 100,
+      },
+    }));
+    try {
+      await purchasesApi.setPaid(purchase.installmentId, paid);
+      notifyFinanceChanged();
+    } catch (error) {
+      toast.error(error);
+      sheet.reload();
+    }
+  };
+  const saveObservation = async (purchase, observation) => {
+    if (observation === purchase.observation) return;
+    try {
+      await purchasesApi.updateObservation(purchase.purchaseId, observation);
+      sheet.setData((current) => ({
+        ...current,
+        monthly: {
+          ...current.monthly,
+          purchases: current.monthly.purchases.map((item) => item.purchaseId === purchase.purchaseId ? { ...item, observation } : item),
+        },
+      }));
+      notifyFinanceChanged();
+      toast.success('Observação salva');
+    } catch (error) {
+      toast.error(error);
+      sheet.reload();
+    }
+  };
 
   const personName = people.data.find((p) => p.id === personId)?.name;
   return (
@@ -66,13 +109,86 @@ export default function BudgetPage() {
         actions={<>
           <Select value={personId || ''} onChange={(v) => go(v, year)} options={people.data.map((p) => ({ value: p.id, label: p.name }))} aria-label="Pessoa" />
           <Select value={year} onChange={(v) => go(personId, v)} options={yearsAround(thisYear).map((y) => ({ value: y, label: y }))} aria-label="Ano" />
+          <Button variant="primary" onClick={() => setMonthlySummaryOpen(true)} disabled={!d}>Resumo do mês</Button>
         </>}
       />
       {sheet.error && <ErrorState error={sheet.error} onRetry={sheet.reload} />}
       {!d && !sheet.error && <Spinner />}
       {d && (
         <>
-          <section className="year-kpis" aria-label={`Resumo de ${personName} em ${year}`}>
+          <Modal
+            open={monthlySummaryOpen}
+            title={`Resumo de ${MONTHS[selectedMonth - 1]} · ${personName} · ${year}`}
+            onClose={() => setMonthlySummaryOpen(false)}
+            wide
+            className="monthly-summary-modal"
+            footer={<Button variant="ghost" onClick={() => setMonthlySummaryOpen(false)}>Fechar</Button>}
+          >
+          <section className="monthly-dashboard" aria-label={`Resumo de ${MONTHS[selectedMonth - 1]} de ${year}`}>
+            <header className="monthly-dashboard-head">
+              <div>
+                <p className="muted">Compras e parcelas desta pessoa. Os totais mantêm o critério atual da planilha; o pagamento acompanha cada parcela.</p>
+              </div>
+              <Select value={selectedMonth} onChange={(v) => setSelectedMonth(Number(v))} options={MONTHS.map((label, index) => ({ value: index + 1, label }))} aria-label="Mês do resumo" />
+            </header>
+            <div className="monthly-dashboard-kpis">
+              <Card><span className="muted">Gasto em cartões</span><strong><Money value={d.monthly.total} /></strong></Card>
+              <Card><span className="muted">Pago</span><strong><Money value={d.monthly.paid} tone="pos" /></strong></Card>
+              <Card><span className="muted">Em aberto</span><strong><Money value={d.monthly.outstanding} tone={d.monthly.outstanding > 0 ? 'neg' : 'pos'} /></strong></Card>
+            </div>
+            <div className="monthly-dashboard-breakdowns">
+              <Card title="Gasto por cartão">
+                {d.monthly.cards.length ? (
+                  <ul className="monthly-bars">
+                    {d.monthly.cards.map((card) => (
+                      <li key={card.id}>
+                        <div><span>{card.name}</span><Money value={card.total} /></div>
+                        <span className="monthly-bar-track"><span style={{ width: `${Math.max(2, (card.total / Math.max(...d.monthly.cards.map((item) => item.total), 1)) * 100)}%` }} /></span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : <EmptyState title="Sem compras no cartão neste mês" />}
+              </Card>
+              <Card title="Gasto por categoria">
+                {d.monthly.categories.length ? (
+                  <ul className="monthly-bars">
+                    {d.monthly.categories.map((category) => (
+                      <li key={category.name}>
+                        <div><span>{category.name}</span><Money value={category.total} /></div>
+                        <span className="monthly-bar-track"><span style={{ width: `${Math.max(2, (category.total / Math.max(...d.monthly.categories.map((item) => item.total), 1)) * 100)}%` }} /></span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : <EmptyState title="Sem categorias neste mês" />}
+              </Card>
+            </div>
+            <Card title={`Compras e parcelas · ${MONTHS[selectedMonth - 1]}`}>
+              {d.monthly.purchases.length ? (
+                <div className="table-responsive">
+                  <table className="table monthly-purchases">
+                    <thead><tr><th>Pago</th><th>Compra</th><th>Categoria</th><th>Cartão</th><th>Parcela</th><th className="num">Valor</th><th className="num">Em aberto</th><th>Observação da compra</th></tr></thead>
+                    <tbody>
+                      {d.monthly.purchases.map((purchase) => (
+                        <tr key={purchase.installmentId} className={purchase.paid ? 'row-dim' : ''}>
+                          <td><input type="checkbox" checked={purchase.paid} onChange={() => togglePurchasePaid(purchase)} aria-label={`Marcar parcela ${purchase.number} de ${purchase.description} como paga`} /></td>
+                          <td>{purchase.description}{purchase.sharedGroup && <span className="tag">Compartilhada</span>}</td>
+                          <td>{purchase.category || 'Sem categoria'}</td>
+                          <td>{purchase.card}</td>
+                          <td>{purchase.number}/{purchase.count}</td>
+                          <td className="num"><Money value={purchase.amount} /></td>
+                          <td className="num"><Money value={purchase.outstanding} /></td>
+                          <td><input className="input monthly-observation" maxLength={1000} defaultValue={purchase.observation} key={`${purchase.purchaseId}-${purchase.observation}`} placeholder="Adicionar observação" aria-label={`Observação de ${purchase.description}`} onBlur={(event) => saveObservation(purchase, event.target.value)} /></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : <EmptyState title="Nenhuma compra neste mês">Cadastre uma compra em Lançamentos ou escolha outro mês.</EmptyState>}
+            </Card>
+          </section>
+            </Modal>
+
+            <section className="year-kpis" aria-label={`Resumo de ${personName} em ${year}`}>
             <div><span>Receita do ano</span><strong><Money value={d.summary.yearRevenue} /></strong></div>
             <div><span>Gasto do ano</span><strong><Money value={d.summary.yearSpent} /></strong></div>
             <div><span>Saldo do ano</span><strong><Money value={d.summary.yearBalance} tone={d.summary.yearBalance < 0 ? 'neg' : 'pos'} /></strong></div>

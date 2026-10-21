@@ -3,14 +3,19 @@ import { Button, Field, Modal, Select } from '../../components/ui/ui.jsx';
 import { money, parseMoney } from '../../lib/format.js';
 import { showKm, todayIso, vehicleLabel } from './vehicles.js';
 
-export const emptyExpense = (defaults = {}) => ({
-  vehicleId: defaults.vehicleId || '', date: todayIso(), category: '', description: '', amount: '', km: '',
-  payerId: '', shared: false, participantIds: [], splitMode: 'equal', values: {},
-});
+export const emptyExpense = (defaults = {}) => {
+  const date = todayIso();
+  return {
+    vehicleId: defaults.vehicleId || '', date, category: '', description: '', amount: '', km: '',
+    payerId: '', paymentMethod: 'cash', cardId: '', installmentCount: '1',
+    requestId: globalThis.crypto.randomUUID(), shared: false, participantIds: [], splitMode: 'equal', values: {},
+  };
+};
 
 export const expenseToForm = (e) => ({
-  id: e.id, vehicleId: e.vehicleId, date: e.date, category: e.category, description: e.description || '',
+  id: e.id, requestId: e.requestId, vehicleId: e.vehicleId, date: e.date, category: e.category, description: e.description || '',
   amount: String(e.amount).replace('.', ','), km: e.km == null ? '' : String(e.km), payerId: e.payerId,
+  paymentMethod: e.paymentMethod || 'cash', cardId: e.cardId || '', installmentCount: String(e.installmentCount || 1),
   shared: e.shared, participantIds: e.shared ? e.shares.map((s) => s.personId) : [],
   // divisão desigual volta como "valor em R$" (exato, sem arredondar porcentagem)
   splitMode: e.shared && e.splitMode !== 'equal' ? 'amount' : 'equal',
@@ -28,7 +33,7 @@ function equalValues(mode, ids, total) {
   return Object.fromEntries(ids.map((id, i) => [id, fmtNum((base + (i < rest ? 1 : 0)) / 100)]));
 }
 
-export default function ExpenseForm({ value, onClose, onSubmit, vehicles, people, categories }) {
+export default function ExpenseForm({ value, onClose, onSubmit, vehicles, people, categories, cards }) {
   const [f, setF] = useState(value);
   const [busy, setBusy] = useState(false);
   const [errors, setErrors] = useState({});
@@ -47,6 +52,15 @@ export default function ExpenseForm({ value, onClose, onSubmit, vehicles, people
   const shareOf = (i) => (wSum > 0 && amount > 0 ? (amount * weights[i]) / wSum : 0);
   const exact = !custom && n > 0 && Math.round(amount * 100) % n === 0;
   const nameOf = (id) => people.find((x) => x.id === id)?.name;
+  const cardOf = (id) => cards.find((card) => card.id === Number(id));
+  const chooseCard = (value) => {
+    const card = cardOf(value);
+    setF((current) => ({
+      ...current,
+      cardId: value ? Number(value) : '',
+      ...(card?.ownerId ? { payerId: card.ownerId } : {}),
+    }));
+  };
 
   const vehicle = vehicles.find((v) => v.id === Number(f.vehicleId));
   const km = f.km === '' ? null : Number(f.km);
@@ -79,6 +93,10 @@ export default function ExpenseForm({ value, onClose, onSubmit, vehicles, people
     if (!(amount >= 1)) e.amount = 'O valor mínimo é R$ 1,00';
     if (f.km !== '' && !(Number.isInteger(km) && km >= 0)) e.km = 'KM inválido';
     if (!f.payerId) e.payerId = 'Informe quem pagou';
+    if (f.paymentMethod === 'card' && !f.cardId) e.cardId = 'Escolha o cartão';
+    if (f.paymentMethod === 'card' && !(Number.isInteger(Number(f.installmentCount)) && Number(f.installmentCount) >= 1 && Number(f.installmentCount) <= 120)) {
+      e.installmentCount = 'Informe de 1 a 120 parcelas';
+    }
     if (f.shared && n < 2) e.participantIds = 'Escolha pelo menos 2 pessoas';
     else if (f.shared && !splitOk) e.participantIds = f.splitMode === 'percent' ? 'As porcentagens precisam somar 100% e cada pessoa precisa ter mais que 0' : 'Os valores precisam somar o valor do gasto e cada pessoa precisa ter mais que 0';
     setErrors(e);
@@ -87,7 +105,11 @@ export default function ExpenseForm({ value, onClose, onSubmit, vehicles, people
     try {
       const body = {
         vehicleId: Number(f.vehicleId), date: f.date, category: f.category, description: f.description.trim(),
-        amount, km, payerId: Number(f.payerId), shared: f.shared,
+        amount, km, payerId: Number(f.payerId), shared: f.shared, paymentMethod: f.paymentMethod,
+        ...(f.paymentMethod === 'card' && {
+          cardId: Number(f.cardId), installmentCount: Number(f.installmentCount),
+        }),
+        ...(!f.id && { requestId: f.requestId }),
       };
       await onSubmit(f.shared
         ? { ...body, splitMode: f.splitMode, participants: f.participantIds.map((id, i) => ({ personId: Number(id), ...(custom && { value: vals[i] }) })) }
@@ -118,7 +140,21 @@ export default function ExpenseForm({ value, onClose, onSubmit, vehicles, people
           {(id) => <input id={id} className="input" inputMode="numeric" value={f.km} onChange={(e) => setF((s) => ({ ...s, km: e.target.value.replace(/\D/g, '') }))} placeholder="Ex.: 41200" />}
         </Field>
         <Field label="Pessoa responsável / pagadora" error={errors.payerId}>{(id) => <Select id={id} value={f.payerId} onChange={(v) => set('payerId')(v ? Number(v) : '')} placeholder="Escolha…" options={personOpts} />}</Field>
+        <Field label="Forma de pagamento">
+          {(id) => <Select id={id} value={f.paymentMethod} onChange={set('paymentMethod')} options={[{ value: 'cash', label: 'Dinheiro / outro' }, { value: 'card', label: 'Cartão de crédito' }]} />}
+        </Field>
+        {f.paymentMethod === 'card' && (
+          <>
+            <Field label="Cartão de crédito" error={errors.cardId}>
+              {(id) => <Select id={id} value={f.cardId} onChange={chooseCard} placeholder="Escolha o cartão…" options={cards.map((card) => ({ value: card.id, label: `${card.name}${card.owner ? ` · ${card.owner}` : ''}` }))} />}
+            </Field>
+            <Field label="Número de parcelas" error={errors.installmentCount} hint="A despesa será lançada como parcelas em aberto">
+              {(id) => <input id={id} className="input" type="number" min="1" max="120" step="1" value={f.installmentCount} onChange={set('installmentCount')} />}
+            </Field>
+          </>
+        )}
       </div>
+      {f.paymentMethod === 'card' && <p className="field-hint">A compra e as parcelas serão criadas automaticamente em Lançamentos e na Planilha mensal. A data deste gasto e o fechamento do cartão definem a primeira fatura. Em despesas compartilhadas, o valor de cada parcela seguirá o rateio escolhido acima.</p>}
 
       <label className="share-toggle">
         <input type="checkbox" checked={f.shared} onChange={(e) => setF((s) => ({ ...s, shared: e.target.checked, participantIds: e.target.checked ? s.participantIds : [], splitMode: 'equal', values: {} }))} />

@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useToast } from '../../context/ToastContext.jsx';
 import { useFetch } from '../../hooks/useFetch.js';
 import { useLookups } from '../../hooks/useLookups.js';
+import { notifyFinanceChanged } from '../../hooks/useFinanceRefresh.js';
 import { vehiclesApi } from '../../services/api.js';
 import { Button, Card, EmptyState, ErrorState, Money, PageHeader, Select, Spinner } from '../../components/ui/ui.jsx';
 import { PATHS } from '../../app/paths.js';
@@ -68,6 +69,7 @@ export default function VehiclesPage() {
       else await vehiclesApi.createExpense(body);
       toast.success(expenseForm.id ? 'Gasto atualizado' : 'Gasto registrado');
       setExpenseForm(null);
+      notifyFinanceChanged();
       refresh();
     } catch (e) { toast.error(e); }
   };
@@ -144,7 +146,7 @@ export default function VehiclesPage() {
       )}
 
       {vehicleForm && <VehicleForm value={vehicleForm} onClose={() => setVehicleForm(null)} onSubmit={saveVehicle} />}
-      {expenseForm && <ExpenseForm value={expenseForm} onClose={() => setExpenseForm(null)} onSubmit={saveExpense} vehicles={list} people={lookups.people} categories={cats.data} />}
+      {expenseForm && <ExpenseForm value={expenseForm} onClose={() => setExpenseForm(null)} onSubmit={saveExpense} vehicles={list} people={lookups.people} categories={cats.data} cards={lookups.cards} />}
     </>
   );
 }

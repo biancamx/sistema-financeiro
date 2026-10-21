@@ -1,5 +1,6 @@
 import { MONTHS_PT, round2 } from '../../lib/months.js';
 import { SECTIONS } from '../budgets/budgets.defaults.js';
+import { getInstallmentBalanceCents, getInvoiceDueDate } from '../../lib/cardBilling.js';
 
 const expenseSections = new Set(
   SECTIONS.filter((section) => section.kind === 'expense' && !section.computed).map((section) => section.key),
@@ -18,7 +19,7 @@ export function getParticipantPortal(db, token) {
     `SELECT i.id, i.number AS installmentNumber, i.year, i.month, i.amount, i.paid,
        i.paid_amount AS paidAmount, p.description, p.installments_count AS totalInstallments,
        c.id AS cardId, c.name AS cardName, c.brand AS cardBrand, c.issuer AS bank,
-       c.color AS cardColor, c.due_day AS dueDay
+       c.color AS cardColor, c.due_day AS dueDay, c.closing_day AS closingDay
      FROM installments i
      JOIN purchases p ON p.id = i.purchase_id AND p.user_id = i.user_id
      LEFT JOIN cards c ON c.id = p.card_id AND c.user_id = p.user_id
@@ -73,16 +74,19 @@ export function getParticipantPortal(db, token) {
   for (const installment of installments) {
     const month = getMonth(installment.year, installment.month);
     const amount = Number(installment.amount);
-    const paidAmount = Math.min(amount, Math.max(0, Number(installment.paidAmount) || 0));
-    const paid = Boolean(installment.paid) || paidAmount >= amount;
-    const settled = paid ? amount : paidAmount;
-    const pendingAmount = round2(Math.max(0, amount - settled));
+    const balanceCents = getInstallmentBalanceCents(amount, installment.paidAmount, installment.paid);
+    const pendingAmount = balanceCents / 100;
+    const settled = round2(amount - pendingAmount);
+    const paid = balanceCents === 0;
     const cardKey = installment.cardId === null ? 'direct' : String(installment.cardId);
     if (!month.cards.has(cardKey)) {
       month.cards.set(cardKey, {
         id: cardKey,
         cardName: installment.cardName || 'Outras Despesas',
         dueDay: installment.dueDay || 10,
+        dueDate: installment.cardId
+          ? getInvoiceDueDate({ dueDay: installment.dueDay, closingDay: installment.closingDay }, installment.year, installment.month)
+          : null,
         color: installment.cardColor || '#059669',
         bank: installment.bank || null,
         brand: installment.cardBrand || null,

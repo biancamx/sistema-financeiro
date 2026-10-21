@@ -15,9 +15,17 @@ export function budgetsRoutes(db) {
   const svc = createBudgetsService(db);
 
   r.get('/years', validate({ query: z.object({ personId: id }) }), (req, res) => res.json({ data: svc.years(req.user.id, req.query.personId) }));
-  r.get('/', validate({ query: z.object({ personId: id, year }) }), (req, res) =>
-    res.json({ data: cached(req.user.id, `budget:${req.query.personId}:${req.query.year}`, 30_000, () => svc.getSheet(req.user.id, req.query.personId, req.query.year)) }),
-  );
+  r.get('/', validate({ query: z.object({ personId: id, year, month: month.optional() }) }), (req, res) => {
+    const selectedMonth = req.query.month ?? new Date().getMonth() + 1;
+    res.json({
+      data: cached(
+        req.user.id,
+        `budget:${req.query.personId}:${req.query.year}:${selectedMonth}`,
+        30_000,
+        () => svc.getSheet(req.user.id, req.query.personId, req.query.year, selectedMonth),
+      ),
+    });
+  });
   r.post('/:sheetId/rows', validate({ params: z.object({ sheetId: id }), body: z.object({ section: z.enum(SECTION_KEYS), label: z.string().trim().min(1).max(80) }) }), (req, res) =>
     res.status(201).json({ data: svc.addRow(req.user.id, req.params.sheetId, req.body) }),
   );

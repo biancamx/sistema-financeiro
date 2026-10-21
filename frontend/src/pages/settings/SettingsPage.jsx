@@ -1,324 +1,250 @@
-import React, { useState, useEffect } from 'react';
-import { AlertTriangle, Calendar, Check, Clock, FileSpreadsheet, MessageSquare, RotateCcw, Upload } from 'lucide-react';
+import { useRef, useState } from 'react';
+import {
+  AlertTriangle,
+  ArrowRight,
+  CheckCircle2,
+  FileSpreadsheet,
+  ShieldCheck,
+  Trash2,
+  Upload,
+  X,
+} from 'lucide-react';
+import { Button, Card, Modal, PageHeader } from '../../components/ui/ui.jsx';
+import { useAppBusy } from '../../context/BusyContext.jsx';
+import { useToast } from '../../context/ToastContext.jsx';
+import { importApi, systemApi } from '../../services/api.js';
 import './SettingsPage.css';
 
+const IMPORT_COUNT_CARDS = [
+  ['Pessoas', (data) => data.people.length],
+  ['Cartões', (data) => data.cards.length],
+  ['Compras agrupadas', (data) => data.summaryCounts.purchasesCount],
+  ['Parcelas no período', (data) => data.summaryCounts.installmentsCount],
+  ['Linhas da planilha', (data) => data.summaryCounts.budgetLinesCount],
+];
+
 export default function SettingsPage() {
-  const [triggerDay, setTriggerDay] = useState(5);
-  const [triggerHour, setTriggerHour] = useState(9);
-  const [enabled, setEnabled] = useState(true);
-  const [loadingSettings, setLoadingSettings] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [savedSuccess, setSavedSuccess] = useState(false);
+  const [previewData, setPreviewData] = useState(null);
+  const [confirmation, setConfirmation] = useState(null);
+  const [resetPhrase, setResetPhrase] = useState('');
+  const fileInput = useRef(null);
+  const { begin, end } = useAppBusy();
+  const toast = useToast();
 
-  const [importing, setImporting] = useState(false);
-  const [reverting, setReverting] = useState(false);
-  const [resetting, setResetting] = useState(false);
-
-  useEffect(() => {
-    loadSettings();
-  }, []);
-
-  async function loadSettings() {
-    try {
-      setLoadingSettings(true);
-      const res = await fetch('/api/reminders/settings', { credentials: 'include' });
-      if (res.ok) {
-        const data = await res.json();
-        setTriggerDay(data.trigger_day || 5);
-        setTriggerHour(data.trigger_hour || 9);
-        setEnabled(data.enabled === 1);
-      }
-    } catch (err) {
-      console.error('Falha ao carregar configurações:', err);
-    } finally {
-      setLoadingSettings(false);
-    }
-  }
-
-  async function handleSaveSettings(e) {
-    e.preventDefault();
-    try {
-      setSaving(true);
-      const res = await fetch('/api/reminders/settings', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ trigger_day: triggerDay, trigger_hour: triggerHour, enabled }),
-      });
-      if (!res.ok) throw new Error('Falha ao salvar preferências');
-      setSavedSuccess(true);
-      setTimeout(() => setSavedSuccess(false), 3000);
-    } catch (err) {
-      alert(err.message || 'Erro ao salvar preferências de agendamento.');
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function handleFileImport(e) {
-    const file = e.target.files?.[0];
+  async function handleFileSelected(event) {
+    const file = event.target.files?.[0];
     if (!file) return;
-
-    if (!window.confirm(
-      'A importação vai substituir todos os lançamentos e parcelas atuais da sua conta pelos dados da planilha. Cartões e pessoas serão mantidos. Deseja continuar?',
-    )) {
-      e.target.value = '';
-      return;
-    }
 
     const formData = new FormData();
     formData.append('file', file);
-    formData.append('replaceExisting', 'true');
+    begin('Analisando sua planilha');
 
     try {
-      setImporting(true);
-      const res = await fetch('/api/import/spreadsheet', {
-        method: 'POST',
-        credentials: 'include',
-        body: formData,
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || 'Erro na importação');
+      const result = await importApi.previewSpreadsheet(formData);
+      if (!result?.data?.people || !result?.data?.cards || !result?.data?.summaryCounts) {
+        throw new Error('A API retornou uma prévia incompleta para esta planilha.');
+      }
+      setPreviewData(result.data);
+    } catch (error) {
+      toast.error(error);
+    } finally {
+      end();
+      event.target.value = '';
+    }
+  }
 
-      alert(
-        `🎉 Importação Concluída com Sucesso!\n\n` +
-        `👥 Pessoas identificadas/criadas: ${json.data.peopleCreated}\n` +
-        `💳 Cartões identificados/criados: ${json.data.cardsCreated}\n` +
-        `🛍️ Compras registradas: ${json.data.purchasesCreated}\n` +
-        `🔢 Parcelas organizadas: ${json.data.installmentsCreated}\n` +
-        `🧹 Compras anteriores substituídas: ${json.data.purchasesReplaced}` +
-        (json.data.installmentAmountsCalculated
-          ? `\n🧮 Valores de parcelas calculados pelo total da compra: ${json.data.installmentAmountsCalculated}`
-          : '')
+  async function handleConfirmImport() {
+    if (!previewData) return;
+    const analyzedData = previewData;
+    setPreviewData(null);
+    begin('Importando os dados da planilha');
+    try {
+      const result = await importApi.executeSpreadsheet(analyzedData);
+      const summary = result?.summary;
+      if (!summary) throw new Error('A API não confirmou a importação.');
+      setPreviewData(null);
+      toast.success(
+        `Importação concluída: ${summary.peopleUpserted} pessoas, ${summary.cardsUpserted} cartões, ${summary.purchasesUpserted} compras, ${summary.installmentsUpserted} parcelas e ${summary.budgetsUpserted} linhas.`,
       );
-      window.location.reload();
-    } catch (err) {
-      alert(`Erro ao importar: ${err.message}`);
+      window.dispatchEvent(new Event('reminders:refresh'));
+    } catch (error) {
+      setPreviewData(analyzedData);
+      toast.error(error);
     } finally {
-      setImporting(false);
-      e.target.value = '';
+      end();
     }
   }
 
-  async function handleUndoImport() {
-    if (!window.confirm('Deseja desfazer a última importação de lançamentos?')) {
-      return;
-    }
-
+  async function handleReset() {
+    const resetPurchases = confirmation?.kind === 'purchases';
+    begin(resetPurchases ? 'Limpando lançamentos' : 'Limpando os dados da conta');
     try {
-      setReverting(true);
-      const res = await fetch('/api/import/undo', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({}),
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error);
-      alert(json.message);
-      window.location.reload();
-    } catch (err) {
-      alert(`Erro ao reverter: ${err.message}`);
+      const result = resetPurchases
+        ? await systemApi.resetPurchases()
+        : await systemApi.resetAll();
+      toast.success(result?.message || 'Dados removidos com sucesso.');
+      setConfirmation(null);
+      setResetPhrase('');
+      window.dispatchEvent(new Event('reminders:refresh'));
+    } catch (error) {
+      toast.error(error);
     } finally {
-      setReverting(false);
+      end();
     }
   }
 
-  async function executeReset(targetType) {
-    if (targetType === 'all') {
-      const conf1 = window.confirm('ATENÇÃO: Deseja apagar TODOS os lançamentos, cartões e pessoas da sua conta?');
-      if (!conf1) return;
-      const conf2 = prompt('Digite "RESETAR" em maiúsculo para confirmar:');
-      if (conf2 !== 'RESETAR') {
-        alert('Ação cancelada. Nenhum dado foi alterado.');
-        return;
-      }
-    } else {
-      if (!window.confirm('Tem certeza que deseja apagar TODOS os lançamentos e compras? (Pessoas e cartões serão mantidos)')) {
-        return;
-      }
-    }
-
-    try {
-      setResetting(true);
-      const res = await fetch('/api/import/reset', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
-        credentials: 'include',
-        body: JSON.stringify({ target: targetType }),
-      });
-
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || 'Erro na requisição');
-
-      alert(json.message || 'Limpeza realizada com sucesso!');
-      window.location.reload();
-    } catch (err) {
-      alert(`Falha ao executar limpeza: ${err.message}`);
-    } finally {
-      setResetting(false);
-    }
-  }
+  const resetAllConfirmed = confirmation?.kind !== 'all' || resetPhrase === 'RESETAR';
 
   return (
     <div className="settings-page">
-      <header className="page-head settings-page-head">
-        <div>
-          <h1>Configurações</h1>
-          <p className="muted">Gerencie preferências, importação de planilhas e limpeza de dados.</p>
-        </div>
-      </header>
+      <PageHeader
+        title="Configurações"
+        subtitle="Importe planilhas e gerencie os dados da sua conta."
+      />
 
-      <section className="card settings-card" aria-labelledby="settings-import-title">
-        <div className="settings-card-head">
+      <Card className="settings-card">
+        <header className="settings-card-head">
           <div className="settings-icon"><FileSpreadsheet aria-hidden="true" /></div>
           <div className="settings-card-copy">
-            <h2 id="settings-import-title">Importação de gastos</h2>
-            <p className="muted">Lê a aba <strong>Banco De Dados</strong> da sua planilha e organiza as compras por pessoa e cartão.</p>
+            <h2>Importador de planilhas</h2>
+            <p>Envie sua planilha financeira para conferir os dados antes de gravar.</p>
           </div>
-          <button
-            type="button"
-            className="btn"
-            onClick={handleUndoImport}
-            disabled={reverting || importing}
-          >
-            <RotateCcw aria-hidden="true" />
-            {reverting ? 'Revertendo...' : 'Desfazer lançamentos'}
-          </button>
-        </div>
+        </header>
 
         <div className="settings-upload">
           <Upload className="settings-upload-icon" aria-hidden="true" />
-          <h3>{importing ? 'Processando planilha...' : 'Importe sua planilha financeira'}</h3>
-          <p className="muted">Selecione Financeiro_2026.xlsx ou Financeiro_2027.xlsx. Também aceitamos .xls e .csv.</p>
-          <p className="settings-upload-hint">Reconhece descrição, pessoa, valor da parcela, mês, ano e cartão.</p>
-          <label className="btn btn-primary settings-file-button">
+          <h3>Selecione uma planilha financeira</h3>
+          <p>Compatível com arquivos .xlsx e .xls. A prévia permite conferir totais e divergências antes da importação.</p>
+          <Button
+            variant="primary"
+            className="settings-file-button"
+            onClick={() => fileInput.current?.click()}
+          >
             <Upload aria-hidden="true" />
-            Escolher arquivo
-            <input
-              type="file"
-              disabled={importing}
-              accept=".xlsx, .xls, .csv"
-              onChange={handleFileImport}
-            />
-          </label>
+            Selecionar planilha
+          </Button>
+          <input
+            ref={fileInput}
+            type="file"
+            disabled={false}
+            accept=".xlsx,.xls"
+            onChange={handleFileSelected}
+            className="settings-file-input"
+            aria-label="Selecionar arquivo de planilha"
+          />
+          <span className="settings-upload-hint">Os demais menus ficam bloqueados enquanto o arquivo é analisado ou salvo.</span>
         </div>
-      </section>
+      </Card>
 
-      <section className="card settings-card" aria-labelledby="settings-reminders-title">
-        <div className="settings-card-head">
-          <div className="settings-icon"><MessageSquare aria-hidden="true" /></div>
+      <Card className="settings-card settings-danger">
+        <header className="settings-card-head">
+          <div className="settings-icon settings-icon-danger"><Trash2 aria-hidden="true" /></div>
           <div className="settings-card-copy">
-            <h2 id="settings-reminders-title">Disparo automático de lembretes</h2>
-            <p className="muted">Escolha o dia e horário em que os lembretes de fatura serão calculados.</p>
+            <h2>Zona de perigo</h2>
+            <p>Estas ações apagam dados da conta e exigem confirmação antes de continuar.</p>
           </div>
-        </div>
-
-        {loadingSettings ? (
-          <div className="settings-loading" role="status">Carregando preferências...</div>
-        ) : (
-          <form onSubmit={handleSaveSettings} className="settings-reminder-form">
-            <label className="share-toggle settings-reminder-toggle">
-              <input
-                type="checkbox"
-                id="enableReminders"
-                checked={enabled}
-                onChange={(e) => setEnabled(e.target.checked)}
-              />
-              <span>
-                Ativar envio automático mensal de cobranças
-                <small className="muted">Você pode alterar essa opção a qualquer momento.</small>
-              </span>
-            </label>
-
-            <div className="settings-fields">
-              <label className="field" htmlFor="triggerDay">
-                <span className="field-label"><Calendar aria-hidden="true" /> Dia do mês para o disparo</span>
-                <select
-                  id="triggerDay"
-                  className="input"
-                  disabled={!enabled}
-                  value={triggerDay}
-                  onChange={(e) => setTriggerDay(Number(e.target.value))}
-                >
-                  {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => (
-                    <option key={d} value={d}>Todo dia {String(d).padStart(2, '0')} do mês</option>
-                  ))}
-                </select>
-              </label>
-
-              <label className="field" htmlFor="triggerHour">
-                <span className="field-label"><Clock aria-hidden="true" /> Horário do envio</span>
-                <select
-                  id="triggerHour"
-                  className="input"
-                  disabled={!enabled}
-                  value={triggerHour}
-                  onChange={(e) => setTriggerHour(Number(e.target.value))}
-                >
-                  {Array.from({ length: 24 }, (_, i) => i).map((h) => (
-                    <option key={h} value={h}>{String(h).padStart(2, '0')}:00</option>
-                  ))}
-                </select>
-              </label>
-            </div>
-
-            <div className="settings-form-actions">
-              {savedSuccess && (
-                <span className="settings-saved" role="status"><Check aria-hidden="true" /> Preferências salvas!</span>
-              )}
-              <button type="submit" className="btn btn-primary" disabled={saving}>
-                {saving ? 'Salvando...' : 'Salvar preferências'}
-              </button>
-            </div>
-          </form>
-        )}
-      </section>
-
-      <section className="card settings-card settings-danger" aria-labelledby="settings-danger-title">
-        <div className="settings-card-head">
-          <div className="settings-icon settings-icon-danger"><AlertTriangle aria-hidden="true" /></div>
-          <div className="settings-card-copy">
-            <h2 id="settings-danger-title">Zona de perigo</h2>
-            <p className="muted">Limpeza de dados da conta. Essa ação não pode ser desfeita.</p>
-          </div>
-        </div>
+        </header>
 
         <div className="settings-reset-grid">
-          <article className="settings-reset-option">
+          <section className="settings-reset-option">
             <div>
-              <h3>Excluir todos os lançamentos</h3>
-              <p className="muted">Apaga compras e parcelas, mas mantém seus cartões e pessoas cadastrados.</p>
+              <h3>Limpar lançamentos</h3>
+              <p>Apaga compras e parcelas, mantendo os cadastros de pessoas e cartões.</p>
             </div>
-            <button
-              type="button"
-              className="btn settings-button-warning"
-              disabled={resetting}
-              onClick={() => executeReset('purchases_only')}
+            <Button
+              className="settings-button-warning"
+              onClick={() => setConfirmation({ kind: 'purchases' })}
             >
-              {resetting ? 'Limpando...' : 'Limpar apenas lançamentos'}
-            </button>
-          </article>
-
-          <article className="settings-reset-option settings-reset-option-danger">
+              <Trash2 aria-hidden="true" />
+              Limpar lançamentos
+            </Button>
+          </section>
+          <section className="settings-reset-option settings-reset-option-danger">
             <div>
               <h3>Reset total da conta</h3>
-              <p className="muted">Apaga todos os lançamentos, cartões, pessoas e planilhas da sua conta.</p>
+              <p>Apaga compras, cartões, pessoas, planilhas e aniversários.</p>
             </div>
-            <button
-              type="button"
-              className="btn settings-button-danger"
-              disabled={resetting}
-              onClick={() => executeReset('all')}
+            <Button
+              variant="primary"
+              className="settings-button-danger"
+              onClick={() => { setResetPhrase(''); setConfirmation({ kind: 'all' }); }}
             >
-              {resetting ? 'Resetando...' : 'Resetar toda a conta'}
-            </button>
-          </article>
+              <AlertTriangle aria-hidden="true" />
+              Reset total
+            </Button>
+          </section>
         </div>
-      </section>
+      </Card>
+
+      <Modal
+        open={Boolean(previewData)}
+        title="Conferir importação"
+        wide
+        onClose={() => setPreviewData(null)}
+        footer={(
+          <>
+            <Button onClick={() => setPreviewData(null)}><X aria-hidden="true" /> Cancelar</Button>
+            <Button variant="primary" onClick={handleConfirmImport}>
+              Confirmar e importar <ArrowRight aria-hidden="true" />
+            </Button>
+          </>
+        )}
+      >
+        {previewData && (
+          <div className="settings-preview">
+            <p className="muted">Revise os dados detectados. A gravação atualiza registros existentes sem duplicá-los.</p>
+            <div className="settings-count-grid">
+              {IMPORT_COUNT_CARDS.map(([label, count]) => (
+                <div className="settings-count" key={label}>
+                  <span>{label}</span>
+                  <strong>{count(previewData)}</strong>
+                </div>
+              ))}
+            </div>
+            <section className="settings-check">
+              <h3><ShieldCheck aria-hidden="true" /> Conferência dos totais</h3>
+              {previewData.divergences.length === 0 ? (
+                <p className="settings-check-ok"><CheckCircle2 aria-hidden="true" /> Os totais das abas mensais conferem.</p>
+              ) : (
+                <ul className="settings-divergences">
+                  {previewData.divergences.map((divergence, index) => (
+                    <li key={`${divergence.section}-${index}`}>
+                      <strong>{divergence.section}</strong>
+                      <span>Planilha: {divergence.sheetTotal} · Calculado: {divergence.calculatedTotal}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          </div>
+        )}
+      </Modal>
+
+      <Modal
+        open={Boolean(confirmation)}
+        title={confirmation?.kind === 'all' ? 'Confirmar reset total' : 'Confirmar limpeza'}
+        onClose={() => { setConfirmation(null); setResetPhrase(''); }}
+        footer={(
+          <>
+            <Button onClick={() => { setConfirmation(null); setResetPhrase(''); }}>Cancelar</Button>
+            <Button variant="primary" className="settings-button-danger" disabled={!resetAllConfirmed} onClick={handleReset}>
+              <Trash2 aria-hidden="true" /> Confirmar exclusão
+            </Button>
+          </>
+        )}
+      >
+        {confirmation?.kind === 'all' ? (
+          <div className="settings-confirm-copy">
+            <p>Esta ação é permanente e remove os dados da conta. Para confirmar, digite <strong>RESETAR</strong>.</p>
+            <label className="field">
+              <span className="field-label">Confirmação</span>
+              <input className="input" value={resetPhrase} onChange={(event) => setResetPhrase(event.target.value)} autoComplete="off" />
+            </label>
+          </div>
+        ) : (
+          <p>Tem certeza que deseja apagar todos os lançamentos e parcelas? Pessoas e cartões serão mantidos.</p>
+        )}
+      </Modal>
     </div>
   );
 }

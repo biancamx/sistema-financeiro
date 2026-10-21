@@ -30,6 +30,8 @@ export const purchasesApi = {
   updateShared: (group, b) => put(`/purchases/shared/${group}`, b),
   removeShared: (group) => del(`/purchases/shared/${group}`),
   setPaid: (id, paid) => patch(`/purchases/installments/${id}`, { paid }),
+  updateObservation: (id, observation) => patch(`/purchases/${id}/observation`, { observation }),
+  setManyPaid: (ids, paid) => post(`/purchases/installments/${paid ? 'pay' : 'unpay'}-selected`, { ids }),
   exportUrl: () => apiUrl('/purchases/export.csv'),
 };
 
@@ -84,10 +86,13 @@ export const categoriesApi = crud('/categories');
 export const birthdaysApi = crud('/birthdays');
 
 export const importApi = {
-  uploadSpreadsheet: (formData) => postFormData('/import/spreadsheet', formData),
-  undo: (batchId) => post('/import/undo', { batchId }),
-  reset: (target) => post('/import/reset', { target }),
+  previewSpreadsheet: (formData) => postFormData('/import/preview', formData),
+  executeSpreadsheet: (analyzedData) => post('/import/execute', { analyzedData }),
 };
 
 export const toolsApi = { rescission: (b) => post('/tools/rescission', b).then((r) => r.data) };
-export const systemApi = { clientError: (b) => post('/client-errors', b).catch(() => {}) };
+export const systemApi = {
+  clientError: (b) => post('/client-errors', b).catch(() => {}),
+  resetPurchases: () => post('/system/reset-purchases'),
+  resetAll: () => post('/system/reset-all'),
+};

@@ -23,6 +23,7 @@ import { Spinner } from '../ui/ui.jsx';
 import ErrorBoundary from '../ErrorBoundary.jsx';
 import { PATHS } from '../../app/paths.js';
 import { remindersApi } from '../../services/api.js';
+import { useAppBusy } from '../../context/BusyContext.jsx';
 
 const NAV = [
   { title: 'Finanças', items: [
@@ -68,12 +69,18 @@ const MOBILE_NAV = NAV.flatMap((group) => group.items);
 
 export default function AppLayout() {
   const { user, logout } = useAuth();
+  const { message: busyMessage } = useAppBusy();
   const { pathname } = useLocation();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [desktopCollapsed, setDesktopCollapsed] = useState(false);
   const [alertsData, setAlertsData] = useState({ totalAlerts: 0, overdueCount: 0, upcomingCount: 0, alerts: [] });
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const notificationsRef = useRef(null);
+  const shellRef = useRef(null);
+
+  useEffect(() => {
+    shellRef.current?.toggleAttribute('inert', Boolean(busyMessage));
+  }, [busyMessage]);
 
   useEffect(() => {
     setMobileMenuOpen(false);
@@ -118,7 +125,7 @@ export default function AppLayout() {
   }, [pathname]);
 
   return (
-    <div className={`shell ${desktopCollapsed ? 'shell-collapsed' : ''}`}>
+    <div ref={shellRef} className={`shell ${desktopCollapsed ? 'shell-collapsed' : ''}`} aria-busy={Boolean(busyMessage)}>
       <aside className="sidebar">
         <div className="brand"><span className="brand-mark" aria-hidden="true" />{!desktopCollapsed && 'Caderno de Contas'}</div>
         <nav className="sidebar-nav" aria-label="Principal">

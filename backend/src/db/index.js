@@ -80,6 +80,14 @@ const MIGRATIONS = [
       `);
     },
   },
+  {
+    name: '012_card_closing_day_equal_policy',
+    run(database) {
+      if (!columnExists(database, 'cards', 'closing_day_equal')) {
+        database.exec("ALTER TABLE cards ADD COLUMN closing_day_equal TEXT NOT NULL DEFAULT 'next'");
+      }
+    },
+  },
 ];
 
 export function openDb(dbPath) {
@@ -97,7 +105,18 @@ export function openDb(dbPath) {
 function migrate(db) {
   const cols = db.prepare('PRAGMA table_info(purchases)').all().map((c) => c.name);
   if (!cols.includes('shared_group')) db.exec('ALTER TABLE purchases ADD COLUMN shared_group TEXT');
+  if (!cols.includes('observation')) db.exec("ALTER TABLE purchases ADD COLUMN observation TEXT NOT NULL DEFAULT ''");
+  if (!cols.includes('vehicle_expense_id')) db.exec('ALTER TABLE purchases ADD COLUMN vehicle_expense_id INTEGER REFERENCES vehicle_expenses(id) ON DELETE CASCADE');
   db.exec('CREATE INDEX IF NOT EXISTS idx_purch_shared ON purchases (user_id, shared_group)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_purch_vehicle_expense ON purchases (vehicle_expense_id)');
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_purch_vehicle_expense_person ON purchases (vehicle_expense_id, person_id) WHERE vehicle_expense_id IS NOT NULL');
+
+  const vehicleExpenseCols = db.prepare('PRAGMA table_info(vehicle_expenses)').all().map((c) => c.name);
+  if (!vehicleExpenseCols.includes('payment_method')) {
+    db.exec("ALTER TABLE vehicle_expenses ADD COLUMN payment_method TEXT NOT NULL DEFAULT 'cash'");
+  }
+  if (!vehicleExpenseCols.includes('request_id')) db.exec('ALTER TABLE vehicle_expenses ADD COLUMN request_id TEXT');
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_vexp_request ON vehicle_expenses (user_id, request_id) WHERE request_id IS NOT NULL');
 
   const cardCols = db.prepare('PRAGMA table_info(cards)').all().map((c) => c.name);
   if (!cardCols.includes('issuer')) db.exec("ALTER TABLE cards ADD COLUMN issuer TEXT NOT NULL DEFAULT 'Outro'");
@@ -106,6 +125,9 @@ function migrate(db) {
   if (!cardCols.includes('color')) db.exec("ALTER TABLE cards ADD COLUMN color TEXT NOT NULL DEFAULT '#0f6b66'");
   if (!cardCols.includes('image_data')) db.exec('ALTER TABLE cards ADD COLUMN image_data TEXT');
   if (!cardCols.includes('owner_id')) db.exec('ALTER TABLE cards ADD COLUMN owner_id INTEGER REFERENCES people(id) ON DELETE SET NULL');
+  if (!cardCols.includes('closing_day_equal')) {
+    db.exec("ALTER TABLE cards ADD COLUMN closing_day_equal TEXT NOT NULL DEFAULT 'next'");
+  }
 
   const installmentCols = db.prepare('PRAGMA table_info(installments)').all().map((c) => c.name);
   if (!installmentCols.includes('paid_amount')) {

@@ -1,36 +1,32 @@
 import { monthIndex, round2 } from '../../lib/months.js';
 import { badRequest } from '../../lib/errors.js';
+import { outstandingInstallmentCentsSql } from '../../lib/installments.js';
+import { createCardBilling } from '../../lib/cardBilling.js';
 import { createBudgetsService } from '../budgets/budgets.service.js';
 
 export function createDashboardService(db) {
   const budgets = createBudgetsService(db);
+  const billing = createCardBilling(db);
   return {
     /** Aba "Dashboard" + "dahbord cartoes": tudo que a tela inicial precisa em uma chamada */
     summary(userId, { month, year, personId }) {
       const idx = monthIndex(year, month);
       const sum = (rows) => round2(rows.reduce((s, r) => s + r.amount, 0));
+      const cardTotals = billing.listCards(userId, month, year)
+        .map(({ invoice, ...card }) => ({ ...card, amount: invoice }));
 
-      // "Total de cada Cartão" no mês (todas as pessoas)
-      const cardTotals = db
-        .prepare(
-          `SELECT c.id, c.name, c.limit_amount AS "limit",
-             COALESCE((SELECT SUM(i.amount) FROM installments i JOIN purchases p ON p.id = i.purchase_id WHERE p.card_id = c.id AND i.year = ? AND i.month = ?), 0) AS amount,
-             COALESCE((SELECT SUM(i.amount) FROM installments i JOIN purchases p ON p.id = i.purchase_id WHERE p.card_id = c.id AND (i.year * 12 + i.month) >= ?), 0) AS used
-           FROM cards c WHERE c.user_id = ? ORDER BY c.name COLLATE NOCASE`,
-        )
-        .all(year, month, idx, userId)
-        .map((c) => ({ ...c, amount: round2(c.amount), used: round2(c.used), available: round2(c.limit - c.used) }));
-
-      // Quanto cada pessoa deve no mês e daqui para frente + último mês de pagamento
+      // Quanto ainda falta pagar por pessoa no mês e daqui para frente.
       const people = db
         .prepare(
           `SELECT pe.id, pe.name,
-             COALESCE((SELECT SUM(i.amount) FROM installments i JOIN purchases p ON p.id = i.purchase_id WHERE p.person_id = pe.id AND i.year = ? AND i.month = ?), 0) AS month,
-             COALESCE((SELECT SUM(i.amount) FROM installments i JOIN purchases p ON p.id = i.purchase_id WHERE p.person_id = pe.id AND (i.year * 12 + i.month) >= ?), 0) AS owed,
+             COALESCE((SELECT SUM(${outstandingInstallmentCentsSql}) / 100.0 FROM installments i JOIN purchases p ON p.id = i.purchase_id
+                       WHERE p.person_id = pe.id AND p.user_id = ? AND i.year = ? AND i.month = ?), 0) AS month,
+             COALESCE((SELECT SUM(${outstandingInstallmentCentsSql}) / 100.0 FROM installments i JOIN purchases p ON p.id = i.purchase_id
+                       WHERE p.person_id = pe.id AND p.user_id = ? AND (i.year * 12 + i.month) >= ?), 0) AS owed,
              (SELECT MAX(i.year * 12 + i.month) FROM installments i JOIN purchases p ON p.id = i.purchase_id WHERE p.person_id = pe.id) AS lastIdx
            FROM people pe WHERE pe.user_id = ? ORDER BY pe.name COLLATE NOCASE`,
         )
-        .all(year, month, idx, userId)
+        .all(userId, year, month, userId, idx, userId)
         .map((p) => ({
           id: p.id, name: p.name, month: round2(p.month), owed: round2(p.owed),
           lastPayment: p.lastIdx ? { year: Math.floor((p.lastIdx - 1) / 12), month: ((p.lastIdx - 1) % 12) + 1 } : null,
@@ -40,15 +36,13 @@ export function createDashboardService(db) {
       let person = null;
       const chosen = personId ?? people.find((p) => p.month > 0)?.id ?? people[0]?.id;
       if (chosen) {
-        const cards = db
-          .prepare(
-            `SELECT c.id, c.name, COALESCE(SUM(i.amount), 0) AS amount
-             FROM cards c LEFT JOIN purchases p ON p.card_id = c.id AND p.person_id = ?
-             LEFT JOIN installments i ON i.purchase_id = p.id AND i.year = ? AND i.month = ?
-             WHERE c.user_id = ? GROUP BY c.id ORDER BY c.name COLLATE NOCASE`,
-          )
-          .all(chosen, year, month, userId)
-          .map((c) => ({ ...c, amount: round2(c.amount) }));
+        const cards = billing.listCards(userId, month, year)
+          .map(({ invoice: _invoice, ...card }) => ({
+            id: card.id,
+            name: card.name,
+            amount: billing.calculateInvoice(userId, card.id, month, year, chosen).amount,
+            dueDate: card.invoiceDueDate,
+          }));
         person = { id: chosen, name: people.find((p) => p.id === chosen)?.name, cards, total: sum(cards) };
       }
 
@@ -78,13 +72,7 @@ export function createDashboardService(db) {
     personOverview(userId, personId, year) {
       const person = db.prepare('SELECT id, name FROM people WHERE id = ? AND user_id = ?').get(personId, userId);
       if (!person) throw badRequest('Pessoa inválida');
-      const rows = db
-        .prepare(
-          `SELECT c.id, c.name, i.month, SUM(i.amount) AS amount
-           FROM installments i JOIN purchases p ON p.id = i.purchase_id JOIN cards c ON c.id = p.card_id
-           WHERE p.user_id = ? AND p.person_id = ? AND i.year = ? GROUP BY c.id, i.month ORDER BY c.name COLLATE NOCASE`,
-        )
-        .all(userId, personId, year);
+      const rows = billing.calculatePersonInvoicesByYear(userId, personId, year);
       const map = new Map();
       for (const r of rows) {
         if (!map.has(r.id)) map.set(r.id, { id: r.id, name: r.name, values: Array(12).fill(0) });

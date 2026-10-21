@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { logger } from '../../lib/logger.js';
+import { requireAuth } from '../../middleware/auth.js';
 import { validate } from '../../middleware/validate.js';
 import { clientLogLimiter } from '../../middleware/rateLimit.js';
 
@@ -31,5 +32,51 @@ export function systemRoutes(db) {
       res.status(202).json({ received: true });
     },
   );
+
+  r.post('/reset-purchases', requireAuth(db), (req, res, next) => {
+    try {
+      const reset = db.transaction(() => {
+        db.prepare('DELETE FROM installments WHERE user_id = ?').run(req.user.id);
+        db.prepare('DELETE FROM purchases WHERE user_id = ?').run(req.user.id);
+        db.prepare('DELETE FROM month_status WHERE user_id = ?').run(req.user.id);
+      });
+      reset();
+      res.json({ message: 'Lançamentos apagados com sucesso.' });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  r.post('/reset-all', requireAuth(db), (req, res, next) => {
+    try {
+      const reset = db.transaction(() => {
+        const userId = req.user.id;
+        const tables = [
+          'vehicle_expense_shares',
+          'vehicle_expenses',
+          'vehicles',
+          'birthdays',
+          'budget_cells',
+          'budget_rows',
+          'budget_sheets',
+          'month_status',
+          'installments',
+          'purchases',
+          'reminder_settings',
+          'cards',
+          'categories',
+          'people',
+        ];
+        for (const table of tables) {
+          db.prepare(`DELETE FROM ${table} WHERE user_id = ?`).run(userId);
+        }
+      });
+      reset();
+      res.json({ message: 'Dados da conta apagados com sucesso.' });
+    } catch (error) {
+      next(error);
+    }
+  });
+
   return r;
 }

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useToast } from '../../context/ToastContext.jsx';
 import { useFetch } from '../../hooks/useFetch.js';
+import { useFinanceRefresh } from '../../hooks/useFinanceRefresh.js';
 import { budgetApi, dashboardApi, peopleApi } from '../../services/api.js';
 import { Card, EmptyState, ErrorState, Money, PageHeader, Select, Spinner } from '../../components/ui/ui.jsx';
 import MoneyCell from '../../components/MoneyCell.jsx';
@@ -23,6 +24,7 @@ export default function OverviewPage() {
   }, [params.personId, personId, year, nav]);
 
   const ov = useFetch(() => dashboardApi.overview({ personId, year }), [personId, year], { enabled: Boolean(personId) });
+  useFinanceRefresh(ov.reload);
 
   if (people.error) return <ErrorState error={people.error} onRetry={people.reload} />;
   if (!people.data) return <Spinner />;

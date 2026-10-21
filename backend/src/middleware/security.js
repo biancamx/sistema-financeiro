@@ -21,3 +21,9 @@ export function originCheck(req, _res, next) {
   if (!safe && origin && !env.frontendUrls.includes(origin)) return next(forbidden('Origem não permitida'));
   next();
 }
+
+export function setupSecurity(app) {
+  app.use(securityHeaders);
+  app.use(corsPolicy);
+  app.use(originCheck);
+}

@@ -3,6 +3,7 @@ import cookieParser from 'cookie-parser';
 import cors from 'cors';
 import { env } from './config/env.js';
 import { errorHandler } from './middleware/errorHandler.js';
+import { requireAuth } from './middleware/auth.js';
 
 import { authRoutes } from './modules/auth/auth.routes.js';
 import { purchasesRoutes } from './modules/purchases/purchases.routes.js';
@@ -44,14 +45,15 @@ export function createApp(db) {
   // ROTAS PRIVADAS DA API
   const api = Router();
 
+  api.use('/system', systemRoutes(db));
   api.use('/auth', authRoutes(db));
+  api.use(requireAuth(db));
   api.use('/purchases', purchasesRoutes(db));
   api.use('/dashboard', dashboardRoutes(db));
   api.use('/cards', cardsRoutes(db));
   api.use('/people', peopleRoutes(db));
   api.use('/categories', categoriesRoutes(db));
   api.use('/budgets', budgetsRoutes(db));
-  api.use('/system', systemRoutes(db));
   api.use('/birthdays', birthdaysRoutes(db));
   api.use('/vehicles', vehiclesRoutes(db));
   api.use('/tools', toolsRoutes());

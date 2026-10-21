@@ -10,7 +10,7 @@ const upload = multer({
 
 export function importRoutes(db) {
   const router = Router();
-  router.use(requireAuth);
+  router.use(requireAuth(db));
 
   // POST: Importar Planilha
   router.post('/spreadsheet', upload.single('file'), async (req, res) => {
@@ -19,7 +19,9 @@ export function importRoutes(db) {
         return res.status(400).json({ error: 'Nenhum arquivo enviado.' });
       }
 
-      const results = await processSpreadsheetImport(db, req.user.id, req.file.buffer);
+      const results = await processSpreadsheetImport(db, req.user.id, req.file.buffer, {
+        replaceExisting: req.body?.replaceExisting === 'true',
+      });
 
       res.json({
         success: true,

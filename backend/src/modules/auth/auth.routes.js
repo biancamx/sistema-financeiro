@@ -1,138 +1,97 @@
 import { Router } from 'express';
-import jwt from 'jsonwebtoken';
-import {
-  loginWithGoogle,
-  loginWithEmail,
-  registerWithEmail,
-  getCurrentUser,
-} from './auth.service.js';
+import { requireAuth } from '../../middleware/auth.js';
+import { loginWithGoogle } from './auth.service.js';
 
 export function authRoutes(db) {
   const router = Router();
 
-  // Configuração pública do Auth para o Frontend (ativa botão Google)
+  // 1. Rota de Configuração pública esperada pelo LoginPage
   router.get('/config', (_req, res) => {
-    res.json({
-      local: { enabled: false },
+    const googleClientId = process.env.GOOGLE_CLIENT_ID || null;
+    const isLocalAllowed = process.env.NODE_ENV !== 'production';
+
+    const payload = {
       google: {
-        enabled: Boolean(process.env.GOOGLE_CLIENT_ID),
-        clientId: process.env.GOOGLE_CLIENT_ID || '',
+        enabled: Boolean(googleClientId),
+        clientId: googleClientId,
       },
+      localLogin: {
+        enabled: isLocalAllowed,
+      },
+    };
+
+    res.json({
+      data: payload,
+      ...payload,
+      local: payload.localLogin,
     });
   });
 
-  // Retorna os dados do usuário autenticado pela sessão (cookie ou bearer)
-  router.get('/me', async (req, res) => {
-    try {
-      const token =
-        req.cookies?.['caderno_token'] ||
-        req.cookies?.['fin_token'] ||
-        (req.headers.authorization?.startsWith('Bearer ')
-          ? req.headers.authorization.slice(7)
-          : null);
-
-      if (!token) {
-        return res.status(401).json({ error: 'Não autenticado' });
-      }
-
-      const jwtSecret = process.env.JWT_SECRET || 'REDACTED_SECRET';
-      const payload = jwt.verify(token, jwtSecret);
-      const user = await getCurrentUser(payload.id);
-
-      if (!user) {
-        return res.status(401).json({ error: 'Usuário não encontrado' });
-      }
-
-      res.json({ data: { user }, user });
-    } catch (err) {
-      res.status(401).json({ error: 'Sessão inválida ou expirada' });
-    }
-  });
-
-  // Encerra a sessão removendo os cookies
-  router.post('/logout', (_req, res) => {
-    res.clearCookie('caderno_token', { path: '/' });
-    res.clearCookie('fin_token', { path: '/' });
-    res.status(204).end();
-  });
-
-  // 1. Rota de Login com Google integrada ao Mongoose
+  // 2. Rota de Login com Google
   router.post('/google', async (req, res) => {
     try {
       const { credential } = req.body;
       if (!credential) {
-        return res.status(400).json({ error: 'Token do Google é obrigatório' });
+        return res.status(400).json({ error: 'Token do Google obrigatório' });
       }
 
       const { token, user } = await loginWithGoogle(credential);
 
-      // Salva o cookie de sessão seguro
-      res.cookie('caderno_token', token, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'lax',
-        maxAge: 30 * 24 * 60 * 60 * 1000, // 30 dias
-      });
+      // Sincroniza usuário do Google com o SQLite local
+      const existingInSqlite = db.prepare('SELECT id FROM users WHERE email = ?').get(user.email.toLowerCase());
+      if (!existingInSqlite) {
+        db.prepare('INSERT INTO users (name, email, password_hash) VALUES (?, ?, ?)')
+          .run(user.name, user.email.toLowerCase(), 'GOOGLE_USER');
+      }
 
-      // Salva cookie secundário para compatibilidade
-      res.cookie('fin_token', token, {
+      res.cookie('caderno_token', token, {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
         sameSite: 'lax',
         maxAge: 30 * 24 * 60 * 60 * 1000,
       });
 
-      res.json({ data: { user }, user });
+      res.json({ data: { user } });
     } catch (err) {
-      console.error('Erro no login com Google:', err.message);
-      res.status(401).json({ error: 'Falha na autenticação com o Google' });
+      console.error('Erro no login Google:', err.message);
+      res.status(401).json({ error: 'Falha ao autenticar com o Google' });
     }
   });
 
-  // Login tradicional
-  router.post('/login', async (req, res) => {
-    try {
-      const { email, password } = req.body;
-      if (!email || !password) {
-        return res.status(400).json({ error: 'E-mail e senha são obrigatórios' });
-      }
-
-      const { token, user } = await loginWithEmail(email, password);
-
-      res.cookie('caderno_token', token, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'lax',
-        maxAge: 30 * 24 * 60 * 60 * 1000,
-      });
-
-      res.json({ data: { user }, user });
-    } catch (err) {
-      res.status(err.status || 401).json({ error: err.message });
-    }
+  // 3. Retorna usuário logado
+  router.get('/me', requireAuth(db), (req, res) => {
+    res.json({ data: { user: req.user } });
   });
 
-  // Cadastro tradicional
-  router.post('/register', async (req, res) => {
-    try {
-      const { name, email, password } = req.body;
-      if (!name || !email || !password) {
-        return res.status(400).json({ error: 'Preencha todos os campos' });
-      }
+  // 4. Logout
+  router.post('/logout', (req, res) => {
+    res.clearCookie('caderno_token');
+    res.json({ message: 'Desconectado com sucesso' });
+  });
 
-      const { token, user } = await registerWithEmail(name, email, password);
+  // 5. Modo local de desenvolvimento
+  router.post('/local', (req, res) => {
+    let user = db.prepare("SELECT id, name, email FROM users WHERE email = 'demo@local.dev'").get();
+    if (!user) {
+      const ins = db.prepare("INSERT INTO users (name, email, password_hash) VALUES ('Usuário Demo', 'demo@local.dev', 'local')").run();
+      user = { id: ins.lastInsertRowid, name: 'Usuário Demo', email: 'demo@local.dev' };
+    }
+
+    import('jsonwebtoken').then(({ default: jwt }) => {
+      const token = jwt.sign(
+        { id: user.id, email: user.email, name: user.name },
+        process.env.JWT_SECRET || 'REDACTED_SECRET',
+        { expiresIn: '30d' }
+      );
 
       res.cookie('caderno_token', token, {
         httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
         sameSite: 'lax',
         maxAge: 30 * 24 * 60 * 60 * 1000,
       });
 
-      res.status(201).json({ data: { user }, user });
-    } catch (err) {
-      res.status(err.status || 400).json({ error: err.message });
-    }
+      res.json({ data: { user } });
+    });
   });
 
   return router;

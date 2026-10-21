@@ -1,0 +1,314 @@
+.settings-page {
+  display: grid;
+  gap: 18px;
+  width: 100%;
+  min-width: 0;
+}
+
+.settings-page-head {
+  margin-bottom: 0;
+}
+
+.settings-page-head p {
+  margin-top: 5px;
+}
+
+.settings-card {
+  display: grid;
+  gap: 18px;
+  padding: 20px;
+}
+
+.settings-card-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.settings-card-copy {
+  flex: 1;
+  min-width: 0;
+}
+
+.settings-card-copy h2 {
+  text-transform: capitalize;
+}
+
+.settings-card-copy p {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.settings-card-head > .btn {
+  flex: 0 0 auto;
+}
+
+.settings-card-head > .btn svg,
+.settings-file-button svg,
+.settings-form-actions .btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+.settings-icon {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  flex: 0 0 42px;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--primary) 24%, var(--line));
+  border-radius: 11px;
+  background: var(--primary-soft);
+  color: var(--primary);
+}
+
+.settings-icon svg {
+  width: 20px;
+  height: 20px;
+}
+
+.settings-upload {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 28px 22px;
+  border: 1px dashed color-mix(in srgb, var(--primary) 45%, var(--line));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--primary-soft) 28%, var(--surface));
+  text-align: center;
+}
+
+.settings-upload-icon {
+  width: 30px;
+  height: 30px;
+  margin-bottom: 2px;
+  color: var(--primary);
+}
+
+.settings-upload h3 {
+  font-size: 15px;
+}
+
+.settings-upload p {
+  max-width: 620px;
+  font-size: 12px;
+}
+
+.settings-upload-hint {
+  color: var(--muted);
+}
+
+.settings-file-button {
+  position: relative;
+  margin-top: 6px;
+  overflow: hidden;
+}
+
+.settings-file-button input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  clip-path: inset(50%);
+}
+
+.settings-file-button:focus-within {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.settings-reminder-form {
+  display: grid;
+  gap: 16px;
+}
+
+.settings-reminder-toggle {
+  margin-top: 0;
+  border-style: solid;
+}
+
+.settings-reminder-toggle input {
+  flex: 0 0 auto;
+}
+
+.settings-reminder-toggle span {
+  display: grid;
+  gap: 3px;
+}
+
+.settings-reminder-toggle small {
+  font-size: 11px;
+}
+
+.settings-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  max-width: 720px;
+}
+
+.settings-fields .field-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.settings-fields .field-label svg {
+  width: 16px;
+  height: 16px;
+  color: var(--primary);
+}
+
+.settings-fields select:disabled {
+  opacity: .55;
+}
+
+.settings-form-actions {
+  display: flex;
+  min-height: 38px;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.settings-saved {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-right: auto;
+  color: var(--pos);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.settings-saved svg {
+  width: 16px;
+  height: 16px;
+}
+
+.settings-loading {
+  padding: 18px 0;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: center;
+}
+
+.settings-danger {
+  border-color: color-mix(in srgb, var(--neg) 30%, var(--line));
+}
+
+.settings-icon-danger {
+  border-color: color-mix(in srgb, var(--neg) 26%, var(--line));
+  background: color-mix(in srgb, var(--neg) 10%, var(--surface));
+  color: var(--neg);
+}
+
+.settings-danger .settings-card-copy h2 {
+  color: var(--neg);
+}
+
+.settings-reset-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.settings-reset-option {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--bg);
+}
+
+.settings-reset-option h3 {
+  font-size: 13px;
+}
+
+.settings-reset-option p {
+  margin-top: 5px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.settings-button-warning {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
+  color: var(--warn-ink);
+}
+
+.settings-button-warning:hover:not(:disabled) {
+  background: var(--warn-bg);
+}
+
+.settings-reset-option-danger {
+  border-color: color-mix(in srgb, var(--neg) 35%, var(--line));
+}
+
+.settings-button-danger {
+  border-color: var(--neg);
+  background: var(--neg);
+  color: #fff;
+}
+
+.settings-button-danger:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+@media (max-width: 700px) {
+  .settings-card {
+    padding: 16px;
+  }
+
+  .settings-card-head {
+    flex-wrap: wrap;
+  }
+
+  .settings-card-head > .btn {
+    margin-left: 54px;
+  }
+}
+
+@media (max-width: 560px) {
+  .settings-fields,
+  .settings-reset-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-card-head {
+    align-items: flex-start;
+  }
+
+  .settings-card-head > .btn {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .settings-upload {
+    padding: 22px 14px;
+  }
+
+  .settings-form-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .settings-form-actions .btn {
+    width: 100%;
+  }
+
+  .settings-saved {
+    margin-right: 0;
+  }
+}

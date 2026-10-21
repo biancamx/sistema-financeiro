@@ -1,16 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  FileSpreadsheet, 
-  Upload, 
-  Calendar, 
-  Clock, 
-  Save, 
-  Check, 
-  MessageSquare,
-  RotateCcw,
-  AlertTriangle,
-  Trash2
-} from 'lucide-react';
+import { AlertTriangle, Calendar, Check, Clock, FileSpreadsheet, MessageSquare, RotateCcw, Upload } from 'lucide-react';
+import './SettingsPage.css';
 
 export default function SettingsPage() {
   const [triggerDay, setTriggerDay] = useState(5);
@@ -69,8 +59,16 @@ export default function SettingsPage() {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    if (!window.confirm(
+      'A importação vai substituir todos os lançamentos e parcelas atuais da sua conta pelos dados da planilha. Cartões e pessoas serão mantidos. Deseja continuar?',
+    )) {
+      e.target.value = '';
+      return;
+    }
+
     const formData = new FormData();
     formData.append('file', file);
+    formData.append('replaceExisting', 'true');
 
     try {
       setImporting(true);
@@ -87,7 +85,11 @@ export default function SettingsPage() {
         `👥 Pessoas identificadas/criadas: ${json.data.peopleCreated}\n` +
         `💳 Cartões identificados/criados: ${json.data.cardsCreated}\n` +
         `🛍️ Compras registradas: ${json.data.purchasesCreated}\n` +
-        `🔢 Parcelas organizadas: ${json.data.installmentsCreated}`
+        `🔢 Parcelas organizadas: ${json.data.installmentsCreated}\n` +
+        `🧹 Compras anteriores substituídas: ${json.data.purchasesReplaced}` +
+        (json.data.installmentAmountsCalculated
+          ? `\n🧮 Valores de parcelas calculados pelo total da compra: ${json.data.installmentAmountsCalculated}`
+          : '')
       );
       window.location.reload();
     } catch (err) {
@@ -162,206 +164,161 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="w-full space-y-6">
-      {/* Título da Página */}
-      <div>
-        <h1 className="text-2xl font-bold text-[#e6f4f1]">Configurações</h1>
-        <p className="text-sm text-[#7aa7a1] mt-1">Gerencie preferências, importação de planilhas e limpeza de dados.</p>
-      </div>
+    <div className="settings-page">
+      <header className="page-head settings-page-head">
+        <div>
+          <h1>Configurações</h1>
+          <p className="muted">Gerencie preferências, importação de planilhas e limpeza de dados.</p>
+        </div>
+      </header>
 
-      {/* 1. CARD DE IMPORTAÇÃO */}
-      <div className="bg-[#0b1517] border border-[#132729] rounded-xl p-6 shadow-sm space-y-5">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-[#132729]">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-lg bg-[#0e3532] text-[#2dd4bf] flex items-center justify-center shrink-0">
-              <FileSpreadsheet className="w-5 h-5" />
-            </div>
-            <div>
-              <h2 className="text-base font-semibold text-[#e6f4f1]">Importação de Gastos (Banco De Dados)</h2>
-              <p className="text-xs text-[#7aa7a1]">
-                Lê a aba <strong>Banco De Dados</strong> da sua planilha e organiza as compras por pessoa e cartão.
-              </p>
-            </div>
+      <section className="card settings-card" aria-labelledby="settings-import-title">
+        <div className="settings-card-head">
+          <div className="settings-icon"><FileSpreadsheet aria-hidden="true" /></div>
+          <div className="settings-card-copy">
+            <h2 id="settings-import-title">Importação de gastos</h2>
+            <p className="muted">Lê a aba <strong>Banco De Dados</strong> da sua planilha e organiza as compras por pessoa e cartão.</p>
           </div>
-
           <button
             type="button"
+            className="btn"
             onClick={handleUndoImport}
             disabled={reverting || importing}
-            className="px-3.5 py-2 text-xs font-medium text-[#7aa7a1] hover:text-[#e6f4f1] bg-[#102224] hover:bg-[#163033] rounded-lg transition disabled:opacity-40"
           >
-            {reverting ? 'Revertendo...' : 'Desfazer Lançamentos'}
+            <RotateCcw aria-hidden="true" />
+            {reverting ? 'Revertendo...' : 'Desfazer lançamentos'}
           </button>
         </div>
 
-        {/* Área de Upload */}
-        <div className="border border-dashed border-[#1a383a] rounded-xl p-8 text-center bg-[#070e10]/60">
-          <Upload className="w-9 h-9 text-[#4d7874] mx-auto mb-3" />
-          <p className="text-sm font-medium text-[#e6f4f1]">
-            {importing ? 'Processando planilha... Aguarde...' : 'Selecione a sua planilha Financeiro_2026.xlsx ou Financeiro_2027.xlsx'}
-          </p>
-          <p className="text-xs text-[#7aa7a1] mt-1">
-            Reconhece: Descrição, Pessoa, Valor da Parcela, Mês, Ano e Cartão.
-          </p>
-
-          <label className="mt-4 inline-block">
-            <span className="px-4 py-2 bg-[#1db59b] hover:bg-[#179680] text-[#041d1a] font-bold text-xs rounded-lg cursor-pointer transition shadow-sm inline-flex items-center gap-2">
-              <Upload className="w-4 h-4" /> Escolher arquivo da planilha
-            </span>
+        <div className="settings-upload">
+          <Upload className="settings-upload-icon" aria-hidden="true" />
+          <h3>{importing ? 'Processando planilha...' : 'Importe sua planilha financeira'}</h3>
+          <p className="muted">Selecione Financeiro_2026.xlsx ou Financeiro_2027.xlsx. Também aceitamos .xls e .csv.</p>
+          <p className="settings-upload-hint">Reconhece descrição, pessoa, valor da parcela, mês, ano e cartão.</p>
+          <label className="btn btn-primary settings-file-button">
+            <Upload aria-hidden="true" />
+            Escolher arquivo
             <input
               type="file"
               disabled={importing}
               accept=".xlsx, .xls, .csv"
               onChange={handleFileImport}
-              className="hidden"
             />
           </label>
         </div>
-      </div>
+      </section>
 
-      {/* 2. CARD DO AGENDAMENTO DE LEMBRETES */}
-      <div className="bg-[#0b1517] border border-[#132729] rounded-xl p-6 shadow-sm space-y-5">
-        <div className="flex items-center gap-3 pb-4 border-b border-[#132729]">
-          <div className="w-10 h-10 rounded-lg bg-[#0e3532] text-[#2dd4bf] flex items-center justify-center shrink-0">
-            <MessageSquare className="w-5 h-5" />
-          </div>
-          <div>
-            <h2 className="text-base font-semibold text-[#e6f4f1]">Disparo Automático de Lembretes</h2>
-            <p className="text-xs text-[#7aa7a1]">Escolha o dia e horário em que os lembretes de fatura serão calculados.</p>
+      <section className="card settings-card" aria-labelledby="settings-reminders-title">
+        <div className="settings-card-head">
+          <div className="settings-icon"><MessageSquare aria-hidden="true" /></div>
+          <div className="settings-card-copy">
+            <h2 id="settings-reminders-title">Disparo automático de lembretes</h2>
+            <p className="muted">Escolha o dia e horário em que os lembretes de fatura serão calculados.</p>
           </div>
         </div>
 
         {loadingSettings ? (
-          <div className="py-6 text-center text-xs text-[#7aa7a1]">Carregando preferências...</div>
+          <div className="settings-loading" role="status">Carregando preferências...</div>
         ) : (
-          <form onSubmit={handleSaveSettings} className="space-y-4">
-            <div className="flex items-center gap-3">
+          <form onSubmit={handleSaveSettings} className="settings-reminder-form">
+            <label className="share-toggle settings-reminder-toggle">
               <input
                 type="checkbox"
                 id="enableReminders"
                 checked={enabled}
                 onChange={(e) => setEnabled(e.target.checked)}
-                className="w-4 h-4 rounded text-[#1db59b] bg-[#070e10] border-[#1a383a] focus:ring-0"
               />
-              <label htmlFor="enableReminders" className="text-sm text-[#e6f4f1] cursor-pointer">
+              <span>
                 Ativar envio automático mensal de cobranças
-              </label>
-            </div>
+                <small className="muted">Você pode alterar essa opção a qualquer momento.</small>
+              </span>
+            </label>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
-              <div>
-                <label className="block text-xs font-medium text-[#7aa7a1] mb-1.5 flex items-center gap-1.5">
-                  <Calendar className="w-4 h-4 text-[#2dd4bf]" />
-                  Dia do Mês para o Disparo
-                </label>
+            <div className="settings-fields">
+              <label className="field" htmlFor="triggerDay">
+                <span className="field-label"><Calendar aria-hidden="true" /> Dia do mês para o disparo</span>
                 <select
+                  id="triggerDay"
+                  className="input"
                   disabled={!enabled}
                   value={triggerDay}
                   onChange={(e) => setTriggerDay(Number(e.target.value))}
-                  className="w-full px-3 py-2 bg-[#070e10] border border-[#1a383a] rounded-lg text-sm text-[#e6f4f1] focus:outline-none focus:border-[#2dd4bf] disabled:opacity-40"
                 >
                   {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => (
-                    <option key={d} value={d}>
-                      Todo dia {String(d).padStart(2, '0')} do mês
-                    </option>
+                    <option key={d} value={d}>Todo dia {String(d).padStart(2, '0')} do mês</option>
                   ))}
                 </select>
-              </div>
+              </label>
 
-              <div>
-                <label className="block text-xs font-medium text-[#7aa7a1] mb-1.5 flex items-center gap-1.5">
-                  <Clock className="w-4 h-4 text-[#2dd4bf]" />
-                  Horário do Envio
-                </label>
+              <label className="field" htmlFor="triggerHour">
+                <span className="field-label"><Clock aria-hidden="true" /> Horário do envio</span>
                 <select
+                  id="triggerHour"
+                  className="input"
                   disabled={!enabled}
                   value={triggerHour}
                   onChange={(e) => setTriggerHour(Number(e.target.value))}
-                  className="w-full px-3 py-2 bg-[#070e10] border border-[#1a383a] rounded-lg text-sm text-[#e6f4f1] focus:outline-none focus:border-[#2dd4bf] disabled:opacity-40"
                 >
                   {Array.from({ length: 24 }, (_, i) => i).map((h) => (
-                    <option key={h} value={h}>
-                      {String(h).padStart(2, '0')}:00h
-                    </option>
+                    <option key={h} value={h}>{String(h).padStart(2, '0')}:00</option>
                   ))}
                 </select>
-              </div>
+              </label>
             </div>
 
-            <div className="pt-4 border-t border-[#132729] flex items-center justify-between">
+            <div className="settings-form-actions">
               {savedSuccess && (
-                <span className="text-xs text-[#2dd4bf] font-medium flex items-center gap-1">
-                  <Check className="w-4 h-4" /> Preferências salvas!
-                </span>
+                <span className="settings-saved" role="status"><Check aria-hidden="true" /> Preferências salvas!</span>
               )}
-              <button
-                type="submit"
-                disabled={saving}
-                className="ml-auto px-4 py-2 bg-[#1db59b] hover:bg-[#179680] text-[#041d1a] font-bold text-xs rounded-lg transition disabled:opacity-50"
-              >
-                {saving ? 'Salvando...' : 'Salvar Preferências'}
+              <button type="submit" className="btn btn-primary" disabled={saving}>
+                {saving ? 'Salvando...' : 'Salvar preferências'}
               </button>
             </div>
           </form>
         )}
-      </div>
+      </section>
 
-      {/* 3. ZONA DE PERIGO (RESET DE DADOS) */}
-      <div className="bg-[#0b1517] border border-[#2b1819] rounded-xl p-6 shadow-sm space-y-4">
-        <div className="flex items-center gap-3 pb-3 border-b border-[#1f1617]">
-          <div className="w-10 h-10 rounded-lg bg-[#2d1214] text-[#f87171] flex items-center justify-center shrink-0">
-            <AlertTriangle className="w-5 h-5" />
-          </div>
-          <div>
-            <h2 className="text-base font-semibold text-[#fca5a5]">Zona de Perigo • Limpeza Geral</h2>
-            <p className="text-xs text-[#7aa7a1]">
-              Utilize para recomeçar seus lançamentos ou limpar o banco antes de importar uma nova planilha.
-            </p>
+      <section className="card settings-card settings-danger" aria-labelledby="settings-danger-title">
+        <div className="settings-card-head">
+          <div className="settings-icon settings-icon-danger"><AlertTriangle aria-hidden="true" /></div>
+          <div className="settings-card-copy">
+            <h2 id="settings-danger-title">Zona de perigo</h2>
+            <p className="muted">Limpeza de dados da conta. Essa ação não pode ser desfeita.</p>
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
-          {/* Card 1: Limpar só Compras */}
-          <div className="bg-[#070e10] border border-[#1a383a] rounded-lg p-4 flex flex-col justify-between">
+        <div className="settings-reset-grid">
+          <article className="settings-reset-option">
             <div>
-              <div className="text-sm font-medium text-[#e6f4f1]">Excluir Todos os Lançamentos</div>
-              <p className="text-xs text-[#7aa7a1] mt-1 leading-relaxed">
-                Apaga todas as compras e parcelas de cartões, mas mantém seus cartões e pessoas cadastrados.
-              </p>
+              <h3>Excluir todos os lançamentos</h3>
+              <p className="muted">Apaga compras e parcelas, mas mantém seus cartões e pessoas cadastrados.</p>
             </div>
-            <div className="pt-4">
-              <button
-                type="button"
-                disabled={resetting}
-                onClick={() => executeReset('purchases_only')}
-                className="w-full py-2 px-3 bg-[#172622] hover:bg-[#203631] text-[#f59e0b] text-xs font-semibold rounded-lg transition"
-              >
-                {resetting ? 'Limpando...' : 'Limpar Apenas Lançamentos'}
-              </button>
-            </div>
-          </div>
+            <button
+              type="button"
+              className="btn settings-button-warning"
+              disabled={resetting}
+              onClick={() => executeReset('purchases_only')}
+            >
+              {resetting ? 'Limpando...' : 'Limpar apenas lançamentos'}
+            </button>
+          </article>
 
-          {/* Card 2: Reset Completo */}
-          <div className="bg-[#070e10] border border-[#2b1819] rounded-lg p-4 flex flex-col justify-between">
+          <article className="settings-reset-option settings-reset-option-danger">
             <div>
-              <div className="text-sm font-medium text-[#fca5a5]">Reset Total da Conta</div>
-              <p className="text-xs text-[#7aa7a1] mt-1 leading-relaxed">
-                Zera tudo: apaga todas as compras, cartões de crédito, pessoas e planilhas da sua conta.
-              </p>
+              <h3>Reset total da conta</h3>
+              <p className="muted">Apaga todos os lançamentos, cartões, pessoas e planilhas da sua conta.</p>
             </div>
-            <div className="pt-4">
-              <button
-                type="button"
-                disabled={resetting}
-                onClick={() => executeReset('all')}
-                className="w-full py-2 px-3 bg-[#3f1518] hover:bg-[#521c20] text-[#fca5a5] text-xs font-semibold rounded-lg transition"
-              >
-                {resetting ? 'Resetando...' : 'Resetar Tudo (Conta Limpa)'}
-              </button>
-            </div>
-          </div>
+            <button
+              type="button"
+              className="btn settings-button-danger"
+              disabled={resetting}
+              onClick={() => executeReset('all')}
+            >
+              {resetting ? 'Resetando...' : 'Resetar toda a conta'}
+            </button>
+          </article>
         </div>
-      </div>
+      </section>
     </div>
   );
 }

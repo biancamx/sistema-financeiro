@@ -16,10 +16,27 @@ const MONTHS_MAP = {
 };
 
 function parseMonth(val) {
-  if (typeof val === 'number') return Math.min(12, Math.max(1, val));
-  if (!val) return new Date().getMonth() + 1;
+  if (typeof val === 'number') {
+    if (Number.isInteger(val) && val >= 1 && val <= 12) return val;
+    if (val >= 30_000 && val <= 80_000) return XLSX.SSF.parse_date_code(val)?.m || null;
+    if (val >= 12_000 && val < 30_000) return ((Math.trunc(val) - 1) % 12) + 1;
+    return null;
+  }
+  if (!val) return null;
   const clean = String(val).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
-  return MONTHS_MAP[clean] || (parseInt(clean, 10) || new Date().getMonth() + 1);
+  const numeric = parseInt(clean, 10);
+  if (MONTHS_MAP[clean]) return MONTHS_MAP[clean];
+  if (/^\d{1,2}$/.test(clean) && Number.isInteger(numeric) && numeric >= 1 && numeric <= 12) return numeric;
+  const monthName = Object.keys(MONTHS_MAP).find((name) => new RegExp(`\\b${name}\\b`).test(clean));
+  if (monthName) return MONTHS_MAP[monthName];
+  const monthYearMatch = clean.match(/^(\d{1,2})[/-]\d{2,4}$/);
+  const dateMatch = clean.match(/^\d{1,2}[/-](\d{1,2})[/-]\d{2,4}$/);
+  const datePart = monthYearMatch?.[1] || dateMatch?.[1];
+  if (datePart) {
+    const month = Number(datePart);
+    return month >= 1 && month <= 12 ? month : null;
+  }
+  return null;
 }
 
 function parseMoney(val) {
@@ -32,15 +49,46 @@ function parseMoney(val) {
 
 // Descobre quais colunas existem em uma tabela do SQLite
 function getTableColumns(db, tableName) {
-  try {
-    const cols = db.prepare(`PRAGMA table_info(${tableName})`).all();
-    return new Set(cols.map((c) => c.name));
-  } catch {
-    return new Set();
-  }
+  const cols = db.prepare(`PRAGMA table_info(${tableName})`).all();
+  return new Set(cols.map((c) => c.name));
 }
 
-export async function processSpreadsheetImport(db, userId, fileBuffer) {
+function pickColumn(columns, candidates, tableName, purpose) {
+  const column = candidates.find((candidate) => columns.has(candidate));
+  if (!column) {
+    throw new Error(`A tabela "${tableName}" não possui uma coluna compatível para ${purpose}.`);
+  }
+  return column;
+}
+
+function normalizeRow(row) {
+  const normalized = {};
+  for (const [key, value] of Object.entries(row)) {
+    const normalizedKey = key
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9]/g, '')
+      .trim();
+    normalized[normalizedKey] = value;
+  }
+  return normalized;
+}
+
+function cleanText(value) {
+  if (value === false || value == null) return '';
+  return String(value).trim();
+}
+
+function normalizeKey(value) {
+  return cleanText(value).toLocaleLowerCase('pt-BR');
+}
+
+function roundMoney(value) {
+  return Math.round((value + Number.EPSILON) * 100) / 100;
+}
+
+export async function processSpreadsheetImport(db, userId, fileBuffer, { replaceExisting = false } = {}) {
   const workbook = XLSX.read(fileBuffer, { type: 'buffer' });
   const sheetNames = workbook.SheetNames;
 
@@ -54,10 +102,138 @@ export async function processSpreadsheetImport(db, userId, fileBuffer) {
   }
 
   const sheet = workbook.Sheets[targetSheetName];
-  const rawRows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+  const sourceRows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
 
-  if (!rawRows || rawRows.length === 0) {
+  if (!sourceRows || sourceRows.length === 0) {
     throw new Error(`A aba "${targetSheetName}" está vazia ou sem dados válidos.`);
+  }
+
+  const rows = sourceRows.map(normalizeRow);
+  const hasPurchaseDetailColumn = rows.some((row) => 'detalhedacompra' in row || 'detalhecompra' in row);
+  const carriedFields = [
+    'detalhedacompra',
+    'detalhecompra',
+    'descricao',
+    'categoria',
+    'pessoa',
+    'nome',
+    'cartao',
+    'banco',
+    'valortotal',
+    'total',
+    'qtdparcelas',
+    'parcelas',
+  ];
+  const previousValues = {};
+  const purchases = [];
+  const purchasesBySignature = new Map();
+  let installmentAmountsCalculated = 0;
+
+  for (const [index, row] of rows.entries()) {
+    const hasExplicitRowData = Object.values(row).some((value) => cleanText(value) !== '');
+    if (!hasExplicitRowData) continue;
+
+    for (const field of carriedFields) {
+      if (cleanText(row[field])) previousValues[field] = row[field];
+      else if (previousValues[field] !== undefined) row[field] = previousValues[field];
+    }
+
+    const description = cleanText(
+      row.detalhedacompra ||
+      row.detalhecompra ||
+      (!hasPurchaseDetailColumn && (row.descricao || row.compra || row.item)),
+    );
+    const categoryName = cleanText(
+      row.categoria ||
+      (hasPurchaseDetailColumn && row.descricao),
+    );
+    const personName = cleanText(row.pessoa || row.nome);
+    const cardName = cleanText(row.cartao || row.banco);
+    const totalRaw = row.valortotal || row.total;
+    let installmentAmount = parseMoney(row.valordaparcela || row.parcelavalor || row.valor);
+    const totalInstallments = Math.max(1, parseInt(row.qtdparcelas || row.parcelas, 10) || 1);
+    let total = parseMoney(totalRaw);
+    if (total <= 0) total = installmentAmount * totalInstallments;
+
+    let month = parseMonth(row.mes);
+    let year = parseInt(row.ano, 10);
+    const monthIndex = parseInt(row.numerocorrespondenteaomes, 10);
+    if ((!month || !Number.isInteger(year)) && Number.isInteger(monthIndex) && monthIndex > 0) {
+      month = ((monthIndex - 1) % 12) + 1;
+      year = Math.floor((monthIndex - 1) / 12);
+    }
+    if ((!Number.isInteger(month) || month < 1 || month > 12) && installmentAmount <= 0) {
+      continue;
+    }
+
+    if (!description && !categoryName && installmentAmount <= 0 && total <= 0) continue;
+    if (!description) {
+      throw new Error(`Não encontrei "Detalhe da compra" na linha ${index + 2} da aba "${targetSheetName}".`);
+    }
+    if (total <= 0) {
+      throw new Error(`O valor total da compra é inválido na linha ${index + 2} da aba "${targetSheetName}".`);
+    }
+
+    if (!Number.isInteger(month) || month < 1 || month > 12) {
+      throw new Error(`O mês "${cleanText(row.mes) || 'vazio'}" é inválido na linha ${index + 2} da aba "${targetSheetName}".`);
+    }
+    if (!Number.isInteger(year) || year < 1900 || year > 9999) {
+      throw new Error(`O ano é inválido na linha ${index + 2} da aba "${targetSheetName}".`);
+    }
+
+    const period = year * 12 + month - 1;
+    const signature = JSON.stringify([
+      normalizeKey(description),
+      normalizeKey(categoryName),
+      normalizeKey(personName),
+      normalizeKey(cardName),
+      Math.round(total * 100),
+      totalInstallments,
+    ]);
+    const candidates = purchasesBySignature.get(signature) || [];
+    const purchase = candidates
+      .filter((candidate) =>
+        candidate.installments.length < candidate.totalInstallments &&
+        candidate.installments.every((installment) => installment.period !== period) &&
+        candidate.lastPeriod < period
+      )
+      .sort((a, b) => {
+        const aContinues = a.lastPeriod === period - 1;
+        const bContinues = b.lastPeriod === period - 1;
+        return Number(bContinues) - Number(aContinues) || a.firstRow - b.firstRow;
+      })[0];
+    const target = purchase || {
+      description,
+      categoryName,
+      personName,
+      cardName,
+      total,
+      totalInstallments,
+      installments: [],
+      firstRow: index,
+      lastPeriod: -Infinity,
+    };
+
+    if (installmentAmount <= 0) {
+      const installmentNumber = target.installments.length + 1;
+      const regularAmount = roundMoney(total / totalInstallments);
+      installmentAmount = installmentNumber === totalInstallments
+        ? roundMoney(total - regularAmount * (totalInstallments - 1))
+        : regularAmount;
+      installmentAmountsCalculated++;
+    }
+
+    target.installments.push({ period, month, year, amount: installmentAmount });
+    target.lastPeriod = period;
+    if (!purchase) {
+      purchases.push(target);
+      candidates.push(target);
+      purchasesBySignature.set(signature, candidates);
+    }
+  }
+
+  if (purchases.length === 0) {
+    throw new Error(`Nenhuma compra válida foi encontrada na aba "${targetSheetName}".`);
   }
 
   const results = {
@@ -66,21 +242,33 @@ export async function processSpreadsheetImport(db, userId, fileBuffer) {
     cardsCreated: 0,
     purchasesCreated: 0,
     installmentsCreated: 0,
+    installmentAmountsCalculated,
+    replacedExisting: replaceExisting,
+    purchasesReplaced: 0,
   };
 
   // Inspeciona as colunas reais do seu banco para não errar nenhum INSERT
   const cardCols = getTableColumns(db, 'cards');
   const purchaseCols = getTableColumns(db, 'purchases');
   const installmentCols = getTableColumns(db, 'installments');
+  const categoryCols = getTableColumns(db, 'categories');
 
   // Nome da coluna de limite do cartão (limit_amount ou limit)
-  const cardLimitCol = cardCols.has('limit_amount') ? 'limit_amount' : '`limit`';
-  // Nome da coluna de total da compra (total ou total_amount)
-  const purchaseTotalCol = purchaseCols.has('total') ? 'total' : 'total_amount';
-  // Nome da coluna de quantidade de parcelas (count ou total_installments)
-  const purchaseCountCol = purchaseCols.has('count') ? 'count' : 'total_installments';
-  // Nome da coluna de número da parcela (number ou installment_number)
-  const installmentNumCol = installmentCols.has('number') ? 'number' : 'installment_number';
+  const cardLimitCol = pickColumn(cardCols, ['limit_amount', 'limit'], 'cards', 'limite');
+  const purchaseTotalCol = pickColumn(purchaseCols, ['total', 'total_amount'], 'purchases', 'valor total');
+  const purchaseCountCol = pickColumn(
+    purchaseCols,
+    ['installments_count', 'count', 'total_installments'],
+    'purchases',
+    'quantidade de parcelas',
+  );
+  const installmentNumCol = pickColumn(
+    installmentCols,
+    ['number', 'installment_number'],
+    'installments',
+    'número da parcela',
+  );
+  const categoryIdCol = purchaseCols.has('category_id') && categoryCols.size ? 'category_id' : null;
 
   // 2. Caches de Pessoas e Cartões existentes
   const peopleMap = new Map();
@@ -90,6 +278,12 @@ export async function processSpreadsheetImport(db, userId, fileBuffer) {
   const cardsMap = new Map();
   db.prepare('SELECT id, name FROM cards WHERE user_id = ?').all(userId)
     .forEach((c) => cardsMap.set(c.name.toLowerCase().trim(), c.id));
+
+  const categoriesMap = new Map();
+  if (categoryIdCol) {
+    db.prepare('SELECT id, name FROM categories WHERE user_id = ?').all(userId)
+      .forEach((category) => categoriesMap.set(normalizeKey(category.name), category.id));
+  }
 
   function getOrCreatePerson(rawName) {
     if (!rawName) return null;
@@ -113,90 +307,86 @@ export async function processSpreadsheetImport(db, userId, fileBuffer) {
     const lower = name.toLowerCase();
     if (cardsMap.has(lower)) return cardsMap.get(lower);
 
-    // INSERT adaptativo seguro para cards
-    let insertCardSql = `INSERT INTO cards (user_id, name, ${cardLimitCol}, color, bank, brand`;
-    let valuesSql = `VALUES (?, ?, 0, '#0f6b66', 'outro', 'outro'`;
+    const columns = ['user_id', 'name', cardLimitCol];
+    const values = [userId, name, 0];
+    const optionalCardValues = {
+      color: '#0f6b66',
+      bank: 'outro',
+      issuer: 'Outro',
+      brand: 'Outro',
+      due_day: 10,
+      closing_day: 3,
+    };
 
-    if (cardCols.has('due_day')) {
-      insertCardSql += `, due_day, closing_day`;
-      valuesSql += `, 10, 3`;
+    for (const [column, value] of Object.entries(optionalCardValues)) {
+      if (cardCols.has(column)) {
+        columns.push(column);
+        values.push(value);
+      }
     }
-    insertCardSql += `) ${valuesSql});`;
 
-    const res = db.prepare(insertCardSql).run(userId, name);
+    const insertCardSql = `INSERT INTO cards (${columns.map((column) => `\`${column}\``).join(', ')}) VALUES (${columns.map(() => '?').join(', ')})`;
+    const res = db.prepare(insertCardSql).run(...values);
     cardsMap.set(lower, res.lastInsertRowid);
     results.cardsCreated++;
     return res.lastInsertRowid;
   }
 
-  // Monta prepared statements blindados para Purchase e Installment
-  let purchaseSql = `INSERT INTO purchases (user_id, person_id, card_id, description, ${purchaseTotalCol}, ${purchaseCountCol}`;
-  let purchaseValSql = `VALUES (?, ?, ?, ?, ?, ?`;
-
-  if (purchaseCols.has('split_group_id')) {
-    purchaseSql += `, split_group_id`;
-    purchaseValSql += `, ?`;
+  function getOrCreateCategory(rawCategoryName) {
+    if (!categoryIdCol || !rawCategoryName) return null;
+    const name = String(rawCategoryName).trim();
+    const key = normalizeKey(name);
+    if (categoriesMap.has(key)) return categoriesMap.get(key);
+    const result = db.prepare('INSERT INTO categories (user_id, name) VALUES (?, ?)').run(userId, name);
+    categoriesMap.set(key, result.lastInsertRowid);
+    return result.lastInsertRowid;
   }
-  purchaseSql += `) ${purchaseValSql});`;
+
+  // Monta prepared statements blindados para Purchase e Installment
+  const purchaseColumns = [
+    'user_id',
+    'person_id',
+    'card_id',
+    'description',
+    purchaseTotalCol,
+    purchaseCountCol,
+  ];
+  if (categoryIdCol) purchaseColumns.push(categoryIdCol);
+  if (purchaseCols.has('split_group_id')) purchaseColumns.push('split_group_id');
+  const purchaseSql = `INSERT INTO purchases (${purchaseColumns.map((column) => `\`${column}\``).join(', ')}) VALUES (${purchaseColumns.map(() => '?').join(', ')})`;
 
   const insertPurchaseStmt = db.prepare(purchaseSql);
 
   // Installment INSERT
-  const insertInstallmentSql = `
-    INSERT INTO installments (purchase_id, ${installmentNumCol}, month, year, amount, paid)
-    VALUES (?, ?, ?, ?, ?, 0);
-  `;
+  const installmentColumns = ['purchase_id', installmentNumCol, 'month', 'year', 'amount', 'paid'];
+  if (installmentCols.has('user_id')) installmentColumns.unshift('user_id');
+  const installmentValues = installmentColumns.map((column) => column === 'paid' ? '0' : '?');
+  const insertInstallmentSql = `INSERT INTO installments (${installmentColumns.map((column) => `\`${column}\``).join(', ')}) VALUES (${installmentValues.join(', ')})`;
   const insertInstallmentStmt = db.prepare(insertInstallmentSql);
 
   // 3. Execução em Transação SQLite Atômica
   const runTransaction = db.transaction(() => {
-    for (const row of rawRows) {
-      // Normalização de cabeçalhos
-      const cleanRow = {};
-      for (const k of Object.keys(row)) {
-        const normKey = k
-          .toLowerCase()
-          .normalize('NFD')
-          .replace(/[\u0300-\u036f]/g, '')
-          .replace(/[^a-z0-9]/g, '')
-          .trim();
-        cleanRow[normKey] = row[k];
-      }
+    if (replaceExisting) {
+      db.prepare(`
+        DELETE FROM installments
+        WHERE purchase_id IN (SELECT id FROM purchases WHERE user_id = ?)
+      `).run(userId);
+      results.purchasesReplaced = db.prepare('DELETE FROM purchases WHERE user_id = ?').run(userId).changes;
+    }
 
-      const desc = cleanRow.descricao || cleanRow.compra || cleanRow.item;
-      const personName = cleanRow.pessoa || cleanRow.nome;
-      const cardName = cleanRow.cartao || cleanRow.banco;
-      const totalAmountRaw = cleanRow.valortotal || cleanRow.total;
-      const installmentAmountRaw = cleanRow.valordaparcela || cleanRow.parcelavalor || cleanRow.valor;
-      const totalInstallmentsRaw = cleanRow.qtdparcelas || cleanRow.parcelas || 1;
-      const monthRaw = cleanRow.mes;
-      const yearRaw = cleanRow.ano;
-
-      if (!desc && !installmentAmountRaw) continue;
-
-      const singleAmount = parseMoney(installmentAmountRaw);
-      let totalAmount = parseMoney(totalAmountRaw);
-      const totalInstallments = Math.max(1, parseInt(totalInstallmentsRaw, 10) || 1);
-
-      if (totalAmount <= 0) {
-        totalAmount = singleAmount * totalInstallments;
-      }
-
-      const month = parseMonth(monthRaw);
-      const year = parseInt(yearRaw, 10) || new Date().getFullYear();
-
-      const personId = getOrCreatePerson(personName || 'Principal');
-      const cardId = getOrCreateCard(cardName || 'Cartão Principal');
-
-      // Executa INSERT de Compra
+    for (const purchase of purchases) {
+      const personId = getOrCreatePerson(purchase.personName || 'Principal');
+      const cardId = getOrCreateCard(purchase.cardName || 'Cartão Principal');
+      const categoryId = getOrCreateCategory(purchase.categoryName);
       const params = [
         userId,
         personId,
         cardId,
-        String(desc || 'Compra Importada').trim(),
-        totalAmount,
-        totalInstallments,
+        purchase.description,
+        purchase.total,
+        purchase.totalInstallments,
       ];
+      if (categoryIdCol) params.push(categoryId);
       if (purchaseCols.has('split_group_id')) {
         params.push(results.batchId);
       }
@@ -205,15 +395,20 @@ export async function processSpreadsheetImport(db, userId, fileBuffer) {
       const purchaseId = pRes.lastInsertRowid;
       results.purchasesCreated++;
 
-      // Executa INSERT de Parcela
-      insertInstallmentStmt.run(
-        purchaseId,
-        1,
-        month,
-        year,
-        singleAmount > 0 ? singleAmount : totalAmount
-      );
-      results.installmentsCreated++;
+      purchase.installments
+        .sort((a, b) => a.period - b.period)
+        .forEach((installment, index) => {
+          const installmentParams = [
+            ...(installmentCols.has('user_id') ? [userId] : []),
+            purchaseId,
+            index + 1,
+            installment.month,
+            installment.year,
+            installment.amount,
+          ];
+          insertInstallmentStmt.run(...installmentParams);
+          results.installmentsCreated++;
+        });
     }
   });
 

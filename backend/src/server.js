@@ -20,7 +20,7 @@ async function bootstrap() {
     const app = createApp(db);
     const port = process.env.PORT || env.port || 4000;
 
-    app.listen(port, () => {
+    app.listen(port, '0.0.0.0', () => {
       logger.info(`Servidor rodando na porta ${port} [ambiente: ${env.NODE_ENV || 'development'}]`);
     });
   } catch (err) {

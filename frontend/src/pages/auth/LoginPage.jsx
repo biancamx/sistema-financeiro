@@ -36,7 +36,7 @@ export default function LoginPage() {
       <section className="login-intro">
         <div className="brand brand-lg"><span className="brand-mark" aria-hidden="true" />Caderno de Contas</div>
         <h1>Suas faturas, parcelas e saldos em um só lugar.</h1>
-        <p>O mesmo controle da planilha — compras parceladas por cartão e pessoa, planilha mensal e quanto ainda falta pagar — sem fórmulas para quebrar.</p>
+        <p>Seu dinheiro em ordem. Suas contas sob controle.</p>
       </section>
 
       <section className="login-panel">

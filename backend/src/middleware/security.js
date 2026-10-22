@@ -11,6 +11,7 @@ export const securityHeaders = helmet({
       scriptSrc: ["'self'", 'https://accounts.google.com/gsi/client'],
       frameSrc: ["'self'", 'https://accounts.google.com/gsi/'],
       connectSrc: ["'self'", 'https://accounts.google.com/gsi/'],
+      imgSrc: ["'self'", 'data:', 'https://lh3.googleusercontent.com', 'https://*.googleusercontent.com'],
     },
   },
 });

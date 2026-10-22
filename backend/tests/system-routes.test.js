@@ -15,6 +15,7 @@ test('rotas do sistema existem somente sob /api/system', async (t) => {
   assert.match(csp, /script-src[^;]*'self'[^;]*https:\/\/accounts\.google\.com\/gsi\/client/);
   assert.match(csp, /frame-src[^;]*'self'[^;]*https:\/\/accounts\.google\.com\/gsi\//);
   assert.match(csp, /connect-src[^;]*'self'[^;]*https:\/\/accounts\.google\.com\/gsi\//);
+  assert.match(csp, /img-src[^;]*https:\/\/lh3\.googleusercontent\.com[^;]*https:\/\/\*\.googleusercontent\.com/);
 
   assert.equal((await fetch(`${baseUrl}/health`)).status, 401);
   assert.equal((await fetch(`${baseUrl}/system/system/health`)).status, 401);

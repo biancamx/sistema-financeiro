@@ -9,7 +9,7 @@ import GoogleButton from './GoogleButton.jsx';
 
 export default function LoginPage() {
   const nav = useNavigate();
-  const { login, register, loginGoogle } = useAuth();
+  const { login, register } = useAuth();
   const { data: cfg, loading, error } = useFetch(() => authApi.config(), []);
   const [mode, setMode] = useState('login');
   const [form, setForm] = useState({ name: '', email: '', password: '' });
@@ -46,7 +46,7 @@ export default function LoginPage() {
         {cfg && (
           <>
             {cfg.google.enabled ? (
-              <GoogleButton clientId={cfg.google.clientId} onCredential={(c) => run(() => loginGoogle(c))} onError={setErr} />
+              <GoogleButton clientId={cfg.google.clientId} onError={setErr} />
             ) : (
               <>
                 <button className="btn btn-google" disabled aria-describedby="g-hint">

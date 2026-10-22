@@ -1,6 +1,8 @@
 import { Router } from 'express';
+import { timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
 import { AppError, asyncHandler } from '../../lib/errors.js';
+import { env } from '../../config/env.js';
 import { requireAuth } from '../../middleware/auth.js';
 import { authLimiter } from '../../middleware/rateLimit.js';
 import { validate } from '../../middleware/validate.js';
@@ -29,6 +31,17 @@ function setSessionCookie(res, token) {
     sameSite: 'lax',
     maxAge: 30 * 24 * 60 * 60 * 1000,
   });
+}
+
+function hasValidGoogleCsrfToken(req) {
+  const cookieToken = req.cookies?.g_csrf_token;
+  const bodyToken = req.body?.g_csrf_token;
+  if (typeof cookieToken !== 'string' || typeof bodyToken !== 'string'
+    || !cookieToken || cookieToken.length > 1024 || bodyToken.length > 1024) return false;
+
+  const cookieBuffer = Buffer.from(cookieToken);
+  const bodyBuffer = Buffer.from(bodyToken);
+  return cookieBuffer.length === bodyBuffer.length && timingSafeEqual(cookieBuffer, bodyBuffer);
 }
 
 export function authRoutes() {
@@ -83,6 +96,28 @@ export function authRoutes() {
       if (err instanceof AppError) return next(err);
       console.error('Erro no login Google:', err.message);
       res.status(401).json({ error: 'Falha ao autenticar com o Google' });
+    }
+  });
+
+  router.post('/google/callback', authLimiter, async (req, res, next) => {
+    if (!hasValidGoogleCsrfToken(req)) {
+      return res.status(403).json({ error: 'Token CSRF do Google inválido' });
+    }
+    if (!req.body?.credential) {
+      return res.status(400).json({ error: 'Token do Google obrigatório' });
+    }
+    if (!process.env.GOOGLE_CLIENT_ID) {
+      return res.status(501).json({ error: 'Login com Google não está configurado' });
+    }
+
+    try {
+      const { token } = await loginWithGoogle(req.body.credential);
+      setSessionCookie(res, token);
+      return res.redirect(303, env.isProd ? '/' : (env.frontendUrls[0] || '/'));
+    } catch (err) {
+      if (err instanceof AppError) return next(err);
+      req.log?.error({ err }, 'Erro no callback de login Google');
+      return res.status(401).json({ error: 'Falha ao autenticar com o Google' });
     }
   });
 

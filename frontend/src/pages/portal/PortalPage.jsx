@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { CalendarDays, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, CircleHelp, Clock3, CreditCard, FileText, ShieldCheck } from 'lucide-react';
+import { CalendarDays, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, CircleHelp, Clock3, Copy, CreditCard, FileText, MessageCircle, ShieldCheck } from 'lucide-react';
 import { useToast } from '../../context/ToastContext.jsx';
 import { portalApi } from '../../services/api.js';
-import { Spinner } from '../../components/ui/ui.jsx';
+import { Button, Field, Modal, Spinner } from '../../components/ui/ui.jsx';
 
 const brl = (value) => Number(value || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
@@ -37,6 +37,7 @@ export default function PortalPage() {
   const [loading, setLoading] = useState(true);
   const [monthIndex, setMonthIndex] = useState(0);
   const [expandedCards, setExpandedCards] = useState({});
+  const [messageDraft, setMessageDraft] = useState(null);
 
   useEffect(() => {
     let active = true;
@@ -75,18 +76,12 @@ export default function PortalPage() {
     }
   };
 
-  const handleQuestion = async (month, item, cardName = null) => {
-    const message = itemMessage(data.person.name, month, item, cardName);
-    const url = whatsappUrl(adminPhone, message);
-    if (url) {
-      window.open(url, '_blank', 'noopener,noreferrer');
-      return;
-    }
-    await copyMessage(message);
-  };
-
   const currentMessage = currentMonth && `Olá! Gostaria de conversar sobre meu demonstrativo de ${currentMonth.monthName}/${currentMonth.year}.`;
-  const currentWhatsAppUrl = currentMessage ? whatsappUrl(adminPhone, currentMessage) : null;
+  const openMessagePreview = (message) => setMessageDraft(message);
+  const openWhatsApp = () => {
+    const url = whatsappUrl(adminPhone, messageDraft ?? '');
+    if (url) window.open(url, '_blank', 'noopener,noreferrer');
+  };
   const toggleCard = (cardId) => setExpandedCards((previous) => ({ ...previous, [cardId]: !previous[cardId] }));
 
   if (loading) return <main className="participant-portal"><Spinner label="Carregando seu portal…" /></main>;
@@ -135,20 +130,14 @@ export default function PortalPage() {
               <p className="participant-eyebrow">Seu demonstrativo</p>
               <h2>Meses e lançamentos</h2>
             </div>
-            {currentWhatsAppUrl ? (
-              <a className="btn btn-primary participant-contact" href={currentWhatsAppUrl} target="_blank" rel="noreferrer">
-                <CircleHelp size={16} aria-hidden="true" /> Questionar no WhatsApp
-              </a>
-            ) : (
-              <button
-                type="button"
-                className="btn btn-primary participant-contact"
-                disabled={!currentMessage}
-                onClick={() => currentMessage && copyMessage(currentMessage)}
-              >
-                <CircleHelp size={16} aria-hidden="true" /> Copiar mensagem para o responsável
-              </button>
-            )}
+            <button
+              type="button"
+              className="btn btn-primary participant-contact"
+              disabled={!currentMessage}
+              onClick={() => currentMessage && openMessagePreview(currentMessage)}
+            >
+              <CircleHelp size={16} aria-hidden="true" /> Questionar no WhatsApp
+            </button>
           </div>
 
           {data.months.length === 0 ? (
@@ -226,7 +215,7 @@ export default function PortalPage() {
                                       {item.pendingAmount === 0 ? 'Pago' : item.paidAmount > 0 ? `Parcial · falta ${brl(item.pendingAmount)}` : 'Pendente'}
                                     </span>
                                   </div>
-                                  <button className="participant-question" type="button" aria-label={`Questionar ${item.description}`} onClick={() => handleQuestion(currentMonth, item, card.cardName)}>
+                                  <button className="participant-question" type="button" aria-label={`Questionar ${item.description}`} onClick={() => openMessagePreview(itemMessage(data.person.name, currentMonth, item, card.cardName))}>
                                     <CircleHelp size={17} aria-hidden="true" />
                                   </button>
                                 </article>
@@ -259,7 +248,7 @@ export default function PortalPage() {
                             {item.pendingAmount === 0 ? 'Pago' : item.paidAmount > 0 ? `Parcial · falta ${brl(item.pendingAmount)}` : 'Pendente'}
                           </span>
                         </div>
-                        <button className="participant-question" type="button" aria-label={`Questionar ${item.description}`} onClick={() => handleQuestion(currentMonth, item)}>
+                        <button className="participant-question" type="button" aria-label={`Questionar ${item.description}`} onClick={() => openMessagePreview(itemMessage(data.person.name, currentMonth, item))}>
                           <CircleHelp size={17} aria-hidden="true" />
                         </button>
                       </article>
@@ -276,6 +265,27 @@ export default function PortalPage() {
           Os dados são privados e este portal permite apenas consulta. Para corrigir um lançamento, fale com o responsável.
         </footer>
       </div>
+      <Modal
+        open={messageDraft !== null}
+        title="Revisar mensagem"
+        className="participant-message-modal"
+        footer={(
+          <>
+            <Button variant="ghost" onClick={() => setMessageDraft(null)}>Cancelar</Button>
+            <Button onClick={() => copyMessage(messageDraft ?? '')}><Copy size={16} aria-hidden="true" /> Copiar</Button>
+            <Button variant="primary" disabled={!whatsappUrl(adminPhone, messageDraft ?? '')} onClick={openWhatsApp}>
+              <MessageCircle size={16} aria-hidden="true" /> Abrir no WhatsApp
+            </Button>
+          </>
+        )}
+      >
+        <Field label="Mensagem (você pode editar antes de enviar)">
+          {(id) => <textarea id={id} className="input" rows={8} value={messageDraft ?? ''} onChange={(event) => setMessageDraft(event.target.value)} />}
+        </Field>
+        {!whatsappUrl(adminPhone, messageDraft ?? '') && (
+          <p className="field-hint">O WhatsApp do responsável ainda não está configurado. O participante pode copiar a mensagem; configure o contato em Configurações para habilitar a abertura do WhatsApp.</p>
+        )}
+      </Modal>
     </main>
   );
 }

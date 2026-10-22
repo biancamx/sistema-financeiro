@@ -7,6 +7,7 @@ import {
   CircleDollarSign,
   CreditCard,
   Bell,
+  CircleHelp,
   AlertTriangle,
   ExternalLink,
   Eye,
@@ -25,6 +26,7 @@ import ErrorBoundary from '../ErrorBoundary.jsx';
 import { PATHS } from '../../app/paths.js';
 import { remindersApi } from '../../services/api.js';
 import { useAppBusy } from '../../context/BusyContext.jsx';
+import { startTour } from '../../lib/tour.js';
 
 const NAV = [
   { title: 'Finanças', items: [
@@ -68,6 +70,7 @@ function PeriodPicker() {
 }
 
 const MOBILE_NAV = NAV.flatMap((group) => group.items);
+const navTourId = (path) => `nav-${path.replace(/^\//, '')}`;
 
 export default function AppLayout() {
   const { user, logout } = useAuth();
@@ -140,6 +143,7 @@ export default function AppLayout() {
                 <NavLink
                   key={i.to}
                   to={i.to}
+                  data-tour={navTourId(i.to)}
                   title={desktopCollapsed ? i.label : undefined}
                   className={({ isActive }) => `nav-link ${desktopCollapsed ? 'nav-link-collapsed' : ''} ${isActive ? 'active' : ''}`}
                 >
@@ -212,10 +216,20 @@ export default function AppLayout() {
           </div>
           <div className="topbar-actions">
             {USES_PERIOD.some((p) => pathname.startsWith(p)) && <PeriodPicker />}
+            <button
+              className="icon-btn tour-trigger"
+              type="button"
+              onClick={startTour}
+              aria-label="Iniciar tour guiado"
+              title="Tour guiado"
+            >
+              <CircleHelp aria-hidden="true" />
+            </button>
             <div className="notification-menu" ref={notificationsRef}>
               <button
                 className="notification-trigger"
                 type="button"
+                data-tour="reminders"
                 onClick={() => setNotificationsOpen((open) => !open)}
                 aria-label={`Central de lembretes, ${alertsData.totalAlerts} pendências`}
                 aria-expanded={notificationsOpen}
@@ -316,6 +330,7 @@ export default function AppLayout() {
                     <NavLink
                       key={item.to}
                       to={item.to}
+                      data-tour={navTourId(item.to)}
                       onClick={() => setMobileMenuOpen(false)}
                       className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
                     >
@@ -358,6 +373,7 @@ export default function AppLayout() {
             <NavLink
               key={item.to}
               to={item.to}
+              data-tour={navTourId(item.to)}
               className={({ isActive }) => `mobile-bottom-link ${isActive ? 'active' : ''}`}
             >
               <item.icon className="mobile-bottom-symbol" aria-hidden="true" />

@@ -103,6 +103,22 @@ const MIGRATIONS = [
       }
     },
   },
+  {
+    name: '015_vehicle_owner',
+    run(database) {
+      if (!columnExists(database, 'vehicles', 'owner_id')) {
+        database.exec('ALTER TABLE vehicles ADD COLUMN owner_id INTEGER REFERENCES people(id) ON DELETE SET NULL');
+      }
+    },
+  },
+  {
+    name: '016_portal_contact_person',
+    run(database) {
+      if (!columnExists(database, 'users', 'portal_contact_person_id')) {
+        database.exec('ALTER TABLE users ADD COLUMN portal_contact_person_id INTEGER REFERENCES people(id) ON DELETE SET NULL');
+      }
+    },
+  },
 ];
 
 export function openDb(dbPath) {

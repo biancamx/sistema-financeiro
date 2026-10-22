@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Check, Link2 } from 'lucide-react';
+import { Check, Link2, MessageCircle } from 'lucide-react';
 import { usePeriod } from '../../context/PeriodContext.jsx';
 import { useToast } from '../../context/ToastContext.jsx';
 import { useFetch } from '../../hooks/useFetch.js';
-import { remindersApi, peopleApi } from '../../services/api.js';
+import { remindersApi, peopleApi, systemApi } from '../../services/api.js';
 import { Button, Card, EmptyState, ErrorState, Field, Modal, Money, PageHeader, Spinner } from '../../components/ui/ui.jsx';
 import { PATHS } from '../../app/paths.js';
 import { MONTHS } from '../../lib/format.js';
@@ -101,6 +101,7 @@ export default function PeoplePage() {
   const { month, year } = usePeriod();
   const toast = useToast();
   const { data, error, reload } = useFetch(() => peopleApi.list(), []);
+  const portalContact = useFetch(() => systemApi.getPortalContact(), []);
   const [editing, setEditing] = useState(null);
   const [personModalOpen, setPersonModalOpen] = useState(false);
   const [form, setForm] = useState(emptyForm);
@@ -239,6 +240,22 @@ export default function PeoplePage() {
       toast.error(new Error('Não foi possível copiar o link. Verifique a permissão da área de transferência.'));
     }
   };
+  const togglePortalContact = async (person) => {
+    if (!person.phone) {
+      toast.error(new Error('Cadastre um telefone para essa pessoa antes de defini-la como contato do portal.'));
+      return;
+    }
+    try {
+      const selected = portalContact.data?.personId === person.id;
+      const contact = await systemApi.setPortalContact(selected ? null : person.id);
+      portalContact.setData(contact);
+      toast.success(selected
+        ? 'Contato do Portal do participante removido.'
+        : `${person.name} receberá as mensagens do Portal do participante.`);
+    } catch (e) {
+      toast.error(e);
+    }
+  };
   const copyMessage = async () => {
     if (!billing?.formattedMessage) return;
     try {
@@ -300,6 +317,16 @@ export default function PeoplePage() {
                 <p className="muted small">{person.purchases} compra(s) registrada(s)</p>
                 <div className="person-card-actions">
                   <Button variant="primary" size="sm" onClick={() => openBilling(person)}>Cobrar no WhatsApp</Button>
+                  <Button
+                    variant={portalContact.data?.personId === person.id ? 'primary' : 'ghost'}
+                    size="sm"
+                    disabled={portalContact.loading || Boolean(portalContact.error) || !person.phone}
+                    title={person.phone ? 'Usar este telefone para receber mensagens do Portal do participante' : 'Cadastre um telefone para habilitar'}
+                    onClick={() => togglePortalContact(person)}
+                  >
+                    <MessageCircle size={14} aria-hidden="true" />
+                    {portalContact.data?.personId === person.id ? 'Contato do portal' : 'Usar no portal'}
+                  </Button>
                   <Button variant="ghost" size="sm" onClick={() => copyPortalLink(person)}>
                     <Link2 size={14} aria-hidden="true" /> Portal
                   </Button>
@@ -316,17 +343,16 @@ export default function PeoplePage() {
       <Modal
         open={personModalOpen}
         title={editing ? 'Editar pessoa' : 'Nova pessoa'}
-        onClose={() => { setPersonModalOpen(false); setEditing(null); setForm({ ...emptyForm }); }}
         wide
         footer={<><Button variant="ghost" onClick={() => { setPersonModalOpen(false); setEditing(null); setForm({ ...emptyForm }); }}>Cancelar</Button><Button variant="primary" disabled={saving} onClick={save}>{saving ? 'Salvando…' : 'Salvar'}</Button></>}
       >
         <div className="person-avatar-editor">
           <button type="button" className="person-avatar-upload" onClick={() => fileInput.current?.click()} aria-label="Escolher foto de perfil">
-            {form.avatar ? <img src={form.avatar} alt="Prévia do avatar" /> : <span>{form.name ? form.name.charAt(0).toLocaleUpperCase('pt-BR') : '+'}</span>}
+            <PersonAvatar person={{ name: form.name || 'Pessoa', email: form.email, avatar: form.avatar }} />
           </button>
           <div>
             <strong>Foto de perfil</strong>
-            <p className="muted small">A foto é cortada em formato quadrado, redimensionada e comprimida para até 20 KB.</p>
+            <p className="muted small">Se houver uma foto pública no Gravatar associado ao e-mail, ela aparece aqui. Você também pode escolher uma foto do computador, que será cortada e reduzida para até 20 KB.</p>
             <div className="inline person-avatar-actions">
               <Button size="sm" variant="ghost" onClick={() => fileInput.current?.click()}>Escolher foto</Button>
               {form.avatar && <Button size="sm" variant="ghost" onClick={() => setFormValue('avatar', null)}>Remover</Button>}
@@ -347,7 +373,6 @@ export default function PeoplePage() {
       <Modal
         open={!!billingPerson}
         title={`Demonstrativo de cobrança${billingPerson ? ` · ${billingPerson.name}` : ''}`}
-        onClose={closeBilling}
         wide
         footer={<>
           {billing && billing.grandTotalPending > 0 && (

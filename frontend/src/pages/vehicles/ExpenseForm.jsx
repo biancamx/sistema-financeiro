@@ -6,20 +6,20 @@ import { showKm, todayIso, vehicleLabel } from './vehicles.js';
 export const emptyExpense = (defaults = {}) => {
   const date = todayIso();
   return {
-    vehicleId: defaults.vehicleId || '', date, category: '', description: '', amount: '', km: '',
+    vehicleId: defaults.vehicleId ? String(defaults.vehicleId) : '', date, category: '', description: '', amount: '', km: '',
     payerId: '', paymentMethod: 'cash', cardId: '', installmentCount: '1',
     requestId: globalThis.crypto.randomUUID(), shared: false, participantIds: [], splitMode: 'equal', values: {},
   };
 };
 
 export const expenseToForm = (e) => ({
-  id: e.id, requestId: e.requestId, vehicleId: e.vehicleId, date: e.date, category: e.category, description: e.description || '',
-  amount: String(e.amount).replace('.', ','), km: e.km == null ? '' : String(e.km), payerId: e.payerId,
-  paymentMethod: e.paymentMethod || 'cash', cardId: e.cardId || '', installmentCount: String(e.installmentCount || 1),
-  shared: e.shared, participantIds: e.shared ? e.shares.map((s) => s.personId) : [],
+  id: e.id, requestId: e.requestId, vehicleId: e.vehicleId == null ? '' : String(e.vehicleId), date: e.date, category: e.category, description: e.description || '',
+  amount: String(e.amount).replace('.', ','), km: e.km == null ? '' : String(e.km), payerId: e.payerId == null ? '' : String(e.payerId),
+  paymentMethod: e.paymentMethod || 'cash', cardId: e.cardId == null ? '' : String(e.cardId), installmentCount: String(e.installmentCount || 1),
+  shared: e.shared, participantIds: e.shared ? e.shares.map((s) => String(s.personId)) : [],
   // divisão desigual volta como "valor em R$" (exato, sem arredondar porcentagem)
   splitMode: e.shared && e.splitMode !== 'equal' ? 'amount' : 'equal',
-  values: Object.fromEntries(e.shares.map((s) => [s.personId, String(s.amount).replace('.', ',')])),
+  values: Object.fromEntries(e.shares.map((s) => [String(s.personId), String(s.amount).replace('.', ',')])),
 });
 
 const fmtNum = (n) => String(Math.round(n * 100) / 100).replace('.', ',');
@@ -52,17 +52,17 @@ export default function ExpenseForm({ value, onClose, onSubmit, vehicles, people
   const shareOf = (i) => (wSum > 0 && amount > 0 ? (amount * weights[i]) / wSum : 0);
   const exact = !custom && n > 0 && Math.round(amount * 100) % n === 0;
   const nameOf = (id) => people.find((x) => x.id === id)?.name;
-  const cardOf = (id) => cards.find((card) => card.id === Number(id));
+  const cardOf = (id) => cards.find((card) => card.id === id);
   const chooseCard = (value) => {
     const card = cardOf(value);
     setF((current) => ({
       ...current,
-      cardId: value ? Number(value) : '',
-      ...(card?.ownerId ? { payerId: card.ownerId } : {}),
+      cardId: value || '',
+      ...(card?.ownerId ? { payerId: String(card.ownerId) } : {}),
     }));
   };
 
-  const vehicle = vehicles.find((v) => v.id === Number(f.vehicleId));
+  const vehicle = vehicles.find((v) => v.id === f.vehicleId);
   const km = f.km === '' ? null : Number(f.km);
   const kmLow = vehicle?.currentKm != null && km != null && km < vehicle.currentKm;
 
@@ -104,27 +104,27 @@ export default function ExpenseForm({ value, onClose, onSubmit, vehicles, people
     setBusy(true);
     try {
       const body = {
-        vehicleId: Number(f.vehicleId), date: f.date, category: f.category, description: f.description.trim(),
-        amount, km, payerId: Number(f.payerId), shared: f.shared, paymentMethod: f.paymentMethod,
+        vehicleId: f.vehicleId, date: f.date, category: f.category, description: f.description.trim(),
+        amount, km, payerId: f.payerId, shared: f.shared, paymentMethod: f.paymentMethod,
         ...(f.paymentMethod === 'card' && {
-          cardId: Number(f.cardId), installmentCount: Number(f.installmentCount),
+          cardId: f.cardId, installmentCount: Number(f.installmentCount),
         }),
         ...(!f.id && { requestId: f.requestId }),
       };
       await onSubmit(f.shared
-        ? { ...body, splitMode: f.splitMode, participants: f.participantIds.map((id, i) => ({ personId: Number(id), ...(custom && { value: vals[i] }) })) }
+        ? { ...body, splitMode: f.splitMode, participants: f.participantIds.map((id, i) => ({ personId: id, ...(custom && { value: vals[i] }) })) }
         : body);
     } finally { setBusy(false); }
   };
 
   const personOpts = people.map((x) => ({ value: x.id, label: x.name }));
   return (
-    <Modal open title={f.id ? 'Editar gasto' : 'Novo gasto'} onClose={onClose} wide
+    <Modal open title={f.id ? 'Editar gasto' : 'Novo gasto'} wide
       footer={<><Button variant="ghost" onClick={onClose}>Cancelar</Button><Button variant="primary" disabled={busy} onClick={submit}>{f.id ? 'Salvar alterações' : 'Registrar gasto'}</Button></>}>
       <div className="form-grid">
         <Field label="Data" error={errors.date}>{(id) => <input id={id} className="input" type="date" value={f.date} onChange={set('date')} />}</Field>
         <Field label="Veículo" error={errors.vehicleId}>
-          {(id) => <Select id={id} value={f.vehicleId} onChange={(v) => set('vehicleId')(v ? Number(v) : '')} placeholder="Escolha…" options={vehicles.map((v) => ({ value: v.id, label: vehicleLabel(v) }))} />}
+          {(id) => <Select id={id} value={f.vehicleId} onChange={set('vehicleId')} placeholder="Escolha…" options={vehicles.map((v) => ({ value: v.id, label: vehicleLabel(v) }))} />}
         </Field>
         <Field label="Categoria do gasto" error={errors.category}>
           {(id) => (
@@ -139,7 +139,7 @@ export default function ExpenseForm({ value, onClose, onSubmit, vehicles, people
         <Field label="KM atual" error={errors.km} hint={kmLow ? `Menor que o último registrado (${showKm(vehicle.currentKm)}). Confira o odômetro.` : vehicle?.currentKm != null ? `Último registrado: ${showKm(vehicle.currentKm)}` : 'Opcional'}>
           {(id) => <input id={id} className="input" inputMode="numeric" value={f.km} onChange={(e) => setF((s) => ({ ...s, km: e.target.value.replace(/\D/g, '') }))} placeholder="Ex.: 41200" />}
         </Field>
-        <Field label="Pessoa responsável / pagadora" error={errors.payerId}>{(id) => <Select id={id} value={f.payerId} onChange={(v) => set('payerId')(v ? Number(v) : '')} placeholder="Escolha…" options={personOpts} />}</Field>
+        <Field label="Pessoa responsável / pagadora" error={errors.payerId}>{(id) => <Select id={id} value={f.payerId} onChange={set('payerId')} placeholder="Escolha…" options={personOpts} />}</Field>
         <Field label="Forma de pagamento">
           {(id) => <Select id={id} value={f.paymentMethod} onChange={set('paymentMethod')} options={[{ value: 'cash', label: 'Dinheiro / outro' }, { value: 'card', label: 'Cartão de crédito' }]} />}
         </Field>

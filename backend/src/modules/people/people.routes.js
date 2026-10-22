@@ -1,8 +1,19 @@
+import mongoose from 'mongoose';
 import { Router } from 'express';
 import { z } from 'zod';
-import { conflict, notFound } from '../../lib/errors.js';
-import { generateShareToken } from '../../lib/shareToken.js';
+import { asyncHandler, conflict, notFound } from '../../lib/errors.js';
 import { validate } from '../../middleware/validate.js';
+import { Person } from '../../models/Person.js';
+import { Birthday } from '../../models/Birthday.js';
+import { Purchase } from '../../models/Purchase.js';
+import { VehicleExpense } from '../../models/VehicleExpense.js';
+import { Installment } from '../../models/Installment.js';
+import { BudgetSheet } from '../../models/BudgetSheet.js';
+import { MonthStatus } from '../../models/MonthStatus.js';
+import { CashEntry } from '../../models/CashEntry.js';
+import { Card } from '../../models/Card.js';
+import { Vehicle } from '../../models/Vehicle.js';
+import { User } from '../../models/User.js';
 
 const birthDate = z.string()
   .regex(/^\d{4}-\d{2}-\d{2}$/, 'Data de nascimento inválida')
@@ -23,96 +34,127 @@ const body = z.object({
   avatar: z.string().max(30_000).regex(/^data:image\/jpeg;base64,[A-Za-z\d+/]+=*$/).nullable().optional(),
   notes: z.string().trim().max(1000).nullable().optional(),
 });
-const idParam = z.object({ id: z.coerce.number().int().positive() });
+const idParam = z.object({ id: z.string().regex(/^[\da-f]{24}$/i) });
 
-function syncBirthday(db, userId, personId, name, date) {
-  const existing = db.prepare('SELECT id FROM birthdays WHERE user_id = ? AND person_id = ?').get(userId, personId);
-  if (!date) {
-    if (existing) db.prepare('DELETE FROM birthdays WHERE id = ? AND user_id = ?').run(existing.id, userId);
+function personJson(person, purchases = 0) {
+  return {
+    id: String(person._id),
+    name: person.name,
+    phone: person.phone,
+    email: person.email,
+    birth_date: person.birthDate,
+    pix_key: person.pixKey,
+    avatar: person.avatar,
+    notes: person.notes,
+    share_token: person.shareToken,
+    purchases,
+  };
+}
+
+async function syncBirthday(userId, person, session) {
+  if (!person.birthDate) {
+    await Birthday.deleteOne({ userId, personId: person._id }).session(session);
     return;
   }
-
-  const [year, month, day] = date.split('-').map(Number);
-  if (existing) {
-    db.prepare('UPDATE birthdays SET name = ?, day = ?, month = ? WHERE id = ? AND user_id = ?')
-      .run(name, day, month, existing.id, userId);
-  } else {
-    db.prepare('INSERT INTO birthdays (user_id, name, day, month, person_id) VALUES (?, ?, ?, ?, ?)')
-      .run(userId, name, day, month, personId);
-  }
+  const [, month, day] = person.birthDate.split('-').map(Number);
+  await Birthday.findOneAndUpdate(
+    { userId, personId: person._id },
+    { $set: { name: person.name, day, month }, $setOnInsert: { userId, personId: person._id } },
+    { upsert: true, session, runValidators: true, setDefaultsOnInsert: true },
+  );
 }
 
-function personData(db, personId, userId) {
-  return db.prepare(
-    `SELECT p.id, p.name, p.phone, p.email, p.birth_date, p.pix_key, p.avatar, p.notes, p.share_token,
-       (SELECT COUNT(*) FROM purchases WHERE person_id = p.id AND user_id = p.user_id) AS purchases
-     FROM people p WHERE p.id = ? AND p.user_id = ?`,
-  ).get(personId, userId);
-}
-
-export function peopleRoutes(db) {
+export function peopleRoutes() {
   const r = Router();
-  r.get('/', (req, res) => {
-    const rows = db
-      .prepare(
-        `SELECT p.id, p.name, p.phone, p.email, p.birth_date, p.pix_key, p.avatar, p.notes, p.share_token,
-          (SELECT COUNT(*) FROM purchases WHERE person_id = p.id AND user_id = p.user_id) AS purchases
-         FROM people p WHERE p.user_id = ? ORDER BY p.name COLLATE NOCASE`,
-      )
-      .all(req.user.id);
-    res.json({ data: rows });
-  });
-  r.post('/', validate({ body }), (req, res) => {
-    const values = {
-      phone: req.body.phone || null,
-      email: req.body.email ? req.body.email.toLowerCase() : null,
-      birthDate: req.body.birthDate || null,
-      pixKey: req.body.pixKey || null,
-      avatar: req.body.avatar || null,
-      notes: req.body.notes || null,
-    };
-    const created = db.transaction(() => {
-      const result = db.prepare(
-        `INSERT INTO people (user_id, name, phone, email, birth_date, pix_key, avatar, notes, share_token)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      ).run(req.user.id, req.body.name, values.phone, values.email, values.birthDate, values.pixKey, values.avatar, values.notes, generateShareToken(db));
-      const personId = Number(result.lastInsertRowid);
-      syncBirthday(db, req.user.id, personId, req.body.name, values.birthDate);
-      return personData(db, personId, req.user.id);
-    })();
-    res.status(201).json({ data: created });
-  });
-  r.put('/:id', validate({ params: idParam, body }), (req, res) => {
-    const updated = db.transaction(() => {
-      const current = db.prepare('SELECT * FROM people WHERE id = ? AND user_id = ?').get(req.params.id, req.user.id);
-      if (!current) throw notFound('Pessoa não encontrada');
-      const values = {
-        name: req.body.name,
-        phone: req.body.phone === undefined ? current.phone : req.body.phone || null,
-        email: req.body.email === undefined ? current.email : req.body.email ? req.body.email.toLowerCase() : null,
-        birthDate: req.body.birthDate === undefined ? current.birth_date : req.body.birthDate || null,
-        pixKey: req.body.pixKey === undefined ? current.pix_key : req.body.pixKey || null,
-        avatar: req.body.avatar === undefined ? current.avatar : req.body.avatar || null,
-        notes: req.body.notes === undefined ? current.notes : req.body.notes || null,
-      };
-      db.prepare(
-        `UPDATE people SET name = ?, phone = ?, email = ?, birth_date = ?, pix_key = ?, avatar = ?, notes = ?
-         WHERE id = ? AND user_id = ?`,
-      ).run(values.name, values.phone, values.email, values.birthDate, values.pixKey, values.avatar, values.notes, req.params.id, req.user.id);
-      syncBirthday(db, req.user.id, Number(req.params.id), values.name, values.birthDate);
-      return personData(db, req.params.id, req.user.id);
-    })();
-    res.json({ data: updated });
-  });
-  r.delete('/:id', validate({ params: idParam }), (req, res) => {
-    // Gastos de veículo guardam quem pagou/assumiu: apagar a pessoa quebraria o histórico.
-    const used = db
-      .prepare('SELECT (SELECT COUNT(*) FROM vehicle_expenses WHERE payer_id = ? AND user_id = ?) + (SELECT COUNT(*) FROM vehicle_expense_shares WHERE person_id = ? AND user_id = ?) AS n')
-      .get(req.params.id, req.user.id, req.params.id, req.user.id).n;
+  r.get('/', asyncHandler(async (req, res) => {
+    const people = await Person.find({ userId: req.user._id }).sort({ name: 1 }).lean();
+    const counts = await Purchase.aggregate([
+      { $match: { userId: req.user._id, personId: { $in: people.map((person) => person._id) } } },
+      { $group: { _id: '$personId', count: { $sum: 1 } } },
+    ]);
+    const countByPerson = new Map(counts.map((item) => [String(item._id), item.count]));
+    res.json({ data: people.map((person) => personJson(person, countByPerson.get(String(person._id)) ?? 0)) });
+  }));
+  r.post('/', validate({ body }), asyncHandler(async (req, res) => {
+    const session = await mongoose.startSession();
+    let created;
+    try {
+      await session.withTransaction(async () => {
+        const [person] = await Person.create([{
+          userId: req.user._id,
+          name: req.body.name,
+          phone: req.body.phone || null,
+          email: req.body.email ? req.body.email.toLowerCase() : null,
+          birthDate: req.body.birthDate || null,
+          pixKey: req.body.pixKey || null,
+          avatar: req.body.avatar || null,
+          notes: req.body.notes || null,
+        }], { session });
+        created = person;
+        await syncBirthday(req.user._id, person, session);
+      });
+    } finally {
+      await session.endSession();
+    }
+    res.status(201).json({ data: personJson(created) });
+  }));
+  r.put('/:id', validate({ params: idParam, body }), asyncHandler(async (req, res) => {
+    const session = await mongoose.startSession();
+    let updated;
+    try {
+      await session.withTransaction(async () => {
+        const current = await Person.findOne({ _id: req.params.id, userId: req.user._id }).session(session);
+        if (!current) throw notFound('Pessoa não encontrada');
+        current.name = req.body.name;
+        for (const key of ['phone', 'email', 'birthDate', 'pixKey', 'avatar', 'notes']) {
+          if (req.body[key] !== undefined) current[key] = key === 'email'
+            ? (req.body[key] ? req.body[key].toLowerCase() : null)
+            : (req.body[key] || null);
+        }
+        await current.save({ session });
+        await syncBirthday(req.user._id, current, session);
+        updated = current.toObject();
+      });
+    } finally {
+      await session.endSession();
+    }
+    const purchases = await Purchase.countDocuments({ userId: req.user._id, personId: req.params.id });
+    res.json({ data: personJson(updated, purchases) });
+  }));
+  r.delete('/:id', validate({ params: idParam }), asyncHandler(async (req, res) => {
+    const personId = req.params.id;
+    const used = await VehicleExpense.exists({
+      userId: req.user._id,
+      $or: [{ payerId: personId }, { 'shares.personId': personId }],
+    });
     if (used) throw conflict('Esta pessoa tem gastos de veículo registrados. Edite ou exclua esses lançamentos antes de excluí-la.');
-    const info = db.prepare('DELETE FROM people WHERE id = ? AND user_id = ?').run(req.params.id, req.user.id);
-    if (!info.changes) throw notFound('Pessoa não encontrada');
+    const session = await mongoose.startSession();
+    try {
+      await session.withTransaction(async () => {
+        const person = await Person.findOne({ _id: personId, userId: req.user._id }).session(session);
+        if (!person) throw notFound('Pessoa não encontrada');
+        const purchases = await Purchase.find({ userId: req.user._id, personId }).select('_id').session(session);
+        if (purchases.length) {
+          await Installment.deleteMany({ userId: req.user._id, purchaseId: { $in: purchases.map((item) => item._id) } }, { session });
+          await Purchase.deleteMany({ _id: { $in: purchases.map((item) => item._id) }, userId: req.user._id }, { session });
+        }
+        await BudgetSheet.deleteMany({ userId: req.user._id, personId }, { session });
+        await MonthStatus.deleteMany({ userId: req.user._id, personId }, { session });
+        await Birthday.deleteMany({ userId: req.user._id, personId }, { session });
+        await CashEntry.updateMany({ userId: req.user._id, personId }, { $set: { personId: null } }, { session });
+        await Card.updateMany({ userId: req.user._id, ownerId: personId }, { $set: { ownerId: null } }, { session });
+        await Vehicle.updateMany({ userId: req.user._id, ownerId: personId }, { $set: { ownerId: null } }, { session });
+        await User.updateOne(
+          { _id: req.user._id, portalContactPersonId: personId },
+          { $set: { portalContactPersonId: null } },
+          { session },
+        );
+        await person.deleteOne({ session });
+      });
+    } finally {
+      await session.endSession();
+    }
     res.status(204).end();
-  });
+  }));
   return r;
 }

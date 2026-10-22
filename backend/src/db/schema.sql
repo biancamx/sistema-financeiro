@@ -4,6 +4,7 @@ CREATE TABLE IF NOT EXISTS users (
   email TEXT NOT NULL UNIQUE COLLATE NOCASE,
   name TEXT NOT NULL,
   picture TEXT,
+  portal_contact_person_id INTEGER REFERENCES people(id) ON DELETE SET NULL,
   password_hash TEXT,
   google_sub TEXT UNIQUE,
   provider TEXT NOT NULL DEFAULT 'password',   -- password | google | local
@@ -201,6 +202,7 @@ CREATE TABLE IF NOT EXISTS vehicles (
   plate TEXT NOT NULL,                       -- normalizada: maiúscula, sem hífen/espaço
   year INTEGER,
   purchase_value REAL NOT NULL DEFAULT 0,
+  owner_id INTEGER REFERENCES people(id) ON DELETE SET NULL,
   status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','inactive','sold')),
   sold_date TEXT,
   sold_value_cents INTEGER,

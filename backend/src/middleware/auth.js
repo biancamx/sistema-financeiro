@@ -1,8 +1,10 @@
 import jwt from 'jsonwebtoken';
+import mongoose from 'mongoose';
 import { unauthorized } from '../lib/errors.js';
+import { User } from '../models/User.js';
 
-export function requireAuth(db) {
-  return (req, res, next) => {
+export function requireAuth() {
+  return async (req, res, next) => {
     const token =
       req.cookies?.caderno_token ||
       req.cookies?.fin_token ||
@@ -24,32 +26,27 @@ export function requireAuth(db) {
       return next(err);
     }
 
-    if (typeof decoded.email !== 'string' || !decoded.email.trim()) {
+    const userId = decoded.sub || decoded.id;
+    if (typeof userId !== 'string' || !mongoose.isValidObjectId(userId)) {
       return next(unauthorized('Sessão inválida'));
     }
 
     try {
-      const email = decoded.email.trim().toLowerCase();
-      let user = db.prepare('SELECT id, name, email FROM users WHERE email = ?').get(email);
-
+      const user = await User.findById(userId).select('_id name email avatar');
       if (!user) {
-        const name = decoded.name || 'Usuário';
-        const result = db.prepare(`
-          INSERT INTO users (name, email, password_hash)
-          VALUES (?, ?, 'GOOGLE_USER')
-        `).run(name, email);
-        user = { id: result.lastInsertRowid, name, email };
+        return next(unauthorized('Usuário não encontrado'));
       }
 
       req.user = {
-        id: user.id,
+        _id: user._id,
+        id: user._id.toString(),
         email: user.email,
         name: user.name,
-        avatar: decoded.avatar || null,
+        avatar: user.avatar || null,
       };
-      next();
+      return next();
     } catch (err) {
-      next(err);
+      return next(err);
     }
   };
 }

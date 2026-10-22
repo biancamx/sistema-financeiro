@@ -6,10 +6,21 @@ import { forbidden } from '../lib/errors.js';
 // Camada "Security & RLS": cabeçalhos seguros, CORS restrito e checagem de Origin em escritas.
 export const securityHeaders = helmet();
 
+export function isAllowedOrigin(origin) {
+  if (!origin || env.frontendUrls.includes(origin)) return true;
+  if (env.nodeEnv !== 'development') return false;
+
+  try {
+    const url = new URL(origin);
+    return url.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
+  } catch {
+    return false;
+  }
+}
+
 export const corsPolicy = cors({
   origin(origin, cb) {
-    if (!origin || env.frontendUrls.includes(origin)) return cb(null, true);
-    cb(null, false);
+    cb(null, isAllowedOrigin(origin));
   },
   credentials: true,
 });
@@ -18,7 +29,10 @@ export const corsPolicy = cors({
 export function originCheck(req, _res, next) {
   const safe = ['GET', 'HEAD', 'OPTIONS'].includes(req.method);
   const origin = req.headers.origin;
-  if (!safe && origin && !env.frontendUrls.includes(origin)) return next(forbidden('Origem não permitida'));
+  if (!safe && origin && !isAllowedOrigin(origin)) {
+    req.log?.warn({ origin }, 'Origem de escrita bloqueada');
+    return next(forbidden('Origem não permitida'));
+  }
   next();
 }
 

@@ -1,220 +1,152 @@
+import mongoose from 'mongoose';
 import { normalizeText } from './spreadsheet.reader.js';
+import { Person } from '../../models/Person.js';
+import { Card } from '../../models/Card.js';
+import { Category } from '../../models/Category.js';
+import { Purchase } from '../../models/Purchase.js';
+import { Installment } from '../../models/Installment.js';
+import { BudgetSheet } from '../../models/BudgetSheet.js';
+import { Birthday } from '../../models/Birthday.js';
 
 const SECTION_MAP = {
-  receitas: 'income',
-  beneficios: 'benefits',
-  investimentos: 'investments',
-  descontos: 'deductions',
-  alimentacao: 'food',
-  veiculos: 'vehicle',
-  despesas_variaveis: 'fixed',
-  variadas: 'misc',
-  moradia: 'housing',
+  receitas: 'income', beneficios: 'benefits', investimentos: 'investments', descontos: 'deductions',
+  alimentacao: 'food', veiculos: 'vehicle', despesas_variaveis: 'fixed', variadas: 'misc', moradia: 'housing',
 };
+const key = (value) => normalizeText(String(value ?? '').trim());
 
-function findOrCreateNamedRecord(db, table, userId, name, fields = {}) {
-  const existing = db.prepare(`SELECT id FROM ${table} WHERE user_id = ? AND LOWER(TRIM(name)) = ?`)
-    .get(userId, name.toLowerCase());
-  if (existing) return Number(existing.id);
-
-  const entries = Object.entries(fields);
-  const columns = ['user_id', 'name', ...entries.map(([column]) => column)];
-  const placeholders = columns.map(() => '?').join(', ');
-  const result = db.prepare(`INSERT INTO ${table} (${columns.join(', ')}) VALUES (${placeholders})`)
-    .run(userId, name, ...entries.map(([, value]) => value));
-  return Number(result.lastInsertRowid);
-}
-
-export function executeSpreadsheetImport(db, userId, analyzedData) {
+export async function executeSpreadsheetImport(userId, analyzedData, userDecisions = {}) {
   const summary = {
-    peopleUpserted: 0,
-    cardsUpserted: 0,
-    purchasesUpserted: 0,
-    installmentsUpserted: 0,
-    budgetsUpserted: 0,
-    birthdaysUpserted: 0,
+    peopleUpserted: 0, cardsUpserted: 0, purchasesUpserted: 0,
+    installmentsUpserted: 0, budgetsUpserted: 0, birthdaysUpserted: 0,
   };
-
-  db.transaction(() => {
-    const personIds = new Map();
-    const people = new Set([
-      ...analyzedData.people,
-      ...analyzedData.purchasesGrouped.map((purchase) => purchase.personName),
-      ...analyzedData.monthlyBudgets.map((budget) => budget.person),
-    ]);
-    for (const name of people) {
-      const clean = String(name).trim();
-      const existing = db.prepare('SELECT id FROM people WHERE user_id = ? AND LOWER(TRIM(name)) = ?')
-        .get(userId, clean.toLowerCase());
-      const id = existing?.id ?? db.prepare('INSERT INTO people (user_id, name) VALUES (?, ?)')
-        .run(userId, clean).lastInsertRowid;
-      personIds.set(normalizeText(clean), Number(id));
-      if (!existing) summary.peopleUpserted++;
-    }
-
-    const cardIds = new Map();
-    const cards = new Set([
-      ...analyzedData.cards,
-      ...analyzedData.purchasesGrouped.map((purchase) => purchase.cardName),
-    ]);
-    for (const name of cards) {
-      const clean = String(name).trim();
-      const existing = db.prepare('SELECT id FROM cards WHERE user_id = ? AND LOWER(TRIM(name)) = ?')
-        .get(userId, clean.toLowerCase());
-      const limit = Number(analyzedData.limits?.[normalizeText(clean)] || 0);
-      const id = existing?.id ?? db.prepare(
-        `INSERT INTO cards (user_id, name, limit_amount, issuer, brand)
-         VALUES (?, ?, ?, 'Outro', 'Outro')`,
-      ).run(userId, clean, limit).lastInsertRowid;
-      if (existing && limit > 0) {
-        db.prepare('UPDATE cards SET limit_amount = ? WHERE id = ? AND user_id = ?').run(limit, id, userId);
-      }
-      cardIds.set(normalizeText(clean), Number(id));
-      if (!existing) summary.cardsUpserted++;
-    }
-
-    const categoryIds = new Map();
-    for (const name of analyzedData.categories || []) {
-      const clean = String(name).trim();
-      if (!clean) continue;
-      categoryIds.set(normalizeText(clean), findOrCreateNamedRecord(db, 'categories', userId, clean));
-    }
-
-    const findPurchases = db.prepare(
-      `SELECT id FROM purchases
-       WHERE user_id = ? AND person_id = ? AND card_id = ? AND COALESCE(category_id, 0) = COALESCE(?, 0)
-         AND LOWER(TRIM(description)) = ? AND total = ? AND installments_count = ?
-         AND COALESCE(purchase_date, '') = COALESCE(?, '')
-       ORDER BY id`,
-    );
-    const usedPurchaseIds = new Set();
-    const insertPurchase = db.prepare(
-      `INSERT INTO purchases
-       (user_id, description, category_id, person_id, card_id, purchase_date, total, installments_count)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    );
-    const findInstallment = db.prepare(
-      'SELECT id, paid_amount FROM installments WHERE user_id = ? AND purchase_id = ? AND month = ? AND year = ?',
-    );
-    const insertInstallment = db.prepare(
-      `INSERT INTO installments (user_id, purchase_id, number, year, month, amount)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-    );
-    const updateInstallment = db.prepare(
-      'UPDATE installments SET number = ?, amount = ? WHERE id = ? AND paid_amount = 0',
-    );
-
-    for (const purchase of analyzedData.purchasesGrouped) {
-      const personId = personIds.get(normalizeText(purchase.personName));
-      const cardId = cardIds.get(normalizeText(purchase.cardName));
-      if (!personId || !cardId) {
-        throw new Error(`Não foi possível localizar pessoa ou cartão da compra "${purchase.description}".`);
-      }
-      const categoryId = purchase.category
-        ? categoryIds.get(normalizeText(purchase.category))
-          ?? findOrCreateNamedRecord(db, 'categories', userId, purchase.category.trim())
-        : null;
-      const purchaseDate = /^\d{4}-\d{2}-\d{2}$/.test(purchase.purchaseDate || '')
-        ? purchase.purchaseDate
-        : null;
-      const existingPurchases = findPurchases.all(
-        userId,
-        personId,
-        cardId,
-        categoryId,
-        purchase.description.toLowerCase().trim(),
-        purchase.totalAmount,
-        purchase.totalInstallments,
-        purchaseDate,
-      );
-      const existing = existingPurchases.find((candidate) => !usedPurchaseIds.has(candidate.id));
-      let purchaseId = existing?.id;
-      if (!purchaseId) {
-        purchaseId = insertPurchase.run(
-          userId,
-          purchase.description.trim(),
-          categoryId,
-          personId,
-          cardId,
-          purchaseDate,
-          purchase.totalAmount,
-          purchase.totalInstallments,
-        ).lastInsertRowid;
-        summary.purchasesUpserted++;
-      }
-      usedPurchaseIds.add(Number(purchaseId));
-
-      const installments = [...purchase.installments].sort((a, b) => (a.year * 12 + a.month) - (b.year * 12 + b.month));
-      installments.forEach((installment, index) => {
-        const current = findInstallment.get(userId, purchaseId, installment.month, installment.year);
-        if (!current) {
-          insertInstallment.run(userId, purchaseId, index + 1, installment.year, installment.month, installment.amount);
-          summary.installmentsUpserted++;
-        } else {
-          updateInstallment.run(index + 1, installment.amount, current.id);
+  const session = await mongoose.startSession();
+  try {
+    await session.withTransaction(async () => {
+      const personNames = new Set([
+        ...(analyzedData.people ?? []),
+        ...(analyzedData.purchasesGrouped ?? []).map((item) => item.personName),
+        ...(analyzedData.monthlyBudgets ?? []).map((item) => item.person),
+      ]);
+      const people = new Map();
+      for (const raw of personNames) {
+        const name = String(raw ?? '').trim();
+        if (!name) continue;
+        let person = await Person.findOne({ userId, name: new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') }).session(session);
+        if (!person) {
+          [person] = await Person.create([{ userId, name }], { session });
+          summary.peopleUpserted++;
         }
-      });
-    }
-
-    const findSheet = db.prepare(
-      'SELECT id FROM budget_sheets WHERE user_id = ? AND person_id = ? AND year = ?',
-    );
-    const insertSheet = db.prepare(
-      'INSERT INTO budget_sheets (user_id, person_id, year) VALUES (?, ?, ?)',
-    );
-    const findRow = db.prepare(
-      `SELECT id FROM budget_rows
-       WHERE user_id = ? AND sheet_id = ? AND section = ? AND LOWER(TRIM(label)) = ?`,
-    );
-    const insertRow = db.prepare(
-      `INSERT INTO budget_rows (user_id, sheet_id, section, label, position)
-       VALUES (?, ?, ?, ?, COALESCE((SELECT MAX(position) + 1 FROM budget_rows WHERE sheet_id = ?), 0))`,
-    );
-    const upsertCell = db.prepare(
-      `INSERT INTO budget_cells (row_id, user_id, month, value) VALUES (?, ?, ?, ?)
-       ON CONFLICT(row_id, month) DO UPDATE SET value = excluded.value`,
-    );
-    const deleteCell = db.prepare('DELETE FROM budget_cells WHERE row_id = ? AND month = ?');
-
-    for (const budget of analyzedData.monthlyBudgets) {
-      const personId = personIds.get(normalizeText(budget.person));
-      if (!personId) throw new Error(`Pessoa não encontrada para a planilha "${budget.person}".`);
-      const section = SECTION_MAP[normalizeText(budget.section)];
-      if (!section) throw new Error(`Seção de planilha não reconhecida: "${budget.section}".`);
-
-      let sheet = findSheet.get(userId, personId, budget.year);
-      if (!sheet) {
-        const sheetId = insertSheet.run(userId, personId, budget.year).lastInsertRowid;
-        sheet = { id: sheetId };
+        people.set(key(name), person._id);
       }
-
-      let row = findRow.get(userId, sheet.id, section, budget.label.toLowerCase().trim());
-      if (!row) {
-        const rowId = insertRow.run(userId, sheet.id, section, budget.label.trim(), sheet.id).lastInsertRowid;
-        row = { id: rowId };
+      const cardNames = new Set([
+        ...(analyzedData.cards ?? []),
+        ...(analyzedData.purchasesGrouped ?? []).map((item) => item.cardName),
+      ]);
+      const cards = new Map();
+      for (const raw of cardNames) {
+        const name = String(raw ?? '').trim();
+        if (!name) continue;
+        const limit = Number(analyzedData.limits?.[key(name)] ?? 0);
+        let card = await Card.findOne({ userId, name: new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') }).session(session);
+        if (!card) {
+          [card] = await Card.create([{ userId, name, limit, issuer: 'Outro', brand: 'outro' }], { session });
+          summary.cardsUpserted++;
+        } else if (limit > 0) {
+          card.limit = limit;
+          await card.save({ session });
+        }
+        cards.set(key(name), card._id);
       }
-      for (const month of budget.months) {
-        if (month.amount === null) {
-          deleteCell.run(row.id, month.month);
-        } else {
-          upsertCell.run(row.id, userId, month.month, month.amount);
+      const categories = new Map();
+      for (const raw of analyzedData.categories ?? []) {
+        const name = String(raw ?? '').trim();
+        if (!name) continue;
+        let category = await Category.findOne({ userId, name: new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') }).session(session);
+        if (!category) [category] = await Category.create([{ userId, name }], { session });
+        categories.set(key(name), category._id);
+      }
+      if (userDecisions.replaceExisting) {
+        const purchases = await Purchase.find({ userId, vehicleExpenseId: null }).select('_id').session(session);
+        await Installment.deleteMany({ userId, purchaseId: { $in: purchases.map((item) => item._id) } }, { session });
+        await Purchase.deleteMany({ userId, vehicleExpenseId: null }, { session });
+      }
+      for (const item of analyzedData.purchasesGrouped ?? []) {
+        const personId = people.get(key(item.personName));
+        const cardId = cards.get(key(item.cardName));
+        if (!personId || !cardId) throw new Error(`Não foi possível localizar pessoa ou cartão da compra "${item.description}".`);
+        let categoryId = item.category ? categories.get(key(item.category)) : null;
+        if (item.category && !categoryId) {
+          const name = String(item.category).trim();
+          let category = await Category.findOne({ userId, name: new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') }).session(session);
+          if (!category) [category] = await Category.create([{ userId, name }], { session });
+          categoryId = category._id;
+        }
+        const purchaseDate = /^\d{4}-\d{2}-\d{2}$/.test(item.purchaseDate || '') ? item.purchaseDate : null;
+        const query = {
+          userId, personId, cardId, categoryId: categoryId ?? null,
+          description: item.description.trim(), totalAmount: item.totalAmount,
+          totalInstallments: item.totalInstallments, purchaseDate,
+        };
+        let purchase = await Purchase.findOne(query).session(session);
+        if (!purchase) {
+          [purchase] = await Purchase.create([query], { session });
+          summary.purchasesUpserted++;
+        }
+        const installments = [...item.installments].sort((a, b) => a.year * 12 + a.month - (b.year * 12 + b.month));
+        for (const [index, installment] of installments.entries()) {
+          const current = await Installment.findOne({
+            userId, purchaseId: purchase._id, month: installment.month, year: installment.year,
+          }).session(session);
+          if (!current) {
+            await Installment.create([{
+              userId, purchaseId: purchase._id, number: index + 1, year: installment.year,
+              month: installment.month, amount: installment.amount,
+            }], { session });
+            summary.installmentsUpserted++;
+          } else if (current.paidAmount === 0) {
+            current.number = index + 1;
+            current.amount = installment.amount;
+            await current.save({ session });
+          }
         }
       }
-      summary.budgetsUpserted++;
-    }
-
-    const findBirthday = db.prepare(
-      'SELECT id FROM birthdays WHERE user_id = ? AND LOWER(TRIM(name)) = ? AND day = ? AND month = ?',
-    );
-    const insertBirthday = db.prepare(
-      'INSERT INTO birthdays (user_id, name, day, month) VALUES (?, ?, ?, ?)',
-    );
-    for (const birthday of analyzedData.birthdays) {
-      if (findBirthday.get(userId, birthday.name.toLowerCase().trim(), birthday.day, birthday.month)) continue;
-      insertBirthday.run(userId, birthday.name.trim(), birthday.day, birthday.month);
-      summary.birthdaysUpserted++;
-    }
-  })();
-
+      for (const item of analyzedData.monthlyBudgets ?? []) {
+        const personId = people.get(key(item.person));
+        if (!personId) throw new Error(`Pessoa não encontrada para a planilha "${item.person}".`);
+        const section = SECTION_MAP[key(item.section)];
+        if (!section) throw new Error(`Seção de planilha não reconhecida: "${item.section}".`);
+        let sheet = await BudgetSheet.findOne({ userId, personId, year: item.year }).session(session);
+        if (!sheet) [sheet] = await BudgetSheet.create([{ userId, personId, year: item.year }], { session });
+        let row = sheet.rows.find((candidate) => candidate.section === section && key(candidate.label) === key(item.label));
+        if (!row) {
+          const position = Math.max(0, ...sheet.rows.map((candidate) => candidate.position)) + 1;
+          sheet.rows.push({ section, label: item.label.trim(), position, cells: [] });
+          row = sheet.rows[sheet.rows.length - 1];
+        }
+        for (const month of item.months) {
+          const cell = row.cells.find((candidate) => candidate.month === month.month);
+          if (month.amount === null) {
+            if (cell) row.cells.splice(row.cells.indexOf(cell), 1);
+          } else if (cell) cell.value = month.amount;
+          else row.cells.push({ month: month.month, value: month.amount });
+        }
+        await sheet.save({ session });
+        summary.budgetsUpserted++;
+      }
+      for (const item of analyzedData.birthdays ?? []) {
+        const name = String(item.name).trim();
+        const exists = await Birthday.exists({
+          userId, name: new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+          day: item.day, month: item.month,
+        }).session(session);
+        if (!exists) {
+          await Birthday.create([{ userId, name, day: item.day, month: item.month }], { session });
+          summary.birthdaysUpserted++;
+        }
+      }
+    });
+  } finally {
+    await session.endSession();
+  }
   return summary;
 }

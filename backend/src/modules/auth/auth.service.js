@@ -1,6 +1,7 @@
 import { OAuth2Client } from 'google-auth-library';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
+import { conflict, unauthorized } from '../../lib/errors.js';
 import { User } from '../../models/User.js';
 
 const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
@@ -54,7 +55,7 @@ export async function loginWithGoogle(credential) {
   const jwtSecret = process.env.JWT_SECRET || 'REDACTED_SECRET';
   const token = jwt.sign(
     {
-      id: user._id.toString(),
+      sub: user._id.toString(),
       email: user.email,
       name: user.name,
       avatar: user.avatar,
@@ -79,7 +80,7 @@ export function generateToken(user) {
   const jwtSecret = process.env.JWT_SECRET || 'REDACTED_SECRET';
   return jwt.sign(
     {
-      id: user._id ? user._id.toString() : user.id,
+      sub: user._id ? user._id.toString() : user.id,
       email: user.email,
       name: user.name,
       avatar: user.avatar,
@@ -95,17 +96,24 @@ export async function registerWithEmail(name, email, password) {
 
   const existing = await User.findOne({ email: cleanEmail });
   if (existing) {
-    const error = new Error('Já existe uma conta com este e-mail.');
-    error.status = 409;
-    throw error;
+    throw conflict('Já existe uma conta com este e-mail.');
   }
 
   const passwordHash = await bcrypt.hash(password, 12);
-  const user = await User.create({
-    name: name.trim(),
-    email: cleanEmail,
-    passwordHash,
-  });
+  let user;
+  try {
+    user = await User.create({
+      name: name.trim(),
+      email: cleanEmail,
+      passwordHash,
+      provider: 'password',
+    });
+  } catch (error) {
+    if (error.code === 11000 && error.keyPattern?.email) {
+      throw conflict('Já existe uma conta com este e-mail.');
+    }
+    throw error;
+  }
 
   const token = generateToken(user);
   return {
@@ -125,16 +133,12 @@ export async function loginWithEmail(email, password) {
 
   const user = await User.findOne({ email: cleanEmail });
   if (!user || !user.passwordHash) {
-    const error = new Error('E-mail ou senha incorretos.');
-    error.status = 401;
-    throw error;
+    throw unauthorized('E-mail ou senha incorretos.');
   }
 
   const matches = await bcrypt.compare(password, user.passwordHash);
   if (!matches) {
-    const error = new Error('E-mail ou senha incorretos.');
-    error.status = 401;
-    throw error;
+    throw unauthorized('E-mail ou senha incorretos.');
   }
 
   const token = generateToken(user);
@@ -154,6 +158,29 @@ export async function getCurrentUser(userId) {
   const user = await User.findById(userId).select('-passwordHash');
   if (!user) return null;
   return {
+    id: user._id.toString(),
+    name: user.name,
+    email: user.email,
+    avatar: user.avatar,
+  };
+}
+
+export async function getOrCreateDemoUser() {
+  const email = 'demo@local.dev';
+  const user = await User.findOneAndUpdate(
+    { email },
+    {
+      $setOnInsert: {
+        name: 'Usuário Demo',
+        email,
+        passwordHash: 'local',
+        provider: 'local',
+      },
+    },
+    { returnDocument: 'after', upsert: true, runValidators: true }
+  );
+  return {
+    _id: user._id,
     id: user._id.toString(),
     name: user.name,
     email: user.email,

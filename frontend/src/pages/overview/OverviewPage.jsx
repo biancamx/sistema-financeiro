@@ -4,7 +4,7 @@ import { useToast } from '../../context/ToastContext.jsx';
 import { useFetch } from '../../hooks/useFetch.js';
 import { useFinanceRefresh } from '../../hooks/useFinanceRefresh.js';
 import { budgetApi, dashboardApi, peopleApi } from '../../services/api.js';
-import { Card, EmptyState, ErrorState, Money, PageHeader, Select, Spinner } from '../../components/ui/ui.jsx';
+import { Card, EmptyState, ErrorState, PageHeader, Select, Spinner } from '../../components/ui/ui.jsx';
 import MoneyCell from '../../components/MoneyCell.jsx';
 import { MONTHS_SHORT, moneyPlain, yearsAround } from '../../lib/format.js';
 import { PATHS } from '../../app/paths.js';
@@ -15,7 +15,7 @@ export default function OverviewPage() {
   const params = useParams();
   const people = useFetch(() => peopleApi.list(), []);
   const thisYear = new Date().getFullYear();
-  const personId = Number(params.personId) || people.data?.[0]?.id;
+  const personId = params.personId || people.data?.[0]?.id;
   const year = Number(params.year) || thisYear;
   const [newLabel, setNewLabel] = useState(null);
 
@@ -65,12 +65,6 @@ export default function OverviewPage() {
       {!d && !ov.error && <Spinner />}
       {d && (
         <>
-        <section className="cash-kpis overview-cash-kpis" aria-label="Caixa avulso do mês atual">
-          <Card><span className="muted">Gastos avulsos no mês</span><strong><Money value={d.cashFlow.monthSpent} /></strong></Card>
-          <Card><span className="muted">Recebido no mês</span><strong><Money value={d.cashFlow.monthReceipts} tone="pos" /></strong></Card>
-          <Card><span className="muted">A receber</span><strong><Money value={d.cashFlow.totalReceivable} tone="warn" /></strong></Card>
-          <Card><span className="muted">Em atraso · {d.cashFlow.overdueCount}</span><strong><Money value={d.cashFlow.overdue} tone="neg" /></strong></Card>
-        </section>
         <Card className="sheet-card">
           <div className="table-wrap sheet-scroll">
             <table className="sheet">

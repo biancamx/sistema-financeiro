@@ -109,6 +109,8 @@ export const importApi = {
 export const toolsApi = { rescission: (b) => post('/tools/rescission', b).then((r) => r.data) };
 export const systemApi = {
   clientError: (b) => post('/client-errors', b).catch(() => {}),
+  getPortalContact: () => get('/system/portal-contact').then((r) => r.data),
+  setPortalContact: (personId) => put('/system/portal-contact', { personId }).then((r) => r.data),
   resetPurchases: () => post('/system/reset-purchases'),
   resetAll: () => post('/system/reset-all'),
 };

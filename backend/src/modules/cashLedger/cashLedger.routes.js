@@ -1,9 +1,10 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import { asyncHandler } from '../../lib/errors.js';
 import { validate } from '../../middleware/validate.js';
 import { createCashLedgerService } from './cashLedger.service.js';
 
-const id = z.coerce.number().int().positive();
+const id = z.string().regex(/^[\da-f]{24}$/i);
 const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional();
 const amount = z.coerce.number().positive().max(100_000_000);
 const entryBody = z.object({
@@ -58,48 +59,48 @@ const idsBody = z.object({
   paymentMethod: z.enum(['cash', 'pix', 'debit', 'transfer']),
 });
 
-export function cashLedgerRoutes(db) {
+export function cashLedgerRoutes() {
   const router = Router();
-  const service = createCashLedgerService(db);
+  const service = createCashLedgerService();
   const entryParam = z.object({ id });
   const installmentParam = z.object({ installmentId: id });
   const receiptParam = z.object({ receiptId: id });
 
-  router.get('/export.csv', (req, res) => {
+  router.get('/export.csv', asyncHandler(async (req, res) => {
     res.set('Content-Type', 'text/csv; charset=utf-8').set('Content-Disposition', 'attachment; filename="avulsos.csv"');
-    res.send(`\uFEFF${service.exportCsv(req.user.id)}`);
-  });
-  router.get('/summary', validate({ query: z.object({ month: z.coerce.number().int().min(1).max(12), year: z.coerce.number().int().min(2000).max(2100) }) }), (req, res) =>
-    res.json({ data: service.summary(req.user.id, req.query.month, req.query.year) }),
-  );
+    res.send(`\uFEFF${await service.exportCsv(req.user._id)}`);
+  }));
+  router.get('/summary', validate({ query: z.object({ month: z.coerce.number().int().min(1).max(12), year: z.coerce.number().int().min(2000).max(2100) }) }), asyncHandler(async (req, res) =>
+    res.json({ data: await service.summary(req.user._id, req.query.month, req.query.year) }),
+  ));
   router.get('/dashboard', validate({ query: z.object({
     period: z.enum(['month', 'last3', 'year', 'all']).default('month'),
     month: z.coerce.number().int().min(1).max(12).optional(),
     year: z.coerce.number().int().min(2000).max(2100).optional(),
-  }) }), (req, res) =>
-    res.json({ data: service.dashboard(req.user.id, req.query) }),
-  );
-  router.get('/people/:id', validate({ params: entryParam }), (req, res) => res.json({ data: service.personSummary(req.user.id, req.params.id) }));
-  router.get('/entries', validate({ query: querySchema }), (req, res) => res.json(service.list(req.user.id, req.query)));
-  router.post('/entries', validate({ body: entryBody }), (req, res) => res.status(201).json({ data: service.create(req.user.id, req.body) }));
-  router.get('/entries/:id', validate({ params: entryParam }), (req, res) => res.json({ data: service.get(req.user.id, req.params.id) }));
-  router.put('/entries/:id', validate({ params: entryParam, body: entryBody }), (req, res) => res.json({ data: service.update(req.user.id, req.params.id, req.body) }));
-  router.delete('/entries/:id', validate({ params: entryParam, query: z.object({ confirm: z.enum(['true', 'false']).optional() }) }), (req, res) => {
-    service.remove(req.user.id, req.params.id, req.query.confirm === 'true');
+  }) }), asyncHandler(async (req, res) =>
+    res.json({ data: await service.dashboard(req.user._id, req.query) }),
+  ));
+  router.get('/people/:id', validate({ params: entryParam }), asyncHandler(async (req, res) => res.json({ data: await service.personSummary(req.user._id, req.params.id) })));
+  router.get('/entries', validate({ query: querySchema }), asyncHandler(async (req, res) => res.json(await service.list(req.user._id, req.query))));
+  router.post('/entries', validate({ body: entryBody }), asyncHandler(async (req, res) => res.status(201).json({ data: await service.create(req.user._id, req.body) })));
+  router.get('/entries/:id', validate({ params: entryParam }), asyncHandler(async (req, res) => res.json({ data: await service.get(req.user._id, req.params.id) })));
+  router.put('/entries/:id', validate({ params: entryParam, body: entryBody }), asyncHandler(async (req, res) => res.json({ data: await service.update(req.user._id, req.params.id, req.body) })));
+  router.delete('/entries/:id', validate({ params: entryParam, query: z.object({ confirm: z.enum(['true', 'false']).optional() }) }), asyncHandler(async (req, res) => {
+    await service.remove(req.user._id, req.params.id, req.query.confirm === 'true');
     res.status(204).end();
-  });
-  router.post('/installments/:installmentId/receipts', validate({ params: installmentParam, body: receiptBody }), (req, res) =>
-    res.status(201).json({ data: service.receive(req.user.id, req.params.installmentId, req.body) }),
-  );
-  router.post('/installments/receive-selected', validate({ body: idsBody }), (req, res) =>
-    res.json({ data: service.receiveMany(req.user.id, req.body.ids, req.body.paymentMethod, req.body.receivedOn) }),
-  );
-  router.delete('/receipts/:receiptId', validate({ params: receiptParam }), (req, res) => {
-    res.json({ data: service.undoReceipt(req.user.id, req.params.receiptId) });
-  });
+  }));
+  router.post('/installments/:installmentId/receipts', validate({ params: installmentParam, body: receiptBody }), asyncHandler(async (req, res) =>
+    res.status(201).json({ data: await service.receive(req.user._id, req.params.installmentId, req.body) }),
+  ));
+  router.post('/installments/receive-selected', validate({ body: idsBody }), asyncHandler(async (req, res) =>
+    res.json({ data: await service.receiveMany(req.user._id, req.body.ids, req.body.paymentMethod, req.body.receivedOn) }),
+  ));
+  router.delete('/receipts/:receiptId', validate({ params: receiptParam }), asyncHandler(async (req, res) => {
+    res.json({ data: await service.undoReceipt(req.user._id, req.params.receiptId) });
+  }));
   router.patch('/entries/:id/refund-status', validate({
     params: entryParam,
     body: z.object({ status: z.enum(['requested', 'in_review', 'received', 'denied']) }),
-  }), (req, res) => res.json({ data: service.setRefundStatus(req.user.id, req.params.id, req.body.status) }));
+  }), asyncHandler(async (req, res) => res.json({ data: await service.setRefundStatus(req.user._id, req.params.id, req.body.status) })));
   return router;
 }

@@ -14,7 +14,7 @@ export const emptyPurchase = (period, defaults = {}) => {
 
 export function toForm(p) {
   return {
-    id: p.id, description: p.description, categoryId: p.categoryId || '', personId: p.personId, cardId: p.cardId,
+    id: p.id, description: p.description, categoryId: p.categoryId == null ? '' : String(p.categoryId), personId: p.personId == null ? '' : String(p.personId), cardId: p.cardId == null ? '' : String(p.cardId),
     observation: p.observation || '', purchaseDate: p.purchaseDate || '', total: String(p.total).replace('.', ','), count: String(p.count),
     startMonth: p.first?.month || 1, startYear: p.first?.year || new Date().getFullYear(),
     shared: false, participantIds: [], splitMode: 'equal', values: {},
@@ -24,13 +24,13 @@ export function toForm(p) {
 /** Formulário de edição de uma compra compartilhada (o valor é o total do grupo, não a fatia de uma pessoa). */
 export function toSharedForm(g) {
   return {
-    group: g.group, description: g.description, categoryId: g.categoryId || '', personId: '', cardId: g.cardId,
+    group: g.group, description: g.description, categoryId: g.categoryId == null ? '' : String(g.categoryId), personId: '', cardId: g.cardId == null ? '' : String(g.cardId),
     observation: g.observation || '', purchaseDate: g.purchaseDate || '', total: String(g.total).replace('.', ','), count: String(g.count),
     startMonth: g.first?.month || 1, startYear: g.first?.year || new Date().getFullYear(),
-    shared: true, participantIds: g.participants.map((x) => x.personId),
+    shared: true, participantIds: g.participants.map((x) => String(x.personId)),
     // divisão desigual volta como "valor em R$" (exato, sem arredondar porcentagem)
     splitMode: g.splitMode === 'equal' ? 'equal' : 'amount',
-    values: Object.fromEntries(g.participants.map((x) => [x.personId, String(x.total).replace('.', ',')])),
+    values: Object.fromEntries(g.participants.map((x) => [String(x.personId), String(x.total).replace('.', ',')])),
   };
 }
 
@@ -107,19 +107,19 @@ export default function PurchaseForm({ value, onClose, onSubmit, lookups }) {
     setBusy(true);
     try {
       const body = {
-        description: f.description.trim(), observation: f.observation.trim(), categoryId: f.categoryId ? Number(f.categoryId) : null,
-        cardId: Number(f.cardId), purchaseDate: f.purchaseDate || null,
+        description: f.description.trim(), observation: f.observation.trim(), categoryId: f.categoryId || null,
+        cardId: f.cardId, purchaseDate: f.purchaseDate || null,
         total, count, startMonth: Number(f.startMonth), startYear: Number(f.startYear),
       };
       await onSubmit(f.shared
-        ? { ...body, splitMode: f.splitMode, participants: f.participantIds.map((id, i) => ({ personId: Number(id), ...(custom && { value: vals[i] }) })) }
-        : { ...body, personId: Number(f.personId) });
+        ? { ...body, splitMode: f.splitMode, participants: f.participantIds.map((id, i) => ({ personId: id, ...(custom && { value: vals[i] }) })) }
+        : { ...body, personId: f.personId });
     } finally { setBusy(false); }
   };
 
   const opt = (list) => list.map((x) => ({ value: x.id, label: x.name }));
   return (
-    <Modal open title={editing ? (f.shared ? 'Editar compra compartilhada' : 'Editar compra') : 'Nova compra'} onClose={onClose} wide
+    <Modal open title={editing ? (f.shared ? 'Editar compra compartilhada' : 'Editar compra') : 'Nova compra'} wide
       footer={<><Button variant="ghost" onClick={onClose}>Cancelar</Button><Button variant="primary" disabled={busy} onClick={submit}>{editing ? 'Salvar alterações' : 'Registrar compra'}</Button></>}>
       <div className="form-grid">
         <Field label="Descrição" error={errors.description}>{(id) => <input id={id} className="input" maxLength={120} value={f.description} onChange={set('description')} autoFocus placeholder="Ex.: Shopee, Mercado, Uber" />}</Field>

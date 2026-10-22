@@ -180,7 +180,6 @@ export default function SettingsPage() {
         open={Boolean(previewData)}
         title="Conferir importação"
         wide
-        onClose={() => setPreviewData(null)}
         footer={(
           <>
             <Button onClick={() => setPreviewData(null)}><X aria-hidden="true" /> Cancelar</Button>
@@ -223,7 +222,6 @@ export default function SettingsPage() {
       <Modal
         open={Boolean(confirmation)}
         title={confirmation?.kind === 'all' ? 'Confirmar reset total' : 'Confirmar limpeza'}
-        onClose={() => { setConfirmation(null); setResetPhrase(''); }}
         footer={(
           <>
             <Button onClick={() => { setConfirmation(null); setResetPhrase(''); }}>Cancelar</Button>

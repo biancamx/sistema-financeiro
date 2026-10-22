@@ -51,19 +51,26 @@ async function setup(email) {
 const car = { kind: 'car', model: 'Chevrolet Ônix', plate: 'abc-1d23', year: 2021, purchaseValue: 62000, status: 'active' };
 
 test('cadastra veículos, normaliza a placa e bloqueia placa repetida', async () => {
-  const { c } = await setup('v1@teste.com');
-  const v = await c('POST', '/vehicles', car);
+  const { c, ids } = await setup('v1@teste.com');
+  await c('PUT', `/people/${ids.Ana}`, { name: 'Ana', avatar: 'data:image/jpeg;base64,aGVsbG8=' });
+  const v = await c('POST', '/vehicles', { ...car, ownerId: ids.Ana });
   assert.equal(v.status, 201, v.text);
   assert.equal(v.json.data.plate, 'ABC1D23');
   assert.equal(v.json.data.totalSpent, 0);
+  assert.equal(v.json.data.ownerId, ids.Ana);
+  assert.equal(v.json.data.ownerName, 'Ana');
+  assert.equal(v.json.data.ownerAvatar, 'data:image/jpeg;base64,aGVsbG8=');
   assert.equal((await c('POST', '/vehicles', { ...car, plate: 'ABC 1D23' })).status, 409);
   assert.equal((await c('POST', '/vehicles', { ...car, plate: '!!' })).status, 400);
+  assert.equal((await c('POST', '/vehicles', { ...car, plate: 'DEF1A23', ownerId: 99999 })).status, 400);
   const moto = await c('POST', '/vehicles', { kind: 'motorcycle', model: 'Honda CG 160', plate: 'XYZ9A87', year: 2020, purchaseValue: 14000 });
   assert.equal(moto.status, 201);
   const list = (await c('GET', '/vehicles')).json.data;
   assert.deepEqual(list.map((x) => x.model).sort(), ['Chevrolet Ônix', 'Honda CG 160']);
-  const up = await c('PUT', `/vehicles/${v.json.data.id}`, { ...car, plate: 'ABC1D23', status: 'sold' });
+  assert.equal(list.find((x) => x.model === car.model).ownerName, 'Ana');
+  const up = await c('PUT', `/vehicles/${v.json.data.id}`, { ...car, plate: 'ABC1D23', ownerId: null, status: 'sold' });
   assert.equal(up.json.data.status, 'sold');
+  assert.equal(up.json.data.ownerId, null);
 });
 
 test('gasto individual: valor mínimo R$ 1, categoria válida, km e fatia do pagador', async () => {
@@ -153,6 +160,22 @@ test('painel: totais, categorias, meses e saldo de quem pagou × quem deve', asy
   assert.equal((await q('from=2026-01-01&to=2026-01-31')).total, 3);
   const csv = (await c('GET', '/vehicles/expenses/export.csv')).text;
   assert.equal(csv.split('\n').length, 5);
+});
+
+test('resumo do veículo inclui gastos recentes com suas datas em ordem decrescente', async () => {
+  const { c, ids } = await setup('v-recent-expenses@teste.com');
+  const vehicle = (await c('POST', '/vehicles', car)).json.data;
+  const addExpense = (date, description) => c('POST', '/vehicles/expenses', {
+    vehicleId: vehicle.id, date, category: 'oil', description, amount: 150, payerId: ids.Ana,
+  });
+  await addExpense('2026-05-02', 'Troca de óleo');
+  await addExpense('2026-07-14', 'Revisão');
+
+  const summary = (await c('GET', `/vehicles/summary?vehicleId=${vehicle.id}&year=2026`)).json.data;
+  assert.deepEqual(summary.recentExpenses.map(({ date, categoryLabel, description }) => [date, categoryLabel, description]), [
+    ['2026-07-14', 'Troca de óleo', 'Revisão'],
+    ['2026-05-02', 'Troca de óleo', 'Troca de óleo'],
+  ]);
 });
 
 test('excluir: veículo com histórico exige force; pessoa com gasto não pode ser apagada', async () => {

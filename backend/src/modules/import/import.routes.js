@@ -9,9 +9,9 @@ const upload = multer({
   limits: { fileSize: 30 * 1024 * 1024 },
 });
 
-export function importRoutes(db) {
+export function importRoutes() {
   const router = Router();
-  router.use(requireAuth(db));
+  router.use(requireAuth());
 
   // POST /api/import/preview - Analisa e devolve a prévia
   router.post('/preview', upload.single('file'), (req, res) => {
@@ -28,13 +28,13 @@ export function importRoutes(db) {
   });
 
   // POST /api/import/execute - Grava os dados da prévia no banco
-  router.post('/execute', (req, res) => {
+  router.post('/execute', async (req, res) => {
     try {
       const { analyzedData, userDecisions } = req.body;
       if (!analyzedData) {
         return res.status(400).json({ error: 'Dados analisados não fornecidos.' });
       }
-      const summary = executeSpreadsheetImport(db, req.user.id, analyzedData, userDecisions || {});
+      const summary = await executeSpreadsheetImport(req.user._id, analyzedData, userDecisions || {});
       res.json({ success: true, summary, message: 'Dados importados com sucesso!' });
     } catch (err) {
       console.error('[EXECUTE ERROR]', err);

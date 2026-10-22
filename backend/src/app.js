@@ -2,7 +2,7 @@ import express, { Router } from 'express';
 import cookieParser from 'cookie-parser';
 import cors from 'cors';
 import { env } from './config/env.js';
-import { setupSecurity } from './middleware/security.js';
+import { isAllowedOrigin, setupSecurity } from './middleware/security.js';
 import { requireAuth } from './middleware/auth.js';
 import { cacheControl } from './middleware/cacheControl.js';
 import { errorHandler } from './middleware/errorHandler.js';
@@ -23,7 +23,7 @@ import { portalRoutes } from './modules/portal/portal.routes.js';
 import { importRoutes } from './modules/import/import.routes.js';
 import { cashLedgerRoutes } from './modules/cashLedger/cashLedger.routes.js';
 
-export function createApp(db) {
+export function createApp() {
   const app = express();
 
   app.set('trust proxy', 1);
@@ -34,14 +34,7 @@ export function createApp(db) {
   app.use(
     cors({
       origin: (origin, callback) => {
-        if (!origin) return callback(null, true);
-        if (env.CORS_ORIGIN === '*' || origin === env.CORS_ORIGIN) {
-          return callback(null, true);
-        }
-        if (/^http:\/\/localhost(:\d+)?$/.test(origin) || /^http:\/\/127\.0\.0\.1(:\d+)?$/.test(origin)) {
-          return callback(null, true);
-        }
-        callback(new Error('Origem não permitida pelo CORS'));
+        callback(null, isAllowedOrigin(origin));
       },
       credentials: true,
       methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
@@ -54,27 +47,27 @@ export function createApp(db) {
   app.use(cookieParser());
 
   // ROTA PÚBLICA DO PORTAL
-  app.use('/api/portal', portalRoutes(db));
+  app.use('/api/portal', portalRoutes());
 
   // ROTAS PÚBLICAS DO API
   const api = Router();
-  api.use(systemRoutes(db));
-  api.use('/system', systemRoutes(db));
-  api.use('/auth', authRoutes(db));
-  api.use(requireAuth(db));
+  api.use(systemRoutes());
+  api.use('/system', systemRoutes());
+  api.use('/auth', authRoutes());
+  api.use(requireAuth());
   api.use(cacheControl);
-  api.use('/purchases', purchasesRoutes(db));
-  api.use('/dashboard', dashboardRoutes(db));
-  api.use('/cards', cardsRoutes(db));
-  api.use('/people', peopleRoutes(db));
-  api.use('/categories', categoriesRoutes(db));
-  api.use('/budgets', budgetsRoutes(db));
-  api.use('/birthdays', birthdaysRoutes(db));
-  api.use('/vehicles', vehiclesRoutes(db));
+  api.use('/purchases', purchasesRoutes());
+  api.use('/dashboard', dashboardRoutes());
+  api.use('/cards', cardsRoutes());
+  api.use('/people', peopleRoutes());
+  api.use('/categories', categoriesRoutes());
+  api.use('/budgets', budgetsRoutes());
+  api.use('/birthdays', birthdaysRoutes());
+  api.use('/vehicles', vehiclesRoutes());
   api.use('/tools', toolsRoutes());
-  api.use('/reminders', remindersRoutes(db));
-  api.use('/import', importRoutes(db));
-  api.use('/cash-ledger', cashLedgerRoutes(db));
+  api.use('/reminders', remindersRoutes());
+  api.use('/import', importRoutes());
+  api.use('/cash-ledger', cashLedgerRoutes());
 
   app.use('/api', api);
 

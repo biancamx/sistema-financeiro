@@ -16,7 +16,7 @@ export default function BudgetPage() {
   const people = useFetch(() => peopleApi.list(), []);
   const thisYear = new Date().getFullYear();
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
-  const personId = Number(params.personId) || people.data?.[0]?.id;
+  const personId = params.personId || people.data?.[0]?.id;
   const year = Number(params.year) || thisYear;
 
   useEffect(() => {
@@ -119,7 +119,6 @@ export default function BudgetPage() {
           <Modal
             open={monthlySummaryOpen}
             title={`Resumo de ${MONTHS[selectedMonth - 1]} · ${personName} · ${year}`}
-            onClose={() => setMonthlySummaryOpen(false)}
             wide
             className="monthly-summary-modal"
             footer={<Button variant="ghost" onClick={() => setMonthlySummaryOpen(false)}>Fechar</Button>}

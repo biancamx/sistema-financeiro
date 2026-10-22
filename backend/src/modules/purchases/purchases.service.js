@@ -1,330 +1,386 @@
 import { randomUUID } from 'node:crypto';
+import mongoose from 'mongoose';
 import { badRequest, conflict, notFound } from '../../lib/errors.js';
 import { round2 } from '../../lib/months.js';
 import { buildSharedInstallments, createCardBilling, generateCardInstallments, generateInstallments, getFirstStatementPeriod, splitWeighted } from '../../lib/cardBilling.js';
+import { Card } from '../../models/Card.js';
+import { Category } from '../../models/Category.js';
+import { Installment } from '../../models/Installment.js';
+import { Person } from '../../models/Person.js';
+import { Purchase } from '../../models/Purchase.js';
 
 export const buildSchedule = generateInstallments;
 export { splitWeighted };
 export const splitAmount = (amount, parts, offset = 0) => splitWeighted(amount, Array(parts).fill(1), offset);
 export const buildSharedSchedule = buildSharedInstallments;
 
-export function createPurchasesService(db) {
-  const billing = createCardBilling(db);
-  const scheduleFor = (userId, d) => {
-    const card = db.prepare(
-      'SELECT closing_day AS closingDay, closing_day_equal AS closingDayEqual FROM cards WHERE id = ? AND user_id = ?',
-    ).get(d.cardId, userId);
+export function createPurchasesService() {
+  const billing = createCardBilling();
+  const cardFor = async (userId, cardId) => {
+    const card = await Card.findOne({ _id: cardId, userId }).lean();
     if (!card) throw badRequest('Cartão inválido');
-    return generateCardInstallments({ ...d, card });
+    return card;
   };
-
-  const sharedScheduleFor = (userId, d, weights) => {
-    const schedule = scheduleFor(userId, d);
-    return schedule.map((installment, index) => ({
-      ...installment,
-      shares: splitWeighted(installment.amount, weights, index),
-    }));
+  const scheduleFor = async (userId, data) => generateCardInstallments({ ...data, card: await cardFor(userId, data.cardId) });
+  const assertOwned = async (Model, id, userId, label) => {
+    if (!await Model.exists({ _id: id, userId })) throw badRequest(`${label} inválido(a)`);
   };
-
-  const assertOwned = (table, id, userId, label) => {
-    if (!db.prepare(`SELECT 1 FROM ${table} WHERE id = ? AND user_id = ?`).get(id, userId)) throw badRequest(`${label} inválido(a)`);
+  const ownedPurchase = async (userId, id) => {
+    const purchase = await Purchase.findOne({ _id: id, userId }).lean();
+    if (!purchase) throw notFound('Compra não encontrada');
+    return purchase;
   };
-
-  const purchaseSelect = `
-    SELECT p.id, p.description, p.observation, p.purchase_date AS purchaseDate, p.total, p.installments_count AS count,
-           p.person_id AS personId, pe.name AS person, p.card_id AS cardId, c.name AS card,
-           p.category_id AS categoryId, cat.name AS category, p.shared_group AS sharedGroup,
-           p.vehicle_expense_id AS vehicleExpenseId,
-           (SELECT SUM(total) FROM purchases WHERE shared_group = p.shared_group) AS groupTotal,
-           (SELECT GROUP_CONCAT(pe2.name, ', ') FROM purchases p2 JOIN people pe2 ON pe2.id = p2.person_id WHERE p2.shared_group = p.shared_group) AS participantsNames,
-           (SELECT MIN(year * 12 + month) FROM installments WHERE purchase_id = p.id) AS firstIdx,
-           (SELECT MAX(year * 12 + month) FROM installments WHERE purchase_id = p.id) AS lastIdx,
-           (SELECT COUNT(*) FROM installments WHERE purchase_id = p.id) AS scheduled,
-           (SELECT COUNT(*) FROM installments WHERE purchase_id = p.id AND paid = 1) AS paidCount
-    FROM purchases p
-    JOIN people pe ON pe.id = p.person_id
-    JOIN cards c ON c.id = p.card_id
-    LEFT JOIN categories cat ON cat.id = p.category_id`;
-
-  /** `collapse`: no "Todas as compras" a compra compartilhada aparece uma vez só, com o total do grupo. */
-  const shape = (row, collapse = false) => {
-    const first = row.firstIdx == null ? null : { year: Math.floor((row.firstIdx - 1) / 12), month: ((row.firstIdx - 1) % 12) + 1 };
-    const last = row.lastIdx == null ? null : { year: Math.floor((row.lastIdx - 1) / 12), month: ((row.lastIdx - 1) % 12) + 1 };
-    const { firstIdx, lastIdx, groupTotal, participantsNames, ...rest } = row;
-    const out = { ...rest, shared: Boolean(row.sharedGroup), perInstallment: round2(row.total / row.count), first, last };
-    if (out.shared) {
-      out.groupTotal = round2(groupTotal);
-      out.participants = participantsNames;
-      if (collapse) Object.assign(out, { total: out.groupTotal, perInstallment: round2(groupTotal / row.count), person: participantsNames, personId: null });
+  const listFor = (userId, query = {}) => {
+    const filter = { userId };
+    for (const field of ['personId', 'cardId', 'categoryId']) if (query[field]) filter[field] = query[field];
+    if (query.search) filter.description = { $regex: query.search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), $options: 'i' };
+    return filter;
+  };
+  const populatePurchases = (filter, sort = { _id: -1 }) => Purchase.find(filter)
+    .populate('personId', 'name')
+    .populate('cardId', 'name')
+    .populate('categoryId', 'name')
+    .sort(sort)
+    .lean();
+  const shape = (purchase, installments = [], groupRows = []) => {
+    const first = installments.length ? installments.reduce((a, b) => (
+      b.year * 12 + b.month < a.year * 12 + a.month ? b : a
+    )) : null;
+    const last = installments.length ? installments.reduce((a, b) => (
+      b.year * 12 + b.month > a.year * 12 + a.month ? b : a
+    )) : null;
+    const total = purchase.totalAmount;
+    const out = {
+      id: String(purchase._id),
+      description: purchase.description,
+      observation: purchase.observation,
+      purchaseDate: purchase.purchaseDate,
+      total,
+      count: purchase.totalInstallments,
+      personId: purchase.personId?._id ? String(purchase.personId._id) : String(purchase.personId),
+      person: purchase.personId?.name ?? '',
+      cardId: purchase.cardId?._id ? String(purchase.cardId._id) : String(purchase.cardId),
+      card: purchase.cardId?.name ?? '',
+      categoryId: purchase.categoryId?._id ? String(purchase.categoryId._id) : purchase.categoryId ? String(purchase.categoryId) : null,
+      category: purchase.categoryId?.name ?? null,
+      sharedGroup: purchase.splitGroupId,
+      vehicleExpenseId: purchase.vehicleExpenseId ? String(purchase.vehicleExpenseId) : null,
+      shared: Boolean(purchase.splitGroupId),
+      perInstallment: round2(total / purchase.totalInstallments),
+      first: first ? { year: first.year, month: first.month } : null,
+      last: last ? { year: last.year, month: last.month } : null,
+      scheduled: installments.length,
+      paidCount: installments.filter((item) => item.paid).length,
+    };
+    if (purchase.splitGroupId) {
+      const groupTotal = round2(groupRows.reduce((sum, item) => sum + item.totalAmount, 0));
+      out.groupTotal = groupTotal;
+      out.participants = groupRows.map((item) => item.personId?.name ?? '');
+      out.participantsNames = out.participants.join(', ');
     }
     return out;
   };
-
-  const assertNotShared = (userId, id) => {
-    const r = db.prepare('SELECT shared_group AS g FROM purchases WHERE id = ? AND user_id = ?').get(id, userId);
-    if (r?.g) throw badRequest('Esta compra é compartilhada: edite ou exclua pela compra compartilhada (todos os participantes de uma vez).');
+  const createPurchase = async (userId, data, { splitGroupId = null, totalAmount = data.total, paidAmounts = new Map(), session } = {}) => {
+    const [purchase] = await Purchase.create([{
+      userId, description: data.description, observation: data.observation ?? '', purchaseDate: data.purchaseDate ?? null,
+      categoryId: data.categoryId ?? null, personId: data.personId, cardId: data.cardId,
+      totalAmount, totalInstallments: data.count, splitGroupId,
+    }], { session });
+    const schedule = await scheduleFor(userId, { ...data, total: totalAmount });
+    await Installment.insertMany(schedule.map((item) => {
+      const paidAmount = Math.min(item.amount, paidAmounts.get(`${String(data.personId)}:${item.number}`) ?? 0);
+      return {
+        userId, purchaseId: purchase._id, number: item.number, year: item.year, month: item.month, amount: item.amount,
+        paidAmount, paid: paidAmount >= item.amount - 0.005,
+      };
+    }), { session });
+    return purchase;
   };
-
-  const assertNotVehicleLinked = (userId, id) => {
-    const r = db.prepare('SELECT vehicle_expense_id AS vehicleExpenseId FROM purchases WHERE id = ? AND user_id = ?').get(id, userId);
-    if (r?.vehicleExpenseId) throw conflict('Este lançamento foi criado na Gestão de Veículos. Edite ou exclua pela aba Gestão de Veículos para evitar duplicidade.');
+  const installmentsFor = (purchaseId) => Installment.find({ purchaseId }).sort({ year: 1, month: 1, number: 1 }).lean();
+  const get = async (userId, id) => {
+    const purchase = await Purchase.findOne({ _id: id, userId })
+      .populate('personId', 'name').populate('cardId', 'name').populate('categoryId', 'name').lean();
+    if (!purchase) throw notFound('Compra não encontrada');
+    const installments = await installmentsFor(purchase._id);
+    return {
+      ...shape(purchase, installments),
+      installments: installments.map((item) => ({
+        id: String(item._id), number: item.number, year: item.year, month: item.month, amount: item.amount,
+        paidAmount: item.paidAmount, paid: item.paid,
+      })),
+    };
   };
-
-  const assertGroupNotVehicleLinked = (userId, group) => {
-    if (db.prepare('SELECT 1 FROM purchases WHERE user_id = ? AND shared_group = ? AND vehicle_expense_id IS NOT NULL').get(userId, group)) {
-      throw conflict('Este lançamento foi criado na Gestão de Veículos. Edite ou exclua pela aba Gestão de Veículos para evitar duplicidade.');
+  const getShared = async (userId, group) => {
+    const rows = await populatePurchases({ userId, splitGroupId: group }, { _id: 1 });
+    if (!rows.length) throw notFound('Compra compartilhada não encontrada');
+    const allInstallments = await Installment.find({ userId, purchaseId: { $in: rows.map((row) => row._id) } })
+      .sort({ number: 1, _id: 1 }).lean();
+    const total = round2(rows.reduce((sum, row) => sum + row.totalAmount, 0));
+    const byNumber = new Map();
+    for (const item of allInstallments) {
+      const key = item.number;
+      const aggregate = byNumber.get(key) ?? { number: key, year: item.year, month: item.month, amount: 0, shares: [] };
+      aggregate.amount = round2(aggregate.amount + item.amount);
+      const purchase = rows.find((row) => String(row._id) === String(item.purchaseId));
+      aggregate.shares.push({
+        installmentId: String(item._id), personId: String(purchase.personId._id), amount: item.amount,
+        paidAmount: item.paidAmount, paid: item.paid,
+      });
+      byNumber.set(key, aggregate);
     }
+    const installments = [...byNumber.values()];
+    const base = shape(rows[0], allInstallments, rows);
+    const participantTotals = rows.map((row) => row.totalAmount);
+    return {
+      group, vehicleExpenseId: base.vehicleExpenseId, description: base.description, observation: base.observation,
+      categoryId: base.categoryId, category: base.category, cardId: base.cardId, card: base.card,
+      purchaseDate: base.purchaseDate, total, count: base.count,
+      perInstallment: installments[0]?.amount ?? round2(total / base.count), first: base.first, last: base.last,
+      splitMode: Math.max(...participantTotals) - Math.min(...participantTotals) <= 0.03 ? 'equal' : 'amount',
+      participants: rows.map((row) => ({
+        personId: String(row.personId._id), person: row.personId.name, purchaseId: String(row._id),
+        total: row.totalAmount, percent: round2(row.totalAmount / total * 100),
+        paidCount: allInstallments.filter((item) => String(item.purchaseId) === String(row._id) && item.paid).length,
+      })),
+      installments,
+    };
   };
-
-  function filters(userId, q, alias = 'p') {
-    const where = [`${alias}.user_id = ?`];
-    const params = [userId];
-    if (q.personId) (where.push(`${alias}.person_id = ?`), params.push(q.personId));
-    if (q.cardId) (where.push(`${alias}.card_id = ?`), params.push(q.cardId));
-    if (q.categoryId) (where.push(`${alias}.category_id = ?`), params.push(q.categoryId));
-    if (q.search) (where.push(`${alias}.description LIKE ? ESCAPE '\\'`), params.push(`%${q.search.replace(/[\\%_]/g, '\\$&')}%`));
-    return { where, params };
-  }
 
   return {
-    /** Visão "Banco de Dados" filtrada por mês: uma linha por parcela. */
-    listInstallments(userId, q) {
-      const { where, params } = filters(userId, q);
-      where.push('i.year = ?', 'i.month = ?');
-      params.push(q.year, q.month);
-      const rows = db
-        .prepare(
-          `SELECT i.id, i.purchase_id AS purchaseId, i.number, p.installments_count AS count, i.amount,
-                  i.paid_amount AS paidAmount, i.paid,
-                  p.description, pe.name AS person, c.name AS card, cat.name AS category, p.shared_group AS sharedGroup,
-                  p.vehicle_expense_id AS vehicleExpenseId,
-                  (SELECT GROUP_CONCAT(pe2.name, ', ') FROM purchases p2 JOIN people pe2 ON pe2.id = p2.person_id
-                   WHERE p2.shared_group = p.shared_group AND p2.id <> p.id) AS sharedWith
-           FROM installments i
-           JOIN purchases p ON p.id = i.purchase_id
-           JOIN people pe ON pe.id = p.person_id
-           JOIN cards c ON c.id = p.card_id
-           LEFT JOIN categories cat ON cat.id = p.category_id
-           WHERE ${where.join(' AND ')} ORDER BY c.name, pe.name, p.description`,
-        )
-        .all(...params)
-        .map((r) => ({ ...r, paid: Boolean(r.paid) }));
-      return { data: rows, total: round2(rows.reduce((s, r) => s + r.amount, 0)) };
-    },
-
-    list(userId, q) {
-      const { where, params } = filters(userId, q);
-      // Sem filtro de pessoa, cada compartilhada aparece uma vez só (pela primeira compra do grupo).
-      // Filtrando por pessoa, aparece a fatia dela.
-      const collapse = !q.personId;
-      if (collapse) where.push('(p.shared_group IS NULL OR p.id = (SELECT MIN(id) FROM purchases WHERE shared_group = p.shared_group))');
-      const total = db.prepare(`SELECT COUNT(*) n FROM purchases p WHERE ${where.join(' AND ')}`).get(...params).n;
-      const rows = db
-        .prepare(`${purchaseSelect} WHERE ${where.join(' AND ')} ORDER BY p.id DESC LIMIT ? OFFSET ?`)
-        .all(...params, q.pageSize, (q.page - 1) * q.pageSize);
-      return { data: rows.map((r) => shape(r, collapse)), page: q.page, pageSize: q.pageSize, total };
-    },
-
-    get(userId, id) {
-      const row = db.prepare(`${purchaseSelect} WHERE p.id = ? AND p.user_id = ?`).get(id, userId);
-      if (!row) throw notFound('Compra não encontrada');
-      const installments = db
-        .prepare('SELECT id, number, year, month, amount, paid_amount AS paidAmount, paid FROM installments WHERE purchase_id = ? ORDER BY year, month, number')
-        .all(id)
-        .map((i) => ({ ...i, paid: Boolean(i.paid) }));
-      return { ...shape(row), installments };
-    },
-
-    create(userId, d) {
-      assertOwned('people', d.personId, userId, 'Pessoa');
-      assertOwned('cards', d.cardId, userId, 'Cartão');
-      if (d.categoryId) assertOwned('categories', d.categoryId, userId, 'Categoria');
-      const id = db.transaction(() => {
-        const pid = db
-          .prepare('INSERT INTO purchases (user_id, description, category_id, person_id, card_id, purchase_date, total, installments_count, observation) VALUES (?,?,?,?,?,?,?,?,?)')
-          .run(userId, d.description, d.categoryId ?? null, d.personId, d.cardId, d.purchaseDate ?? null, d.total, d.count, d.observation ?? '').lastInsertRowid;
-        const ins = db.prepare('INSERT INTO installments (user_id, purchase_id, number, year, month, amount) VALUES (?,?,?,?,?,?)');
-        for (const s of scheduleFor(userId, d)) ins.run(userId, pid, s.number, s.year, s.month, s.amount);
-        return Number(pid);
-      })();
-      return this.get(userId, id);
-    },
-
-    update(userId, id, d) {
-      const cur = this.get(userId, id);
-      assertNotShared(userId, id);
-      assertNotVehicleLinked(userId, id);
-      assertOwned('people', d.personId, userId, 'Pessoa');
-      assertOwned('cards', d.cardId, userId, 'Cartão');
-      if (d.categoryId) assertOwned('categories', d.categoryId, userId, 'Categoria');
-      const first = cur.first || { year: d.startYear, month: d.startMonth };
-      const card = db.prepare('SELECT closing_day AS closingDay, closing_day_equal AS closingDayEqual FROM cards WHERE id = ? AND user_id = ?').get(d.cardId, userId);
-      const newFirst = getFirstStatementPeriod(d.purchaseDate, card, d);
-      const scheduleChanged = cur.total !== d.total || cur.count !== d.count || cur.cardId !== d.cardId
-        || cur.purchaseDate !== (d.purchaseDate ?? null) || first.year !== newFirst.year || first.month !== newFirst.month;
-      db.transaction(() => {
-        db.prepare('UPDATE purchases SET description=?, category_id=?, person_id=?, card_id=?, purchase_date=?, total=?, installments_count=?, observation=? WHERE id=? AND user_id=?').run(
-          d.description, d.categoryId ?? null, d.personId, d.cardId, d.purchaseDate ?? null, d.total, d.count, d.observation ?? cur.observation ?? '', id, userId,
-        );
-        if (scheduleChanged) {
-          const paid = new Map(cur.installments.map((i) => [i.number, i.paidAmount]));
-          db.prepare('DELETE FROM installments WHERE purchase_id = ?').run(id);
-          const ins = db.prepare('INSERT INTO installments (user_id, purchase_id, number, year, month, amount, paid, paid_amount) VALUES (?,?,?,?,?,?,?,?)');
-          for (const s of scheduleFor(userId, d)) {
-            const paidAmount = Math.min(s.amount, paid.get(s.number) ?? 0);
-            ins.run(userId, id, s.number, s.year, s.month, s.amount, paidAmount >= s.amount - 0.005 ? 1 : 0, paidAmount);
-          }
-        }
-      })();
-      return this.get(userId, id);
-    },
-
-    remove(userId, id) {
-      assertNotShared(userId, id);
-      assertNotVehicleLinked(userId, id);
-      const info = db.prepare('DELETE FROM purchases WHERE id = ? AND user_id = ?').run(id, userId);
-      if (!info.changes) throw notFound('Compra não encontrada');
-    },
-
-    updateObservation(userId, id, observation) {
-      const purchase = db.prepare('SELECT shared_group AS sharedGroup FROM purchases WHERE id = ? AND user_id = ?').get(id, userId);
-      if (!purchase) throw notFound('Compra não encontrada');
-      if (purchase.sharedGroup) {
-        db.prepare('UPDATE purchases SET observation = ? WHERE user_id = ? AND shared_group = ?').run(observation, userId, purchase.sharedGroup);
-      } else {
-        db.prepare('UPDATE purchases SET observation = ? WHERE id = ? AND user_id = ?').run(observation, id, userId);
-      }
-      return { id, observation };
-    },
-
-    // ───────────── Compras compartilhadas (várias pessoas dividem a mesma compra) ─────────────
-
-    /**
-     * Valida participantes/cartão/categoria e devolve [{ personId, weight }].
-     * d.splitMode: 'equal' (partes iguais) · 'percent' (soma 100%) · 'amount' (R$ do total da compra de cada um; soma = total).
-     */
-    _checkShared(userId, d) {
-      const list = d.participants;
-      if (list.length < 2) throw badRequest('Escolha pelo menos 2 participantes');
-      for (const p of list) assertOwned('people', p.personId, userId, 'Pessoa');
-      assertOwned('cards', d.cardId, userId, 'Cartão');
-      if (d.categoryId) assertOwned('categories', d.categoryId, userId, 'Categoria');
-      let weights;
-      if (d.splitMode === 'percent') {
-        weights = list.map((p) => Math.round((p.value ?? 0) * 100));
-        if (Math.abs(weights.reduce((a, b) => a + b, 0) - 10000) > 1) throw badRequest('A soma das porcentagens deve ser 100%');
-      } else if (d.splitMode === 'amount') {
-        weights = list.map((p) => Math.round((p.value ?? 0) * 100));
-        if (Math.abs(weights.reduce((a, b) => a + b, 0) - Math.round(d.total * 100)) > 1) throw badRequest('A soma dos valores de cada pessoa deve ser igual ao total da compra');
-      } else weights = list.map(() => 1);
-      if (weights.some((w) => !(w > 0))) throw badRequest('Cada participante precisa ter uma parte maior que zero');
-      return list.map((p, i) => ({ personId: p.personId, weight: weights[i] }));
-    },
-
-    /**
-     * Grava uma compra por participante, cada uma com a sua fatia de cada parcela.
-     * `paidAmounts` (opcional) preserva valores quitados por pessoa e número da parcela ao editar.
-     */
-    _insertShared(userId, group, parts, d, paidAmounts = new Map()) {
-      const schedule = sharedScheduleFor(userId, d, parts.map((p) => p.weight));
-      if (schedule.some((s) => s.shares.some((v) => !(v > 0)))) throw badRequest('Valor pequeno demais para dividir desse jeito entre as pessoas e parcelas');
-      const insP = db.prepare('INSERT INTO purchases (user_id, description, category_id, person_id, card_id, purchase_date, total, installments_count, shared_group, observation) VALUES (?,?,?,?,?,?,?,?,?,?)');
-      const insI = db.prepare('INSERT INTO installments (user_id, purchase_id, number, year, month, amount, paid, paid_amount) VALUES (?,?,?,?,?,?,?,?)');
-      parts.forEach(({ personId }, k) => {
-        const mine = schedule.map((s) => ({ ...s, amount: s.shares[k] }));
-        const total = round2(mine.reduce((a, s) => a + s.amount, 0));
-        const pid = insP.run(userId, d.description, d.categoryId ?? null, personId, d.cardId, d.purchaseDate ?? null, total, d.count, group, d.observation ?? '').lastInsertRowid;
-        for (const s of mine) {
-          const paidAmount = Math.min(s.amount, Math.max(0, paidAmounts.get(`${personId}:${s.number}`) ?? 0));
-          insI.run(userId, pid, s.number, s.year, s.month, s.amount, paidAmount >= s.amount - 0.005 ? 1 : 0, paidAmount);
-        }
+    async listInstallments(userId, query) {
+      const filter = listFor(userId, query);
+      const purchases = await populatePurchases(filter, { _id: 1 });
+      const purchaseById = new Map(purchases.map((p) => [String(p._id), p]));
+      const installments = purchases.length ? await Installment.find({
+        userId, purchaseId: { $in: purchases.map((p) => p._id) }, year: query.year, month: query.month,
+      }).sort({ number: 1 }).lean() : [];
+      const data = installments.map((item) => {
+        const p = purchaseById.get(String(item.purchaseId));
+        return {
+          id: String(item._id), purchaseId: String(p._id), number: item.number, count: p.totalInstallments,
+          amount: item.amount, paidAmount: item.paidAmount, paid: item.paid, description: p.description,
+          person: p.personId?.name ?? '', card: p.cardId?.name ?? '', category: p.categoryId?.name ?? null,
+          sharedGroup: p.splitGroupId, vehicleExpenseId: p.vehicleExpenseId ? String(p.vehicleExpenseId) : null,
+          sharedWith: p.splitGroupId
+            ? purchases.filter((other) => other.splitGroupId === p.splitGroupId && String(other._id) !== String(p._id))
+              .map((other) => other.personId?.name).filter(Boolean).join(', ')
+            : null,
+        };
       });
+      return { data, total: round2(data.reduce((sum, item) => sum + item.amount, 0)) };
     },
-
-    createShared(userId, d) {
-      const parts = this._checkShared(userId, d);
-      const group = randomUUID();
-      db.transaction(() => this._insertShared(userId, group, parts, d))();
-      return this.getShared(userId, group);
+    async list(userId, query) {
+      const filter = listFor(userId, query);
+      const purchases = await populatePurchases(filter);
+      const collapse = !query.personId;
+      const unique = collapse
+        ? purchases.filter((p) => !p.splitGroupId || purchases.findIndex((item) => item.splitGroupId === p.splitGroupId) === purchases.indexOf(p))
+        : purchases;
+      const total = unique.length;
+      const data = await Promise.all(unique.slice((query.page - 1) * query.pageSize, query.page * query.pageSize).map(async (p) => {
+        const rows = await Installment.find({ purchaseId: p._id }).lean();
+        const groupRows = p.splitGroupId ? purchases.filter((row) => row.splitGroupId === p.splitGroupId) : [];
+        const result = shape(p, rows, groupRows);
+        if (collapse && p.splitGroupId) {
+          result.total = result.groupTotal;
+          result.perInstallment = round2(result.groupTotal / p.totalInstallments);
+          result.person = result.participantsNames;
+          result.personId = null;
+        }
+        return result;
+      }));
+      return { data, page: query.page, pageSize: query.pageSize, total };
     },
-
-    getShared(userId, group) {
-      const rows = db.prepare(`${purchaseSelect} WHERE p.shared_group = ? AND p.user_id = ? ORDER BY p.id`).all(group, userId);
-      if (!rows.length) throw notFound('Compra compartilhada não encontrada');
-      const head = shape(rows[0]);
-      const ids = rows.map((r) => r.id);
-      const personOf = new Map(rows.map((r) => [r.id, r.personId]));
-      const inst = db
-        .prepare(`SELECT id, purchase_id AS purchaseId, number, year, month, amount, paid_amount AS paidAmount, paid FROM installments WHERE purchase_id IN (${ids.map(() => '?').join(',')}) ORDER BY number, id`)
-        .all(...ids);
-      const byNumber = new Map();
-      for (const i of inst) {
-        if (!byNumber.has(i.number)) byNumber.set(i.number, { number: i.number, year: i.year, month: i.month, amount: 0, shares: [] });
-        const n = byNumber.get(i.number);
-        n.amount = round2(n.amount + i.amount);
-        n.shares.push({ installmentId: i.id, personId: personOf.get(i.purchaseId), amount: i.amount, paidAmount: i.paidAmount, paid: Boolean(i.paid) });
-      }
-      const installments = [...byNumber.values()];
-      const total = round2(rows.reduce((a, r) => a + r.total, 0));
-      const totals = rows.map((r) => r.total);
-      const splitMode = Math.max(...totals) - Math.min(...totals) <= 0.03 ? 'equal' : 'amount'; // partes quase idênticas = divisão igual
-      return {
-        group, vehicleExpenseId: head.vehicleExpenseId, description: head.description, observation: head.observation, categoryId: head.categoryId, category: head.category, cardId: head.cardId, card: head.card,
-        purchaseDate: head.purchaseDate, total, count: head.count, perInstallment: installments[0]?.amount ?? round2(total / head.count),
-        first: head.first, last: head.last,
-        splitMode,
-        participants: rows.map((r) => ({ personId: r.personId, person: r.person, purchaseId: r.id, total: r.total, percent: round2((r.total / total) * 100), paidCount: r.paidCount })),
-        installments,
-      };
+    get,
+    async create(userId, data) {
+      await assertOwned(Person, data.personId, userId, 'Pessoa');
+      await assertOwned(Card, data.cardId, userId, 'Cartão');
+      if (data.categoryId) await assertOwned(Category, data.categoryId, userId, 'Categoria');
+      const session = await mongoose.startSession();
+      let id;
+      try {
+        await session.withTransaction(async () => {
+          const purchase = await createPurchase(userId, data, { session });
+          id = purchase._id;
+        });
+      } finally { await session.endSession(); }
+      return get(userId, id);
     },
-
-    updateShared(userId, group, d) {
-      const cur = this.getShared(userId, group);
-      assertGroupNotVehicleLinked(userId, group);
-      const parts = this._checkShared(userId, d);
-      const paidAmounts = new Map();
-      for (const i of cur.installments) for (const s of i.shares) paidAmounts.set(`${s.personId}:${i.number}`, s.paidAmount);
-      db.transaction(() => {
-        db.prepare('DELETE FROM purchases WHERE shared_group = ? AND user_id = ?').run(group, userId);
-        this._insertShared(userId, group, parts, d, paidAmounts);
+    async update(userId, id, data) {
+      const current = await Purchase.findOne({ _id: id, userId }).lean();
+      if (!current) throw notFound('Compra não encontrada');
+      if (current.splitGroupId) throw badRequest('Esta compra é compartilhada: edite ou exclua pela compra compartilhada (todos os participantes de uma vez).');
+      if (current.vehicleExpenseId) throw conflict('Este lançamento foi criado na Gestão de Veículos. Edite ou exclua pela aba Gestão de Veículos para evitar duplicidade.');
+      await assertOwned(Person, data.personId, userId, 'Pessoa');
+      const card = await cardFor(userId, data.cardId);
+      if (data.categoryId) await assertOwned(Category, data.categoryId, userId, 'Categoria');
+      const oldInstallments = await installmentsFor(id);
+      const first = oldInstallments.sort((a, b) => a.number - b.number)[0];
+      const period = getFirstStatementPeriod(data.purchaseDate, card, { startYear: data.startYear, startMonth: data.startMonth });
+      const scheduleChanged = current.totalAmount !== data.total || current.totalInstallments !== data.count
+        || String(current.cardId) !== String(data.cardId) || current.purchaseDate !== (data.purchaseDate ?? null)
+        || first?.year !== period.year || first?.month !== period.month;
+      const session = await mongoose.startSession();
+      try {
+        await session.withTransaction(async () => {
+          await Purchase.updateOne({ _id: id, userId }, {
+            $set: {
+              description: data.description, categoryId: data.categoryId ?? null, personId: data.personId,
+              cardId: data.cardId, purchaseDate: data.purchaseDate ?? null, totalAmount: data.total,
+              totalInstallments: data.count, observation: data.observation ?? current.observation ?? '',
+            },
+          }, { session });
+          if (scheduleChanged) {
+            const paid = new Map(oldInstallments.map((item) => [item.number, item.paidAmount]));
+            await Installment.deleteMany({ purchaseId: id, userId }, { session });
+            const schedule = await scheduleFor(userId, data);
+            await Installment.insertMany(schedule.map((item) => {
+              const paidAmount = Math.min(item.amount, paid.get(item.number) ?? 0);
+              return {
+                userId, purchaseId: id, number: item.number, year: item.year, month: item.month,
+                amount: item.amount, paidAmount, paid: paidAmount >= item.amount - 0.005,
+              };
+            }), { session });
+          }
+        });
+      } finally { await session.endSession(); }
+      return get(userId, id);
+    },
+    async remove(userId, id) {
+      const purchase = await Purchase.findOne({ _id: id, userId });
+      if (!purchase) throw notFound('Compra não encontrada');
+      if (purchase.splitGroupId) throw badRequest('Esta compra é compartilhada: edite ou exclua pela compra compartilhada (todos os participantes de uma vez).');
+      if (purchase.vehicleExpenseId) throw conflict('Este lançamento foi criado na Gestão de Veículos. Edite ou exclua pela aba Gestão de Veículos para evitar duplicidade.');
+      const session = await mongoose.startSession();
+      try {
+        await session.withTransaction(async () => {
+          await Installment.deleteMany({ userId, purchaseId: id }, { session });
+          await purchase.deleteOne({ session });
+        });
+      } finally { await session.endSession(); }
+    },
+    async updateObservation(userId, id, observation) {
+      const purchase = await Purchase.findOne({ _id: id, userId });
+      if (!purchase) throw notFound('Compra não encontrada');
+      if (purchase.splitGroupId) {
+        await Purchase.updateMany({ userId, splitGroupId: purchase.splitGroupId }, { $set: { observation } });
+      } else purchase.observation = observation, await purchase.save();
+      return { id: String(id), observation };
+    },
+    _checkShared(userId, data) {
+      return (async () => {
+        const list = data.participants;
+        if (list.length < 2) throw badRequest('Escolha pelo menos 2 participantes');
+        for (const participant of list) await assertOwned(Person, participant.personId, userId, 'Pessoa');
+        await assertOwned(Card, data.cardId, userId, 'Cartão');
+        if (data.categoryId) await assertOwned(Category, data.categoryId, userId, 'Categoria');
+        let weights;
+        if (data.splitMode === 'percent') {
+          weights = list.map((p) => Math.round((p.value ?? 0) * 100));
+          if (Math.abs(weights.reduce((a, b) => a + b, 0) - 10000) > 1) throw badRequest('A soma das porcentagens deve ser 100%');
+        } else if (data.splitMode === 'amount') {
+          weights = list.map((p) => Math.round((p.value ?? 0) * 100));
+          if (Math.abs(weights.reduce((a, b) => a + b, 0) - Math.round(data.total * 100)) > 1) throw badRequest('A soma dos valores de cada pessoa deve ser igual ao total da compra');
+        } else weights = list.map(() => 1);
+        if (weights.some((w) => !(w > 0))) throw badRequest('Cada participante precisa ter uma parte maior que zero');
+        return list.map((p, i) => ({ personId: p.personId, weight: weights[i] }));
       })();
-      return this.getShared(userId, group);
     },
-
-    removeShared(userId, group) {
-      assertGroupNotVehicleLinked(userId, group);
-      const info = db.prepare('DELETE FROM purchases WHERE shared_group = ? AND user_id = ?').run(group, userId);
-      if (!info.changes) throw notFound('Compra compartilhada não encontrada');
+    async createShared(userId, data) {
+      const parts = await this._checkShared(userId, data);
+      const schedule = (await scheduleFor(userId, data)).map((item, index) => ({
+        ...item, shares: splitWeighted(item.amount, parts.map((part) => part.weight), index),
+      }));
+      if (schedule.some((item) => item.shares.some((share) => share <= 0))) throw badRequest('Valor pequeno demais para dividir desse jeito entre as pessoas e parcelas');
+      const group = randomUUID();
+      const session = await mongoose.startSession();
+      try {
+        await session.withTransaction(async () => {
+          for (let i = 0; i < parts.length; i++) {
+            const mine = schedule.map((item) => item.shares[i]);
+            const total = round2(mine.reduce((sum, amount) => sum + amount, 0));
+            const [purchase] = await Purchase.create([{
+              userId, description: data.description, observation: data.observation ?? '',
+              purchaseDate: data.purchaseDate ?? null, categoryId: data.categoryId ?? null,
+              personId: parts[i].personId, cardId: data.cardId, totalAmount: total,
+              totalInstallments: data.count, splitGroupId: group,
+            }], { session });
+            await Installment.insertMany(schedule.map((item, index) => ({
+              userId, purchaseId: purchase._id, number: item.number, year: item.year, month: item.month,
+              amount: item.shares[i], paid: false, paidAmount: 0,
+            })), { session });
+          }
+        });
+      } finally { await session.endSession(); }
+      return getShared(userId, group);
     },
-
-    setPaid(userId, installmentId, paid) {
-      return billing.recordPayment(userId, installmentId, paid);
+    getShared,
+    async updateShared(userId, group, data) {
+      const current = await getShared(userId, group);
+      if (current.vehicleExpenseId) throw conflict('Este lançamento foi criado na Gestão de Veículos. Edite ou exclua pela aba Gestão de Veículos para evitar duplicidade.');
+      const parts = await this._checkShared(userId, data);
+      const paidAmounts = new Map(current.installments.flatMap((item) => item.shares.map((share) => [`${share.personId}:${item.number}`, share.paidAmount])));
+      const schedule = (await scheduleFor(userId, data)).map((item, index) => ({
+        ...item, shares: splitWeighted(item.amount, parts.map((part) => part.weight), index),
+      }));
+      const session = await mongoose.startSession();
+      try {
+        await session.withTransaction(async () => {
+          const oldPurchases = await Purchase.find({ userId, splitGroupId: group }).select('_id').session(session);
+          await Installment.deleteMany({ userId, purchaseId: { $in: oldPurchases.map((p) => p._id) } }, { session });
+          await Purchase.deleteMany({ userId, splitGroupId: group }, { session });
+          for (let i = 0; i < parts.length; i++) {
+            const total = round2(schedule.reduce((sum, item) => sum + item.shares[i], 0));
+            const [purchase] = await Purchase.create([{
+              userId, description: data.description, observation: data.observation ?? '',
+              purchaseDate: data.purchaseDate ?? null, categoryId: data.categoryId ?? null,
+              personId: parts[i].personId, cardId: data.cardId, totalAmount: total,
+              totalInstallments: data.count, splitGroupId: group,
+            }], { session });
+            await Installment.insertMany(schedule.map((item) => {
+              const amount = item.shares[i];
+              const paidAmount = Math.min(amount, paidAmounts.get(`${parts[i].personId}:${item.number}`) ?? 0);
+              return {
+                userId, purchaseId: purchase._id, number: item.number, year: item.year, month: item.month,
+                amount, paidAmount, paid: paidAmount >= amount - 0.005,
+              };
+            }), { session });
+          }
+        });
+      } finally { await session.endSession(); }
+      return getShared(userId, group);
     },
-
-    setManyPaid(userId, installmentIds, paid = true) {
-      return billing.recordBulkPayment(userId, installmentIds, paid);
+    async removeShared(userId, group) {
+      const rows = await Purchase.find({ userId, splitGroupId: group });
+      if (!rows.length) throw notFound('Compra compartilhada não encontrada');
+      if (rows.some((p) => p.vehicleExpenseId)) throw conflict('Este lançamento foi criado na Gestão de Veículos. Edite ou exclua pela aba Gestão de Veículos para evitar duplicidade.');
+      const ids = rows.map((p) => p._id);
+      const session = await mongoose.startSession();
+      try {
+        await session.withTransaction(async () => {
+          await Installment.deleteMany({ userId, purchaseId: { $in: ids } }, { session });
+          await Purchase.deleteMany({ userId, splitGroupId: group }, { session });
+        });
+      } finally { await session.endSession(); }
     },
-
-    exportCsv(userId) {
-      const rows = db
-        .prepare(
-          `SELECT p.purchase_date, p.description, cat.name AS category, pe.name AS person, c.name AS card, p.total, p.installments_count,
-                  i.number, i.month, i.year, i.amount, i.paid
-           FROM installments i JOIN purchases p ON p.id = i.purchase_id
-           JOIN people pe ON pe.id = p.person_id JOIN cards c ON c.id = p.card_id
-           LEFT JOIN categories cat ON cat.id = p.category_id
-           WHERE p.user_id = ? ORDER BY i.year, i.month, c.name`,
-        )
-        .all(userId);
-      const esc = (v) => {
-        let s = v == null ? '' : String(v);
-        if (/^[=+\-@]/.test(s)) s = `'${s}`; // evita injeção de fórmula ao abrir no Excel
+    setPaid: (userId, id, paid) => billing.recordPayment(userId, id, paid),
+    setManyPaid: (userId, ids, paid = true) => billing.recordBulkPayment(userId, ids, paid),
+    async exportCsv(userId) {
+      const purchases = await populatePurchases({ userId }, { _id: 1 });
+      const ids = purchases.map((p) => p._id);
+      const installments = ids.length ? await Installment.find({ userId, purchaseId: { $in: ids } }).sort({ year: 1, month: 1 }).lean() : [];
+      const byId = new Map(purchases.map((p) => [String(p._id), p]));
+      const esc = (value) => {
+        let s = value == null ? '' : String(value);
+        if (/^[=+\-@]/.test(s)) s = `'${s}`;
         return /[",;\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
       };
       const head = ['Data da compra', 'Descrição', 'Categoria', 'Pessoa', 'Cartão', 'Valor total', 'Qtd. parcelas', 'Parcela nº', 'Mês', 'Ano', 'Valor da parcela', 'Paga'];
-      return [head, ...rows.map((r) => [r.purchase_date, r.description, r.category, r.person, r.card, r.total, r.installments_count, r.number, r.month, r.year, r.amount, r.paid ? 'sim' : 'não'])]
-        .map((l) => l.map(esc).join(';'))
-        .join('\n');
+      const lines = installments.map((item) => {
+        const p = byId.get(String(item.purchaseId));
+        return [p.purchaseDate, p.description, p.categoryId?.name, p.personId?.name, p.cardId?.name, p.totalAmount, p.totalInstallments, item.number, item.month, item.year, item.amount, item.paid ? 'sim' : 'não'];
+      });
+      return [head, ...lines].map((line) => line.map(esc).join(';')).join('\n');
     },
   };
 }

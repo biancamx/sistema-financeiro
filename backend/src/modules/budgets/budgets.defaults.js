@@ -13,8 +13,11 @@ export const SECTIONS = [
 ];
 export const SECTION_KEYS = SECTIONS.map((s) => s.key);
 
-export function createDefaultRows(db, userId, sheetId) {
-  const ins = db.prepare('INSERT INTO budget_rows (user_id, sheet_id, section, label, position) VALUES (?,?,?,?,?)');
+export function createDefaultRows() {
+  const rows = [];
   let pos = 0;
-  for (const s of SECTIONS) for (const label of s.defaults) ins.run(userId, sheetId, s.key, label, pos++);
+  for (const section of SECTIONS) {
+    for (const label of section.defaults) rows.push({ section: section.key, label, position: pos++, cells: [] });
+  }
+  return rows;
 }

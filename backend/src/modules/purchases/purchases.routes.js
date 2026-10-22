@@ -1,10 +1,11 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import { asyncHandler } from '../../lib/errors.js';
 import { validate } from '../../middleware/validate.js';
 import { createPurchasesService } from './purchases.service.js';
 
-const id = z.coerce.number().int().positive();
-const optId = z.coerce.number().int().positive().optional();
+const id = z.string().regex(/^[\da-f]{24}$/i);
+const optId = id.optional();
 const month = z.coerce.number().int().min(1).max(12);
 const year = z.coerce.number().int().min(2000).max(2100);
 const purchaseDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine((value) => {
@@ -25,7 +26,7 @@ const installmentIds = z.object({
 
 const purchaseBody = z.object({
   description: z.string().trim().min(1).max(120),
-  categoryId: z.union([z.null(), z.coerce.number().int().positive()]).optional(),
+  categoryId: z.union([z.null(), id]).optional(),
   observation: z.string().max(1000).optional(),
   personId: id,
   cardId: id,
@@ -58,45 +59,45 @@ const sharedBody = purchaseBody
   });
 const groupParam = z.object({ group: z.string().uuid() });
 
-export function purchasesRoutes(db) {
+export function purchasesRoutes() {
   const r = Router();
-  const svc = createPurchasesService(db);
+  const svc = createPurchasesService();
 
-  r.get('/installments', validate({ query: monthQuery }), (req, res) => res.json(svc.listInstallments(req.user.id, req.query)));
-  r.get('/export.csv', (req, res) => {
+  r.get('/installments', validate({ query: monthQuery }), asyncHandler(async (req, res) => res.json(await svc.listInstallments(req.user._id, req.query))));
+  r.get('/export.csv', asyncHandler(async (req, res) => {
     res.set('Content-Type', 'text/csv; charset=utf-8').set('Content-Disposition', 'attachment; filename="lancamentos.csv"');
-    res.send('\uFEFF' + svc.exportCsv(req.user.id));
-  });
-  r.post('/installments/pay-selected', validate({ body: installmentIds }), (req, res) =>
-    res.json({ data: svc.setManyPaid(req.user.id, req.body.ids, true) }),
-  );
-  r.post('/installments/unpay-selected', validate({ body: installmentIds }), (req, res) =>
-    res.json({ data: svc.setManyPaid(req.user.id, req.body.ids, false) }),
-  );
-  r.patch('/installments/:id', validate({ params: z.object({ id }), body: z.object({ paid: z.boolean() }) }), (req, res) =>
-    res.json({ data: svc.setPaid(req.user.id, req.params.id, req.body.paid) }),
-  );
+    res.send('\uFEFF' + await svc.exportCsv(req.user._id));
+  }));
+  r.post('/installments/pay-selected', validate({ body: installmentIds }), asyncHandler(async (req, res) =>
+    res.json({ data: await svc.setManyPaid(req.user._id, req.body.ids, true) }),
+  ));
+  r.post('/installments/unpay-selected', validate({ body: installmentIds }), asyncHandler(async (req, res) =>
+    res.json({ data: await svc.setManyPaid(req.user._id, req.body.ids, false) }),
+  ));
+  r.patch('/installments/:id', validate({ params: z.object({ id }), body: z.object({ paid: z.boolean() }) }), asyncHandler(async (req, res) =>
+    res.json({ data: await svc.setPaid(req.user._id, req.params.id, req.body.paid) }),
+  ));
   r.patch('/:id/observation', validate({
     params: z.object({ id }),
     body: z.object({ observation: z.string().max(1000) }),
-  }), (req, res) => res.json({ data: svc.updateObservation(req.user.id, req.params.id, req.body.observation) }));
+  }), asyncHandler(async (req, res) => res.json({ data: await svc.updateObservation(req.user._id, req.params.id, req.body.observation) })));
 
   // Compras compartilhadas (um grupo = uma compra dividida entre várias pessoas)
-  r.post('/shared', validate({ body: sharedBody }), (req, res) => res.status(201).json({ data: svc.createShared(req.user.id, req.body) }));
-  r.get('/shared/:group', validate({ params: groupParam }), (req, res) => res.json({ data: svc.getShared(req.user.id, req.params.group) }));
-  r.put('/shared/:group', validate({ params: groupParam, body: sharedBody }), (req, res) => res.json({ data: svc.updateShared(req.user.id, req.params.group, req.body) }));
-  r.delete('/shared/:group', validate({ params: groupParam }), (req, res) => {
-    svc.removeShared(req.user.id, req.params.group);
+  r.post('/shared', validate({ body: sharedBody }), asyncHandler(async (req, res) => res.status(201).json({ data: await svc.createShared(req.user._id, req.body) })));
+  r.get('/shared/:group', validate({ params: groupParam }), asyncHandler(async (req, res) => res.json({ data: await svc.getShared(req.user._id, req.params.group) })));
+  r.put('/shared/:group', validate({ params: groupParam, body: sharedBody }), asyncHandler(async (req, res) => res.json({ data: await svc.updateShared(req.user._id, req.params.group, req.body) })));
+  r.delete('/shared/:group', validate({ params: groupParam }), asyncHandler(async (req, res) => {
+    await svc.removeShared(req.user._id, req.params.group);
     res.status(204).end();
-  });
+  }));
 
-  r.get('/', validate({ query: listQuery }), (req, res) => res.json(svc.list(req.user.id, req.query)));
-  r.get('/:id', validate({ params: z.object({ id }) }), (req, res) => res.json({ data: svc.get(req.user.id, req.params.id) }));
-  r.post('/', validate({ body: purchaseBody }), (req, res) => res.status(201).json({ data: svc.create(req.user.id, req.body) }));
-  r.put('/:id', validate({ params: z.object({ id }), body: purchaseBody }), (req, res) => res.json({ data: svc.update(req.user.id, req.params.id, req.body) }));
-  r.delete('/:id', validate({ params: z.object({ id }) }), (req, res) => {
-    svc.remove(req.user.id, req.params.id);
+  r.get('/', validate({ query: listQuery }), asyncHandler(async (req, res) => res.json(await svc.list(req.user._id, req.query))));
+  r.get('/:id', validate({ params: z.object({ id }) }), asyncHandler(async (req, res) => res.json({ data: await svc.get(req.user._id, req.params.id) })));
+  r.post('/', validate({ body: purchaseBody }), asyncHandler(async (req, res) => res.status(201).json({ data: await svc.create(req.user._id, req.body) })));
+  r.put('/:id', validate({ params: z.object({ id }), body: purchaseBody }), asyncHandler(async (req, res) => res.json({ data: await svc.update(req.user._id, req.params.id, req.body) })));
+  r.delete('/:id', validate({ params: z.object({ id }) }), asyncHandler(async (req, res) => {
+    await svc.remove(req.user._id, req.params.id);
     res.status(204).end();
-  });
+  }));
   return r;
 }

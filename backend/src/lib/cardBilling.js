@@ -1,6 +1,9 @@
 import { badRequest, notFound } from './errors.js';
 import { monthIndex, round2 } from './months.js';
-import { outstandingInstallmentCentsSql } from './installments.js';
+import { Card } from '../models/Card.js';
+import { Installment } from '../models/Installment.js';
+import { Purchase } from '../models/Purchase.js';
+import mongoose from 'mongoose';
 
 const toCents = (value) => Math.round(Number(value || 0) * 100);
 const fromCents = (value) => value / 100;
@@ -85,28 +88,30 @@ export function getInvoiceDueDate(card, year, month) {
   return `${dueYear}-${String(dueMonth).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 }
 
-export function createCardBilling(db) {
+export function createCardBilling() {
   function ownedCard(userId, cardId) {
-    const card = db.prepare(
-      `SELECT id, name, limit_amount AS "limit", due_day AS dueDay, closing_day AS closingDay,
-              closing_day_equal AS closingDayEqual
-       FROM cards WHERE id = ? AND user_id = ?`,
-    ).get(cardId, userId);
-    if (!card) throw notFound('Cartão não encontrado');
-    return card;
+    return Card.findOne({ _id: cardId, userId }).lean().then((card) => {
+      if (!card) throw notFound('Cartão não encontrado');
+      return {
+        id: String(card._id), name: card.name, limit: card.limit,
+        dueDay: card.dueDay, closingDay: card.closingDay, closingDayEqual: card.closingDayEqual,
+      };
+    });
   }
 
-  function calculateInvoice(userId, cardId, month, year, personId = null) {
-    const card = ownedCard(userId, cardId);
-    const personFilter = personId === null ? '' : 'AND p.person_id = ?';
-    const params = personId === null
-      ? [userId, cardId, year, month]
-      : [userId, cardId, year, month, personId];
-    const cents = db.prepare(
-      `SELECT COALESCE(SUM(${outstandingInstallmentCentsSql}), 0) AS cents
-       FROM installments i JOIN purchases p ON p.id = i.purchase_id
-       WHERE p.user_id = ? AND p.card_id = ? AND i.year = ? AND i.month = ? ${personFilter}`,
-    ).get(...params).cents;
+  async function invoiceCents(userId, cardId, month, year, personId = null) {
+    const purchases = await Purchase.find({
+      userId, cardId, ...(personId === null ? {} : { personId }),
+    }).select('_id').lean();
+    const installments = purchases.length ? await Installment.find({
+      userId, purchaseId: { $in: purchases.map((purchase) => purchase._id) }, year, month,
+    }).lean() : [];
+    return installments.reduce((sum, item) => sum + getInstallmentBalanceCents(item.amount, item.paidAmount, item.paid), 0);
+  }
+
+  async function calculateInvoice(userId, cardId, month, year, personId = null) {
+    const card = await ownedCard(userId, cardId);
+    const cents = await invoiceCents(userId, cardId, month, year, personId);
     return {
       cardId: card.id,
       month,
@@ -116,38 +121,46 @@ export function createCardBilling(db) {
     };
   }
 
-  function calculatePersonInvoice(userId, personId, month, year) {
-    const cents = db.prepare(
-      `SELECT COALESCE(SUM(${outstandingInstallmentCentsSql}), 0) AS cents
-       FROM installments i JOIN purchases p ON p.id = i.purchase_id
-       WHERE p.user_id = ? AND p.person_id = ? AND i.year = ? AND i.month = ?`,
-    ).get(userId, personId, year, month).cents;
+  async function calculatePersonInvoice(userId, personId, month, year) {
+    const purchases = await Purchase.find({ userId, personId }).select('_id').lean();
+    const installments = purchases.length ? await Installment.find({
+      userId, purchaseId: { $in: purchases.map((purchase) => purchase._id) }, year, month,
+    }).lean() : [];
+    const cents = installments.reduce((sum, item) => sum + getInstallmentBalanceCents(item.amount, item.paidAmount, item.paid), 0);
     return fromCents(cents);
   }
 
-  function calculatePersonInvoicesByYear(userId, personId, year) {
-    return db.prepare(
-      `SELECT c.id, c.name, i.month, SUM(${outstandingInstallmentCentsSql}) AS cents
-       FROM installments i JOIN purchases p ON p.id = i.purchase_id
-       JOIN cards c ON c.id = p.card_id
-       WHERE p.user_id = ? AND p.person_id = ? AND i.year = ?
-       GROUP BY c.id, i.month ORDER BY c.name COLLATE NOCASE`,
-    ).all(userId, personId, year).map((row) => ({
-      id: row.id,
-      name: row.name,
-      month: row.month,
-      amount: fromCents(row.cents),
-    }));
+  async function calculatePersonInvoicesByYear(userId, personId, year) {
+    const purchases = await Purchase.find({ userId, personId }).populate('cardId', 'name').lean();
+    const installments = purchases.length ? await Installment.find({
+      userId, purchaseId: { $in: purchases.map((purchase) => purchase._id) }, year,
+    }).lean() : [];
+    const byCardMonth = new Map();
+    const purchaseMap = new Map(purchases.map((purchase) => [String(purchase._id), purchase]));
+    for (const installment of installments) {
+      const purchase = purchaseMap.get(String(installment.purchaseId));
+      if (!purchase?.cardId) continue;
+      const key = `${purchase.cardId._id}:${installment.month}`;
+      const item = byCardMonth.get(key) ?? { id: String(purchase.cardId._id), name: purchase.cardId.name, month: installment.month, cents: 0 };
+      item.cents += getInstallmentBalanceCents(installment.amount, installment.paidAmount, installment.paid);
+      byCardMonth.set(key, item);
+    }
+    return [...byCardMonth.values()].map(({ cents, ...row }) => ({ ...row, amount: fromCents(cents) }))
+      .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR') || a.month - b.month);
   }
 
-  function calculateLimit(userId, cardId, referenceDate = new Date()) {
-    const card = ownedCard(userId, cardId);
+  async function calculateLimit(userId, cardId, referenceDate = new Date()) {
+    const card = await ownedCard(userId, cardId);
     const idx = monthIndex(referenceDate.getFullYear(), referenceDate.getMonth() + 1);
-    const cents = db.prepare(
-      `SELECT COALESCE(SUM(${outstandingInstallmentCentsSql}), 0) AS cents
-       FROM installments i JOIN purchases p ON p.id = i.purchase_id
-       WHERE p.user_id = ? AND p.card_id = ? AND (i.year * 12 + i.month) >= ?`,
-    ).get(userId, cardId, idx).cents;
+    const purchases = await Purchase.find({ userId, cardId }).select('_id').lean();
+    const installments = purchases.length ? await Installment.find({
+      userId, purchaseId: { $in: purchases.map((purchase) => purchase._id) },
+    }).lean() : [];
+    const cents = installments.reduce((sum, item) => (
+      item.year * 12 + item.month >= idx
+        ? sum + getInstallmentBalanceCents(item.amount, item.paidAmount, item.paid)
+        : sum
+    ), 0);
     const used = fromCents(cents);
     return {
       used,
@@ -156,109 +169,111 @@ export function createCardBilling(db) {
     };
   }
 
-  function listCards(userId, month, year, withImages = false) {
-    const cards = db.prepare(
-      `SELECT c.id, c.name, c.limit_amount AS "limit", c.issuer, c.brand, c.last_four AS lastFour,
-              c.color, ${withImages ? 'c.image_data' : 'NULL'} AS imageData,
-              c.owner_id AS ownerId, pe.name AS owner,
-              c.due_day AS dueDay, c.closing_day AS closingDay, c.closing_day_equal AS closingDayEqual
-       FROM cards c LEFT JOIN people pe ON pe.id = c.owner_id
-       WHERE c.user_id = ? ORDER BY c.name COLLATE NOCASE`,
-    ).all(userId);
-    return cards.map((card) => ({
-      ...card,
-      invoice: calculateInvoice(userId, card.id, month, year).amount,
-      invoiceDueDate: getInvoiceDueDate(card, year, month),
-      ...calculateLimit(userId, card.id),
+  async function listCards(userId, month, year, withImages = false) {
+    const cards = await Card.find({ userId }).populate('ownerId', 'name').sort({ name: 1 }).lean();
+    return Promise.all(cards.map(async (card) => {
+      const shaped = {
+        id: String(card._id), name: card.name, limit: card.limit, issuer: card.issuer, brand: card.brand,
+        lastFour: card.lastDigits, color: card.color, imageData: withImages ? card.imageData : null,
+        ownerId: card.ownerId ? String(card.ownerId._id) : null, owner: card.ownerId?.name ?? null,
+        dueDay: card.dueDay, closingDay: card.closingDay, closingDayEqual: card.closingDayEqual,
+      };
+      const [invoice, limit] = await Promise.all([
+        calculateInvoice(userId, card._id, month, year),
+        calculateLimit(userId, card._id),
+      ]);
+      return { ...shaped, invoice: invoice.amount, invoiceDueDate: getInvoiceDueDate(shaped, year, month), ...limit };
     }));
   }
 
-  function recordPayment(userId, installmentId, paid) {
-    const installment = db.prepare(
-      'SELECT amount FROM installments WHERE id = ? AND user_id = ?',
-    ).get(installmentId, userId);
+  async function recordPayment(userId, installmentId, paid) {
+    const installment = await Installment.findOne({ _id: installmentId, userId }).lean();
     if (!installment) throw notFound('Parcela não encontrada');
     const paidAmount = paid ? installment.amount : 0;
-    db.prepare('UPDATE installments SET paid = ?, paid_amount = ? WHERE id = ? AND user_id = ?')
-      .run(paid ? 1 : 0, paidAmount, installmentId, userId);
-    return { id: installmentId, paid };
+    await Installment.updateOne({ _id: installmentId, userId }, { $set: { paid, paidAmount } });
+    return { id: String(installmentId), paid };
   }
 
-  function recordBulkPayment(userId, installmentIds, paid) {
-    const placeholders = installmentIds.map(() => '?').join(', ');
-    const result = db.transaction(() => {
-      const count = db.prepare(
-        `SELECT COUNT(*) AS count FROM installments WHERE user_id = ? AND id IN (${placeholders})`,
-      ).get(userId, ...installmentIds).count;
-      if (count !== installmentIds.length) throw notFound('Uma ou mais parcelas não foram encontradas');
-      const statement = paid
-        ? `UPDATE installments SET paid = 1, paid_amount = amount WHERE user_id = ? AND id IN (${placeholders})`
-        : `UPDATE installments SET paid = 0, paid_amount = 0 WHERE user_id = ? AND id IN (${placeholders})`;
-      return db.prepare(statement).run(userId, ...installmentIds).changes;
-    })();
-    return { updated: result };
+  async function recordBulkPayment(userId, installmentIds, paid) {
+    const session = await mongoose.startSession();
+    let updated;
+    try {
+      await session.withTransaction(async () => {
+        const installments = await Installment.find({ userId, _id: { $in: installmentIds } }).session(session);
+        if (installments.length !== new Set(installmentIds.map(String)).size) throw notFound('Uma ou mais parcelas não foram encontradas');
+        for (const installment of installments) {
+          installment.paid = paid;
+          installment.paidAmount = paid ? installment.amount : 0;
+          await installment.save({ session });
+        }
+        updated = installments.length;
+      });
+    } finally {
+      await session.endSession();
+    }
+    return { updated };
   }
 
-  function recordInvoicePayment(userId, cardId, month, year, amount) {
-    const card = ownedCard(userId, cardId);
-    const installments = db.prepare(
-      `SELECT i.id, i.amount, i.paid_amount AS paidAmount
-       FROM installments i JOIN purchases p ON p.id = i.purchase_id
-       WHERE p.card_id = ? AND p.user_id = ? AND i.year = ? AND i.month = ?
-         AND i.paid = 0 AND i.paid_amount < i.amount
-       ORDER BY i.id`,
-    ).all(cardId, userId, year, month);
+  async function recordInvoicePayment(userId, cardId, month, year, amount) {
+    const card = await ownedCard(userId, cardId);
+    const purchases = await Purchase.find({ userId, cardId }).select('_id').lean();
+    const installments = purchases.length ? await Installment.find({
+      userId, purchaseId: { $in: purchases.map((purchase) => purchase._id) }, year, month,
+      paid: false,
+    }).sort({ _id: 1 }).lean() : [];
     let remainingCents = toCents(amount);
     const invoiceCents = installments.reduce(
       (sum, item) => sum + Math.max(0, toCents(item.amount) - toCents(item.paidAmount)),
       0,
     );
     if (remainingCents > invoiceCents) throw badRequest('O pagamento não pode ser maior que o valor em aberto da fatura');
-    const update = db.prepare('UPDATE installments SET paid_amount = ?, paid = ? WHERE id = ? AND user_id = ?');
-    db.transaction(() => {
-      for (const item of installments) {
-        if (!remainingCents) break;
-        const dueCents = Math.max(0, toCents(item.amount) - toCents(item.paidAmount));
-        const paidCents = Math.min(dueCents, remainingCents);
-        const paidAmount = fromCents(toCents(item.paidAmount) + paidCents);
-        update.run(paidAmount, paidAmount >= item.amount - 0.005 ? 1 : 0, item.id, userId);
-        remainingCents -= paidCents;
-      }
-    })();
+    const session = await mongoose.startSession();
+    try {
+      await session.withTransaction(async () => {
+        for (const item of installments) {
+          if (!remainingCents) break;
+          const dueCents = Math.max(0, toCents(item.amount) - toCents(item.paidAmount));
+          const paidCents = Math.min(dueCents, remainingCents);
+          const paidAmount = fromCents(toCents(item.paidAmount) + paidCents);
+          await Installment.updateOne(
+            { _id: item._id, userId },
+            { $set: { paidAmount, paid: paidAmount >= item.amount - 0.005 } },
+            { session },
+          );
+          remainingCents -= paidCents;
+        }
+      });
+    } finally {
+      await session.endSession();
+    }
     return { cardId: card.id, month, year, amount: fromCents(toCents(amount)) };
   }
 
-  function rescheduleFutureUnpaid(userId, cardId, today = new Date()) {
-    const card = ownedCard(userId, cardId);
-    const purchases = db.prepare(
-      `SELECT p.id, p.total, p.installments_count AS count, p.purchase_date AS purchaseDate,
-              MIN(i.year * 12 + i.month) AS firstIndex
-       FROM purchases p JOIN installments i ON i.purchase_id = p.id
-       WHERE p.user_id = ? AND p.card_id = ?
-       GROUP BY p.id`,
-    ).all(userId, cardId);
+  async function rescheduleFutureUnpaid(userId, cardId, today = new Date(), session = null) {
+    const card = await ownedCard(userId, cardId);
+    const purchases = await Purchase.find({ userId, cardId }).session(session).lean();
     const currentIndex = monthIndex(today.getFullYear(), today.getMonth() + 1);
-    const update = db.prepare(
-      'UPDATE installments SET year = ?, month = ? WHERE id = ? AND paid = 0',
-    );
     for (const purchase of purchases) {
-      const fallbackIndex = purchase.firstIndex;
+      const existing = await Installment.find({ purchaseId: purchase._id }).session(session).sort({ number: 1 }).lean();
+      if (!existing.length) continue;
+      const fallbackIndex = Math.min(...existing.map((item) => monthIndex(item.year, item.month)));
       const fallback = {
-        startYear: Math.floor((fallbackIndex - 1) / 12),
-        startMonth: ((fallbackIndex - 1) % 12) + 1,
+        startYear: Math.floor(fallbackIndex / 12),
+        startMonth: (fallbackIndex % 12) + 1,
       };
       const start = getFirstStatementPeriod(purchase.purchaseDate, card, fallback);
       const schedule = generateInstallments({
-        count: purchase.count, total: purchase.total, startYear: start.year, startMonth: start.month,
+        count: purchase.totalInstallments, total: purchase.totalAmount, startYear: start.year, startMonth: start.month,
       });
-      const existing = db.prepare(
-        'SELECT id, number, year, month FROM installments WHERE purchase_id = ?',
-      ).all(purchase.id);
       for (const installment of existing) {
         const planned = schedule[installment.number - 1];
         const existingIndex = monthIndex(installment.year, installment.month);
         if (planned && existingIndex >= currentIndex) {
-          update.run(planned.year, planned.month, installment.id);
+          await Installment.updateOne(
+            { _id: installment._id, paid: false },
+            { $set: { year: planned.year, month: planned.month } },
+            session ? { session } : {},
+          );
         }
       }
     }
@@ -274,8 +289,8 @@ export function createCardBilling(db) {
     recordBulkPayment,
     recordInvoicePayment,
     rescheduleFutureUnpaid,
-    invoiceDueDate(cardId, userId, year, month) {
-      return getInvoiceDueDate(ownedCard(userId, cardId), year, month);
+    async invoiceDueDate(cardId, userId, year, month) {
+      return getInvoiceDueDate(await ownedCard(userId, cardId), year, month);
     },
   };
 }

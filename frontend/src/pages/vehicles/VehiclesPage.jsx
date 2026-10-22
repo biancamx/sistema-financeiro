@@ -13,13 +13,26 @@ import SummaryTab from './SummaryTab.jsx';
 import ExpensesTab from './ExpensesTab.jsx';
 import { kindLabel, showKm, showPlate, statusLabel, vehicleLabel } from './vehicles.js';
 
+function VehicleOwner({ name, avatar, compact = false }) {
+  if (!name) return compact ? null : <span className="muted">Não informado</span>;
+  const initials = name.trim().charAt(0).toLocaleUpperCase('pt-BR') || '?';
+  return (
+    <span className={`veh-owner ${compact ? 'veh-owner-compact' : ''}`}>
+      <span className="veh-owner-avatar" aria-hidden="true">
+        {initials}
+        {avatar && <img src={avatar} alt="" onError={(event) => event.currentTarget.remove()} />}
+      </span>
+      <span>{name}</span>
+    </span>
+  );
+}
 
 export default function VehiclesPage() {
   const nav = useNavigate();
   const toast = useToast();
   const lookups = useLookups();
   const params = useParams();
-  const selectedId = params.vehicleId ? Number(params.vehicleId) : null;
+  const selectedId = params.vehicleId || null;
   const [tab, setTab] = useState('summary');
   const [year, setYear] = useState(new Date().getFullYear());
   const [vehicleForm, setVehicleForm] = useState(null);
@@ -104,6 +117,7 @@ export default function VehiclesPage() {
               <button key={v.id} role="tab" aria-selected={v.id === selectedId} className={`veh-chip ${v.id === selectedId ? 'on' : ''} ${v.status !== 'active' ? 'dim' : ''}`} onClick={() => pick(v.id)}>
                 <strong>{v.model}</strong>
                 <span>{showPlate(v.plate)}{v.status !== 'active' && ` · ${statusLabel(v.status)}`}</span>
+                <VehicleOwner name={v.ownerName} avatar={v.ownerAvatar} compact />
               </button>
             ))}
           </div>
@@ -118,6 +132,7 @@ export default function VehiclesPage() {
               <dl className="veh-facts">
                 <div><dt>Placa</dt><dd>{showPlate(vehicle.plate)}</dd></div>
                 <div><dt>Tipo</dt><dd>{kindLabel(vehicle.kind)}</dd></div>
+                <div><dt>Proprietário</dt><dd><VehicleOwner name={vehicle.ownerName} avatar={vehicle.ownerAvatar} /></dd></div>
                 <div><dt>Ano</dt><dd>{vehicle.year || '—'}</dd></div>
                 <div><dt>Valor de compra</dt><dd>{vehicle.purchaseValue > 0 ? <Money value={vehicle.purchaseValue} /> : '—'}</dd></div>
                 <div><dt>Status</dt><dd><span className={`pill ${vehicle.status === 'active' ? '' : 'pill-warn'}`} style={{ marginLeft: 0 }}>{statusLabel(vehicle.status)}</span></dd></div>
@@ -149,7 +164,7 @@ export default function VehiclesPage() {
         </>
       )}
 
-      {vehicleForm && <VehicleForm value={vehicleForm} onClose={() => setVehicleForm(null)} onSubmit={saveVehicle} />}
+      {vehicleForm && <VehicleForm value={vehicleForm} people={lookups.people} onClose={() => setVehicleForm(null)} onSubmit={saveVehicle} />}
       {expenseForm && <ExpenseForm value={expenseForm} onClose={() => setExpenseForm(null)} onSubmit={saveExpense} vehicles={list} people={lookups.people} categories={cats.data} cards={lookups.cards} />}
     </>
   );

@@ -1,11 +1,12 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import { asyncHandler } from '../../lib/errors.js';
 import { validate } from '../../middleware/validate.js';
 import { createVehiclesService } from './vehicles.service.js';
 import { CATEGORY_KEYS, GROUP_KEYS } from './vehicles.categories.js';
 
-const id = z.coerce.number().int().positive();
-const optId = z.coerce.number().int().positive().optional();
+const id = z.string().regex(/^[\da-f]{24}$/i);
+const optId = id.optional();
 const idParam = z.object({ id });
 
 const realDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Data inválida (AAAA-MM-DD)').refine((s) => {
@@ -19,6 +20,7 @@ const vehicleBody = z.object({
   plate: z.string().trim().transform((s) => s.toUpperCase().replace(/[\s-]/g, '')).pipe(z.string().regex(/^[A-Z0-9]{5,8}$/, 'Placa inválida')),
   year: z.coerce.number().int().min(1900).max(2100).nullable().optional(),
   purchaseValue: z.coerce.number().min(0).max(100_000_000).default(0),
+  ownerId: id.nullable().optional(),
   status: z.enum(['active', 'inactive', 'sold']).default('active'),
   notes: z.string().trim().max(500).nullable().optional(),
 });
@@ -77,35 +79,35 @@ const listQuery = z.object({ ...expenseFilters, page: z.coerce.number().int().mi
 const exportQuery = z.object(expenseFilters);
 const summaryQuery = z.object({ vehicleId: optId, year: z.coerce.number().int().min(2000).max(2100).optional() });
 
-export function vehiclesRoutes(db) {
+export function vehiclesRoutes() {
   const r = Router();
-  const svc = createVehiclesService(db);
+  const svc = createVehiclesService();
 
   r.get('/categories', (_req, res) => res.json({ data: svc.categories() }));
-  r.get('/summary', validate({ query: summaryQuery }), (req, res) => res.json({ data: svc.summary(req.user.id, req.query) }));
+  r.get('/summary', validate({ query: summaryQuery }), asyncHandler(async (req, res) => res.json({ data: await svc.summary(req.user._id, req.query) })));
 
   // Lançamentos (declarados antes de /:id para não colidir)
-  r.get('/expenses/export.csv', validate({ query: exportQuery }), (req, res) => {
+  r.get('/expenses/export.csv', validate({ query: exportQuery }), asyncHandler(async (req, res) => {
     res.set('Content-Type', 'text/csv; charset=utf-8').set('Content-Disposition', 'attachment; filename="gastos-veiculos.csv"');
-    res.send('﻿' + svc.exportCsv(req.user.id, req.query));
-  });
-  r.get('/expenses', validate({ query: listQuery }), (req, res) => res.json(svc.listExpenses(req.user.id, req.query)));
-  r.get('/expenses/:id', validate({ params: idParam }), (req, res) => res.json({ data: svc.getExpense(req.user.id, req.params.id) }));
-  r.post('/expenses', validate({ body: expenseBody }), (req, res) => res.status(201).json({ data: svc.createExpense(req.user.id, req.body) }));
-  r.put('/expenses/:id', validate({ params: idParam, body: expenseBody }), (req, res) => res.json({ data: svc.updateExpense(req.user.id, req.params.id, req.body) }));
-  r.delete('/expenses/:id', validate({ params: idParam }), (req, res) => {
-    svc.removeExpense(req.user.id, req.params.id);
+    res.send('﻿' + await svc.exportCsv(req.user._id, req.query));
+  }));
+  r.get('/expenses', validate({ query: listQuery }), asyncHandler(async (req, res) => res.json(await svc.listExpenses(req.user._id, req.query))));
+  r.get('/expenses/:id', validate({ params: idParam }), asyncHandler(async (req, res) => res.json({ data: await svc.getExpense(req.user._id, req.params.id) })));
+  r.post('/expenses', validate({ body: expenseBody }), asyncHandler(async (req, res) => res.status(201).json({ data: await svc.createExpense(req.user._id, req.body) })));
+  r.put('/expenses/:id', validate({ params: idParam, body: expenseBody }), asyncHandler(async (req, res) => res.json({ data: await svc.updateExpense(req.user._id, req.params.id, req.body) })));
+  r.delete('/expenses/:id', validate({ params: idParam }), asyncHandler(async (req, res) => {
+    await svc.removeExpense(req.user._id, req.params.id);
     res.status(204).end();
-  });
+  }));
 
   // Veículos (ficha)
-  r.get('/', (req, res) => res.json({ data: svc.listVehicles(req.user.id) }));
-  r.post('/', validate({ body: vehicleBody }), (req, res) => res.status(201).json({ data: svc.createVehicle(req.user.id, req.body) }));
-  r.get('/:id', validate({ params: idParam }), (req, res) => res.json({ data: svc.getVehicle(req.user.id, req.params.id) }));
-  r.put('/:id', validate({ params: idParam, body: vehicleBody }), (req, res) => res.json({ data: svc.updateVehicle(req.user.id, req.params.id, req.body) }));
-  r.delete('/:id', validate({ params: idParam, query: z.object({ force: bool.optional() }) }), (req, res) => {
-    svc.removeVehicle(req.user.id, req.params.id, Boolean(req.query.force));
+  r.get('/', asyncHandler(async (req, res) => res.json({ data: await svc.listVehicles(req.user._id) })));
+  r.post('/', validate({ body: vehicleBody }), asyncHandler(async (req, res) => res.status(201).json({ data: await svc.createVehicle(req.user._id, req.body) })));
+  r.get('/:id', validate({ params: idParam }), asyncHandler(async (req, res) => res.json({ data: await svc.getVehicle(req.user._id, req.params.id) })));
+  r.put('/:id', validate({ params: idParam, body: vehicleBody }), asyncHandler(async (req, res) => res.json({ data: await svc.updateVehicle(req.user._id, req.params.id, req.body) })));
+  r.delete('/:id', validate({ params: idParam, query: z.object({ force: bool.optional() }) }), asyncHandler(async (req, res) => {
+    await svc.removeVehicle(req.user._id, req.params.id, Boolean(req.query.force));
     res.status(204).end();
-  });
+  }));
   return r;
 }

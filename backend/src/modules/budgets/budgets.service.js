@@ -2,207 +2,199 @@ import { badRequest, notFound } from '../../lib/errors.js';
 import { round2 } from '../../lib/months.js';
 import { getInstallmentBalanceCents } from '../../lib/cardBilling.js';
 import { SECTIONS, SECTION_KEYS, createDefaultRows } from './budgets.defaults.js';
-import { createCashLedgerService } from '../cashLedger/cashLedger.service.js';
+import { Person } from '../../models/Person.js';
+import { BudgetSheet } from '../../models/BudgetSheet.js';
+import { Purchase } from '../../models/Purchase.js';
+import { Installment } from '../../models/Installment.js';
+import { CashEntry } from '../../models/CashEntry.js';
+import { CashReceipt } from '../../models/CashReceipt.js';
 
 const zeros = () => Array(12).fill(0);
 const sum12 = (arr) => round2(arr.reduce((a, b) => a + b, 0));
+const strId = (value) => String(value);
 
-export function createBudgetsService(db) {
-  const cashLedger = createCashLedgerService(db);
-  const owned = (table, id, userId) => db.prepare(`SELECT 1 FROM ${table} WHERE id = ? AND user_id = ?`).get(id, userId);
-
-  function ensureSheet(userId, personId, year) {
-    if (!owned('people', personId, userId)) throw badRequest('Pessoa inválida');
-    let sheet = db.prepare('SELECT id FROM budget_sheets WHERE user_id = ? AND person_id = ? AND year = ?').get(userId, personId, year);
+export function createBudgetsService() {
+  async function ensureBudgetSheet(userId, personId, year) {
+    if (!await Person.exists({ _id: personId, userId })) throw badRequest('Pessoa inválida');
+    let sheet = await BudgetSheet.findOne({ userId, personId, year });
     if (!sheet) {
-      db.transaction(() => {
-        const id = db.prepare('INSERT INTO budget_sheets (user_id, person_id, year) VALUES (?,?,?)').run(userId, personId, year).lastInsertRowid;
-        createDefaultRows(db, userId, id);
-        sheet = { id: Number(id) };
-      })();
+      try {
+        sheet = await BudgetSheet.create({ userId, personId, year, rows: createDefaultRows() });
+      } catch (error) {
+        if (error.code !== 11000) throw error;
+        sheet = await BudgetSheet.findOne({ userId, personId, year });
+      }
     }
-    return sheet.id;
+    return sheet;
   }
-
-  const rowOwned = (userId, rowId) => {
-    const row = db.prepare('SELECT id, sheet_id FROM budget_rows WHERE id = ? AND user_id = ?').get(rowId, userId);
+  async function getRow(userId, rowId) {
+    const sheet = await BudgetSheet.findOne({ userId, 'rows._id': rowId });
+    if (!sheet) throw notFound('Linha não encontrada');
+    const row = sheet.rows.id(rowId);
     if (!row) throw notFound('Linha não encontrada');
-    return row;
-  };
-
+    return { sheet, row };
+  }
+  async function cashYear(userId, year) {
+    const from = `${year}-01-01`;
+    const to = `${year}-12-31`;
+    const [expenseRows, receipts] = await Promise.all([
+      CashEntry.find({ userId, kind: 'expense', entryDate: { $gte: from, $lte: to } }).select('entryDate totalCents').lean(),
+      CashReceipt.find({ userId, receivedOn: { $gte: from, $lte: to } }).select('receivedOn amountCents').lean(),
+    ]);
+    const expenses = zeros();
+    const receiptTotals = zeros();
+    for (const item of expenseRows) expenses[Number(item.entryDate.slice(5, 7)) - 1] += item.totalCents / 100;
+    for (const item of receipts) receiptTotals[Number(item.receivedOn.slice(5, 7)) - 1] += item.amountCents / 100;
+    return { expenses: expenses.map(round2), receipts: receiptTotals.map(round2) };
+  }
   return {
-    ensureSheet,
-    /** Anos que já têm planilha para a pessoa */
-    years(userId, personId) {
-      return db.prepare('SELECT year FROM budget_sheets WHERE user_id = ? AND person_id = ? ORDER BY year').all(userId, personId).map((r) => r.year);
+    async ensureSheet(userId, personId, year) {
+      return strId((await ensureBudgetSheet(userId, personId, year))._id);
     },
-
-    /** Planilha completa (linhas + células + cartões calculados + resumo geral) */
-    getSheet(userId, personId, year, selectedMonth = new Date().getMonth() + 1) {
-      const sheetId = ensureSheet(userId, personId, year);
-      const rows = db.prepare('SELECT id, section, label, position, receivable_from AS receivableFrom, obs FROM budget_rows WHERE sheet_id = ? ORDER BY position, id').all(sheetId);
-      const cells = db.prepare('SELECT row_id, month, value FROM budget_cells WHERE row_id IN (SELECT id FROM budget_rows WHERE sheet_id = ?)').all(sheetId);
-      const byRow = new Map(rows.map((r) => [r.id, { ...r, values: zeros(), enteredValues: [] }]));
-      for (const c of cells) {
-        const row = byRow.get(c.row_id);
-        row.values[c.month - 1] = c.value;
-        row.enteredValues.push(c.value);
+    async years(userId, personId) {
+      const sheets = await BudgetSheet.find({ userId, personId }).select('year').sort({ year: 1 }).lean();
+      return sheets.map((sheet) => sheet.year);
+    },
+    async getSheet(userId, personId, year, selectedMonth = new Date().getMonth() + 1) {
+      const sheet = await ensureBudgetSheet(userId, personId, year);
+      const rows = sheet.rows.slice().sort((a, b) => a.position - b.position || String(a._id).localeCompare(String(b._id)));
+      const byRow = new Map(rows.map((row) => [strId(row._id), {
+        id: strId(row._id), section: row.section, label: row.label, position: row.position,
+        receivableFrom: row.receivableFrom, obs: row.obs, values: zeros(), enteredValues: [],
+      }]));
+      for (const row of rows) for (const cell of row.cells) {
+        const item = byRow.get(strId(row._id));
+        item.values[cell.month - 1] = cell.value;
+        item.enteredValues.push(cell.value);
       }
 
-      // Cartões: soma das parcelas da pessoa por cartão e mês (substitui os SUMIFS da planilha)
-      const cardRows = db
-        .prepare(
-          `SELECT c.id AS cardId, c.name AS label, i.month, SUM(i.amount) AS amount
-           FROM installments i JOIN purchases p ON p.id = i.purchase_id JOIN cards c ON c.id = p.card_id
-           WHERE p.user_id = ? AND p.person_id = ? AND i.year = ? GROUP BY c.id, i.month ORDER BY c.name COLLATE NOCASE`,
-        )
-        .all(userId, personId, year);
+      const purchases = await Purchase.find({ userId, personId }).populate('cardId', 'name').populate('categoryId', 'name').lean();
+      const purchaseIds = purchases.map((purchase) => purchase._id);
+      const installments = purchaseIds.length ? await Installment.find({ userId, purchaseId: { $in: purchaseIds }, year }).lean() : [];
+      const purchaseById = new Map(purchases.map((purchase) => [strId(purchase._id), purchase]));
       const cardMap = new Map();
-      for (const r of cardRows) {
-        if (!cardMap.has(r.cardId)) cardMap.set(r.cardId, { id: `card-${r.cardId}`, section: 'cards', label: r.label, computed: true, values: zeros() });
-        cardMap.get(r.cardId).values[r.month - 1] = r.amount;
+      for (const installment of installments) {
+        const purchase = purchaseById.get(strId(installment.purchaseId));
+        const card = purchase?.cardId;
+        if (!card) continue;
+        const key = strId(card._id);
+        if (!cardMap.has(key)) cardMap.set(key, { id: `card-${key}`, section: 'cards', label: card.name, computed: true, values: zeros() });
+        cardMap.get(key).values[installment.month - 1] += installment.amount;
       }
-
-      const sections = SECTIONS.map((s) => {
-        const list = s.computed ? [...cardMap.values()] : [...byRow.values()].filter((r) => r.section === s.key);
+      const sections = SECTIONS.map((section) => {
+        const list = section.computed ? [...cardMap.values()] : [...byRow.values()].filter((row) => row.section === section.key);
         const totals = zeros();
-        for (const r of list) r.values.forEach((v, m) => (totals[m] += v));
+        for (const row of list) row.values.forEach((value, month) => { totals[month] += value; });
         return {
-          key: s.key,
-          label: s.label,
-          kind: s.kind,
-          computed: Boolean(s.computed),
-          rows: list.map((r) => {
-            const { enteredValues, ...row } = r;
-            const extremes = s.computed || enteredValues.length === 0 ? row.values : enteredValues;
-            return {
-              ...row,
-              total: sum12(row.values),
-              min: Math.min(...extremes),
-              max: Math.max(...extremes),
-            };
+          key: section.key, label: section.label, kind: section.kind, computed: Boolean(section.computed),
+          rows: list.map((row) => {
+            const { enteredValues, ...item } = row;
+            const extremes = section.computed || enteredValues.length === 0 ? item.values : enteredValues;
+            return { ...item, total: sum12(item.values), min: Math.min(...extremes), max: Math.max(...extremes) };
           }),
           totals: totals.map(round2),
         };
       });
-
-      const tot = Object.fromEntries(sections.map((s) => [s.key, s.totals]));
-      const cashFlow = cashLedger.yearSummary(userId, year);
-      const revenue = zeros().map((_, m) => round2(tot.income[m] + tot.benefits[m]));
+      const totals = Object.fromEntries(sections.map((section) => [section.key, section.totals]));
+      const cashFlow = await cashYear(userId, year);
+      const revenue = zeros().map((_, month) => round2(totals.income[month] + totals.benefits[month]));
       const totalRevenue = revenue.map((amount, month) => round2(amount + cashFlow.receipts[month]));
-      // "Contas fixas" (as linhas da Visão geral) são um espelho de Moradia/Alimentação/Veículo quando a pessoa já tem a
-      // planilha detalhada (Pessoa 01, Pessoa 07): nesse caso não entram de novo no gasto, senão luz/água contariam em dobro.
-      const detailed = SECTIONS.some((s) => !s.computed && s.kind === 'expense' && s.key !== 'fixed' && tot[s.key].some((v) => v !== 0));
-      const countedSections = SECTIONS.filter((s) => s.kind === 'expense' && !(detailed && s.key === 'fixed'));
-      const expenseKeys = countedSections.map((s) => s.key);
-      const spent = zeros().map((_, m) => round2(expenseKeys.reduce((a, k) => a + tot[k][m], 0) + cashFlow.expenses[m]));
-      const balance = totalRevenue.map((v, m) => round2(v - spent[m]));
-      const monthlyPurchases = db.prepare(
-        `SELECT i.id AS installmentId, p.id AS purchaseId, p.description, p.observation,
-                p.shared_group AS sharedGroup, i.number, p.installments_count AS count,
-                i.amount, i.paid, i.paid_amount AS paidAmount, c.id AS cardId, c.name AS card,
-                cat.name AS category
-         FROM installments i
-         JOIN purchases p ON p.id = i.purchase_id
-         JOIN cards c ON c.id = p.card_id
-         LEFT JOIN categories cat ON cat.id = p.category_id
-         WHERE p.user_id = ? AND p.person_id = ? AND i.year = ? AND i.month = ?
-         ORDER BY c.name COLLATE NOCASE, cat.name COLLATE NOCASE, p.description COLLATE NOCASE, p.id`,
-      ).all(userId, personId, year, selectedMonth).map((purchase) => {
-        const amountCents = Math.round(purchase.amount * 100);
-        const paidCents = amountCents - getInstallmentBalanceCents(purchase.amount, purchase.paidAmount, purchase.paid);
+      const detailed = SECTIONS.some((section) => !section.computed && section.kind === 'expense'
+        && section.key !== 'fixed' && totals[section.key].some((value) => value !== 0));
+      const countedSections = SECTIONS.filter((section) => section.kind === 'expense' && !(detailed && section.key === 'fixed'));
+      const spent = zeros().map((_, month) => round2(
+        countedSections.reduce((sum, section) => sum + totals[section.key][month], 0) + cashFlow.expenses[month],
+      ));
+      const balance = totalRevenue.map((amount, month) => round2(amount - spent[month]));
+
+      const monthPurchases = installments.filter((item) => item.month === selectedMonth).map((item) => {
+        const purchase = purchaseById.get(strId(item.purchaseId));
+        const amountCents = Math.round(item.amount * 100);
+        const paidCents = amountCents - getInstallmentBalanceCents(item.amount, item.paidAmount, item.paid);
         return {
-          ...purchase,
-          paid: Boolean(purchase.paid),
-          amount: amountCents / 100,
-          paidAmount: paidCents / 100,
+          installmentId: strId(item._id), purchaseId: strId(purchase._id), description: purchase.description,
+          observation: purchase.observation, sharedGroup: purchase.splitGroupId, number: item.number,
+          count: purchase.totalInstallments, amount: amountCents / 100, paid: item.paid,
+          paidAmount: paidCents / 100, cardId: purchase.cardId ? strId(purchase.cardId._id) : null,
+          card: purchase.cardId?.name ?? '', category: purchase.categoryId?.name ?? null,
           outstanding: Math.max(0, amountCents - paidCents) / 100,
         };
-      });
-      const monthlyCards = new Map();
-      const monthlyCategories = new Map();
-      let monthlyPaidCents = 0;
-      let monthlyOutstandingCents = 0;
-      let monthlyTotalCents = 0;
-      for (const purchase of monthlyPurchases) {
+      }).sort((a, b) => a.card.localeCompare(b.card, 'pt-BR') || (a.category || '').localeCompare(b.category || '', 'pt-BR') || a.description.localeCompare(b.description, 'pt-BR'));
+      const cards = new Map();
+      const categories = new Map();
+      let totalCents = 0;
+      let paidCents = 0;
+      let outstandingCents = 0;
+      for (const purchase of monthPurchases) {
         const amountCents = Math.round(purchase.amount * 100);
-        const paidCents = Math.round(purchase.paidAmount * 100);
-        const outstandingCents = Math.round(purchase.outstanding * 100);
-        monthlyTotalCents += amountCents;
-        monthlyPaidCents += paidCents;
-        monthlyOutstandingCents += outstandingCents;
-        const card = monthlyCards.get(purchase.cardId) ?? { id: purchase.cardId, name: purchase.card, totalCents: 0 };
-        card.totalCents += amountCents;
-        monthlyCards.set(purchase.cardId, card);
-        const categoryName = purchase.category || 'Sem categoria';
-        const category = monthlyCategories.get(categoryName) ?? { name: categoryName, totalCents: 0 };
-        category.totalCents += amountCents;
-        monthlyCategories.set(categoryName, category);
+        const currentPaid = Math.round(purchase.paidAmount * 100);
+        totalCents += amountCents;
+        paidCents += currentPaid;
+        outstandingCents += Math.round(purchase.outstanding * 100);
+        const card = cards.get(purchase.cardId) ?? { id: purchase.cardId, name: purchase.card, cents: 0 };
+        card.cents += amountCents;
+        cards.set(purchase.cardId, card);
+        const label = purchase.category || 'Sem categoria';
+        categories.set(label, (categories.get(label) ?? 0) + amountCents);
       }
       const monthly = {
-        month: selectedMonth,
-        total: monthlyTotalCents / 100,
-        paid: monthlyPaidCents / 100,
-        outstanding: monthlyOutstandingCents / 100,
-        purchases: monthlyPurchases,
-        cards: [...monthlyCards.values()]
-          .map(({ totalCents, ...card }) => ({ ...card, total: totalCents / 100 }))
-          .sort((a, b) => b.total - a.total),
-        categories: [...monthlyCategories.values()]
-          .map(({ totalCents, ...category }) => ({ ...category, total: totalCents / 100 }))
-          .sort((a, b) => b.total - a.total),
+        month: selectedMonth, total: totalCents / 100, paid: paidCents / 100, outstanding: outstandingCents / 100,
+        purchases: monthPurchases,
+        cards: [...cards.values()].map(({ cents, ...card }) => ({ ...card, total: cents / 100 })).sort((a, b) => b.total - a.total),
+        categories: [...categories].map(([name, cents]) => ({ name, total: cents / 100 })).sort((a, b) => b.total - a.total),
         cash: { expense: cashFlow.expenses[selectedMonth - 1], receipts: cashFlow.receipts[selectedMonth - 1] },
       };
       const summary = {
         lines: [
           { key: 'revenue', label: 'Receitas', values: revenue },
           { key: 'cashReceipts', label: 'Recebimentos avulsos', values: cashFlow.receipts },
-          ...countedSections.map((s) => ({ key: s.key, label: s.label, values: tot[s.key] })),
+          ...countedSections.map((section) => ({ key: section.key, label: section.label, values: totals[section.key] })),
           { key: 'cashExpenses', label: 'Gastos avulsos', values: cashFlow.expenses },
           { key: 'spent', label: 'Gasto final', values: spent },
           { key: 'balance', label: 'Saldo final', values: balance },
         ],
-        yearRevenue: sum12(totalRevenue),
-        yearSpent: sum12(spent),
-        yearBalance: sum12(balance),
+        yearRevenue: sum12(totalRevenue), yearSpent: sum12(spent), yearBalance: sum12(balance),
       };
-      return { sheetId, personId, year, sections, summary, monthly };
+      return { sheetId: strId(sheet._id), personId: strId(personId), year, sections, summary, monthly };
     },
-
-    addRow(userId, sheetId, { section, label }) {
-      if (!owned('budget_sheets', sheetId, userId)) throw notFound('Planilha não encontrada');
+    async addRow(userId, sheetId, { section, label }) {
+      const sheet = await BudgetSheet.findOne({ _id: sheetId, userId });
+      if (!sheet) throw notFound('Planilha não encontrada');
       if (!SECTION_KEYS.includes(section) || section === 'cards') throw badRequest('Seção inválida');
-      const pos = db.prepare('SELECT COALESCE(MAX(position), 0) + 1 AS p FROM budget_rows WHERE sheet_id = ?').get(sheetId).p;
-      const id = db.prepare('INSERT INTO budget_rows (user_id, sheet_id, section, label, position) VALUES (?,?,?,?,?)').run(userId, sheetId, section, label, pos).lastInsertRowid;
-      return { id: Number(id), section, label, position: pos, values: zeros(), receivableFrom: null, obs: null };
+      const position = Math.max(0, ...sheet.rows.map((row) => row.position)) + 1;
+      sheet.rows.push({ section, label, position, cells: [] });
+      await sheet.save();
+      const row = sheet.rows[sheet.rows.length - 1];
+      return { id: strId(row._id), section, label, position, values: zeros(), receivableFrom: null, obs: null };
     },
-
-    updateRow(userId, rowId, patch) {
-      rowOwned(userId, rowId);
-      const map = { label: 'label', obs: 'obs', receivableFrom: 'receivable_from' };
-      for (const [k, col] of Object.entries(map)) if (patch[k] !== undefined) db.prepare(`UPDATE budget_rows SET ${col} = ? WHERE id = ?`).run(patch[k], rowId);
-      return { id: rowId, ...patch };
+    async updateRow(userId, rowId, patch) {
+      const { sheet, row } = await getRow(userId, rowId);
+      for (const field of ['label', 'obs', 'receivableFrom']) if (patch[field] !== undefined) row[field] = patch[field];
+      await sheet.save();
+      return { id: strId(row._id), ...patch };
     },
-
-    removeRow(userId, rowId) {
-      rowOwned(userId, rowId);
-      db.prepare('DELETE FROM budget_rows WHERE id = ?').run(rowId);
+    async removeRow(userId, rowId) {
+      const { sheet, row } = await getRow(userId, rowId);
+      row.deleteOne();
+      await sheet.save();
     },
-
-    setCell(userId, rowId, month, value) {
-      rowOwned(userId, rowId);
-      db.prepare('INSERT INTO budget_cells (row_id, user_id, month, value) VALUES (?,?,?,?) ON CONFLICT(row_id, month) DO UPDATE SET value = excluded.value').run(rowId, userId, month, value);
-      return { rowId, month, value };
+    async setCell(userId, rowId, month, value) {
+      const { sheet, row } = await getRow(userId, rowId);
+      const cell = row.cells.find((item) => item.month === month);
+      if (cell) cell.value = value;
+      else row.cells.push({ month, value });
+      await sheet.save();
+      return { rowId: strId(rowId), month, value };
     },
-
-    /** "Arrastar para baixo" da planilha: repete o valor do mês escolhido até dezembro */
-    fillRow(userId, rowId, fromMonth, value) {
-      rowOwned(userId, rowId);
-      const up = db.prepare('INSERT INTO budget_cells (row_id, user_id, month, value) VALUES (?,?,?,?) ON CONFLICT(row_id, month) DO UPDATE SET value = excluded.value');
-      db.transaction(() => {
-        for (let m = fromMonth; m <= 12; m++) up.run(rowId, userId, m, value);
-      })();
-      return { rowId, fromMonth, value };
+    async fillRow(userId, rowId, fromMonth, value) {
+      const { sheet, row } = await getRow(userId, rowId);
+      for (let month = fromMonth; month <= 12; month++) {
+        const cell = row.cells.find((item) => item.month === month);
+        if (cell) cell.value = value;
+        else row.cells.push({ month, value });
+      }
+      await sheet.save();
+      return { rowId: strId(rowId), fromMonth, value };
     },
   };
 }

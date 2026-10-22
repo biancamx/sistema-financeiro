@@ -3,14 +3,15 @@ import { Button, Field, Modal, Select } from '../../components/ui/ui.jsx';
 import { parseMoney } from '../../lib/format.js';
 import { KINDS, STATUSES } from './vehicles.js';
 
-export const emptyVehicle = () => ({ kind: 'car', model: '', plate: '', year: '', purchaseValue: '', status: 'active', notes: '' });
+export const emptyVehicle = () => ({ kind: 'car', model: '', plate: '', year: '', purchaseValue: '', ownerId: '', status: 'active', notes: '' });
 export const vehicleToForm = (v) => ({
   id: v.id, kind: v.kind, model: v.model, plate: v.plate, year: v.year ? String(v.year) : '',
-  purchaseValue: v.purchaseValue ? String(v.purchaseValue).replace('.', ',') : '', status: v.status, notes: v.notes || '',
+  purchaseValue: v.purchaseValue ? String(v.purchaseValue).replace('.', ',') : '', ownerId: v.ownerId == null ? '' : String(v.ownerId),
+  status: v.status, notes: v.notes || '',
 });
 
 /** Ficha do veículo: cadastro e edição (placa, modelo, ano, valor de compra, status). */
-export default function VehicleForm({ value, onClose, onSubmit }) {
+export default function VehicleForm({ value, people, onClose, onSubmit }) {
   const [f, setF] = useState(value);
   const [busy, setBusy] = useState(false);
   const [errors, setErrors] = useState({});
@@ -28,15 +29,21 @@ export default function VehicleForm({ value, onClose, onSubmit }) {
     setErrors(e);
     if (Object.keys(e).length) return;
     setBusy(true);
-    try { await onSubmit({ kind: f.kind, model: f.model.trim(), plate, year, purchaseValue: price, status: f.status, notes: f.notes.trim() || null }); } finally { setBusy(false); }
+    try {
+      await onSubmit({
+        kind: f.kind, model: f.model.trim(), plate, year, purchaseValue: price,
+        ownerId: f.ownerId || null, status: f.status, notes: f.notes.trim() || null,
+      });
+    } finally { setBusy(false); }
   };
 
   return (
-    <Modal open title={f.id ? 'Editar veículo' : 'Novo veículo'} onClose={onClose}
+    <Modal open title={f.id ? 'Editar veículo' : 'Novo veículo'}
       footer={<><Button variant="ghost" onClick={onClose}>Cancelar</Button><Button variant="primary" disabled={busy} onClick={submit}>{f.id ? 'Salvar' : 'Cadastrar veículo'}</Button></>}>
       <div className="form-grid">
         <Field label="Tipo">{(id) => <Select id={id} value={f.kind} onChange={set('kind')} options={KINDS} />}</Field>
         <Field label="Status">{(id) => <Select id={id} value={f.status} onChange={set('status')} options={STATUSES} />}</Field>
+        <Field label="Proprietário" hint="Opcional">{(id) => <Select id={id} value={f.ownerId} onChange={set('ownerId')} placeholder="Sem proprietário informado" options={people.map((person) => ({ value: person.id, label: person.name }))} />}</Field>
         <Field label="Modelo" error={errors.model}>{(id) => <input id={id} className="input" value={f.model} onChange={set('model')} autoFocus placeholder="Ex.: Chevrolet Ônix, Honda CG 160" />}</Field>
         <Field label="Placa" error={errors.plate}>{(id) => <input id={id} className="input" value={f.plate} onChange={set('plate')} placeholder="ABC-1D23" maxLength={9} />}</Field>
         <Field label="Ano" error={errors.year} hint="Opcional">{(id) => <input id={id} className="input" inputMode="numeric" value={f.year} onChange={set('year')} placeholder="2021" maxLength={4} />}</Field>

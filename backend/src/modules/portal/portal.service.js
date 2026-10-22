@@ -1,44 +1,87 @@
 import { MONTHS_PT, round2 } from '../../lib/months.js';
 import { SECTIONS } from '../budgets/budgets.defaults.js';
 import { getInstallmentBalanceCents, getInvoiceDueDate } from '../../lib/cardBilling.js';
+import { BudgetSheet } from '../../models/BudgetSheet.js';
+import { Installment } from '../../models/Installment.js';
+import { MonthStatus } from '../../models/MonthStatus.js';
+import { Person } from '../../models/Person.js';
+import { User } from '../../models/User.js';
 
 const expenseSections = new Set(
   SECTIONS.filter((section) => section.kind === 'expense' && !section.computed).map((section) => section.key),
 );
 
-export function getParticipantPortal(db, token) {
-  const person = db.prepare(
-    `SELECT p.id, p.user_id AS userId, p.name, p.avatar, u.name AS adminName
-     FROM people p
-     JOIN users u ON u.id = p.user_id
-     WHERE p.share_token = ?`,
-  ).get(token);
+export async function getParticipantPortal(token) {
+  const person = await Person.findOne({ shareToken: token }).lean();
   if (!person) return null;
 
-  const installments = db.prepare(
-    `SELECT i.id, i.number AS installmentNumber, i.year, i.month, i.amount, i.paid,
-       i.paid_amount AS paidAmount, p.description, p.installments_count AS totalInstallments,
-       c.id AS cardId, c.name AS cardName, c.brand AS cardBrand, c.issuer AS bank,
-       c.color AS cardColor, c.due_day AS dueDay, c.closing_day AS closingDay
-     FROM installments i
-     JOIN purchases p ON p.id = i.purchase_id AND p.user_id = i.user_id
-     LEFT JOIN cards c ON c.id = p.card_id AND c.user_id = p.user_id
-     WHERE i.user_id = ? AND p.person_id = ?
-     ORDER BY i.year, i.month, c.name, p.description, i.id`,
-  ).all(person.userId, person.id);
-
-  const budgetRows = db.prepare(
-    `SELECT s.year, r.id AS rowId, r.section, r.label, r.position, c.month, c.value AS amount,
-       COALESCE(ms.status, 'pending') AS monthStatus
-     FROM budget_sheets s
-     JOIN budget_rows r ON r.sheet_id = s.id AND r.user_id = s.user_id
-     LEFT JOIN budget_cells c ON c.row_id = r.id AND c.user_id = s.user_id
-     LEFT JOIN month_status ms ON ms.user_id = s.user_id AND ms.person_id = s.person_id
-       AND ms.year = s.year AND ms.month = c.month
-     WHERE s.user_id = ? AND s.person_id = ?
-       AND r.section IN (${[...expenseSections].map(() => '?').join(', ')})
-     ORDER BY s.year, r.position, r.id`,
-  ).all(person.userId, person.id, ...expenseSections);
+  const [admin, installmentsWithPurchase, sheets, statuses] = await Promise.all([
+    User.findById(person.userId).select('name portalContactPersonId').lean(),
+    Installment.find({ userId: person.userId })
+      .populate({
+        path: 'purchaseId',
+        match: { userId: person.userId, personId: person._id },
+        select: 'description totalInstallments cardId',
+        populate: { path: 'cardId', select: 'name brand issuer color dueDay closingDay' },
+      })
+      .sort({ year: 1, month: 1, number: 1, _id: 1 })
+      .lean(),
+    BudgetSheet.find({ userId: person.userId, personId: person._id }).lean(),
+    MonthStatus.find({ userId: person.userId, personId: person._id }).lean(),
+  ]);
+  const contact = admin?.portalContactPersonId
+    ? await Person.findOne({ _id: admin.portalContactPersonId, userId: person.userId }).select('phone').lean()
+    : null;
+  const installments = installmentsWithPurchase.filter((item) => item.purchaseId).map((item) => {
+    const purchase = item.purchaseId;
+    const card = purchase.cardId;
+    return {
+      id: String(item._id),
+      installmentNumber: item.number,
+      year: item.year,
+      month: item.month,
+      amount: item.amount,
+      paid: item.paid,
+      paidAmount: item.paidAmount,
+      description: purchase.description,
+      totalInstallments: purchase.totalInstallments,
+      cardId: card ? String(card._id) : null,
+      cardName: card?.name ?? null,
+      cardBrand: card?.brand ?? null,
+      bank: card?.issuer ?? null,
+      cardColor: card?.color ?? null,
+      dueDay: card?.dueDay ?? null,
+      closingDay: card?.closingDay ?? null,
+    };
+  }).sort((a, b) => a.year - b.year || a.month - b.month
+    || (a.cardName || '').localeCompare(b.cardName || '', 'pt-BR')
+    || a.description.localeCompare(b.description, 'pt-BR')
+    || a.id.localeCompare(b.id));
+  const statusByPeriod = new Map(statuses.map((status) => [`${status.year}-${status.month}`, status.status]));
+  const budgetRows = sheets.flatMap((sheet) => sheet.rows
+    .filter((row) => expenseSections.has(row.section))
+    .flatMap((row) => row.cells.length
+      ? row.cells.map((cell) => ({
+        year: sheet.year,
+        rowId: String(row._id),
+        section: row.section,
+        label: row.label,
+        position: row.position,
+        month: cell.month,
+        amount: cell.value,
+        monthStatus: statusByPeriod.get(`${sheet.year}-${cell.month}`) || 'pending',
+      }))
+      : [{
+        year: sheet.year,
+        rowId: String(row._id),
+        section: row.section,
+        label: row.label,
+        position: row.position,
+        month: null,
+        amount: null,
+        monthStatus: 'pending',
+      }]))
+    .sort((a, b) => a.year - b.year || a.position - b.position || a.rowId.localeCompare(b.rowId));
 
   const detailedMonths = new Set(
     budgetRows
@@ -176,7 +219,7 @@ export function getParticipantPortal(db, token) {
 
   return {
     person: { name: person.name, avatar: person.avatar || null },
-    admin: { name: person.adminName, phone: null },
+    admin: { name: admin?.name ?? '', phone: contact?.phone || null },
     months: sortedMonths,
     totals: {
       grandTotal: round2(grandTotal),

@@ -7,12 +7,16 @@ const cardSchema = new mongoose.Schema(
     limit: { type: Number, default: 0 },
     color: { type: String, default: '#0f6b66' },
     bank: { type: String, default: 'outro' },
+    issuer: { type: String, default: 'Outro' },
     brand: { type: String, default: 'outro' },
     lastDigits: { type: String, default: null, maxlength: 4 },
     holderPersonId: { type: mongoose.Schema.Types.ObjectId, ref: 'Person', default: null },
+    ownerId: { type: mongoose.Schema.Types.ObjectId, ref: 'Person', default: null },
     image: { type: String, default: null },
+    imageData: { type: String, default: null },
     dueDay: { type: Number, default: 10, min: 1, max: 31 }, // dia do vencimento
     closingDay: { type: Number, default: 3, min: 1, max: 31 }, // dia do fechamento
+    closingDayEqual: { type: String, enum: ['current', 'next'], default: 'next' },
   },
   { timestamps: true }
 );

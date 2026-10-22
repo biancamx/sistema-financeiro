@@ -1,7 +1,7 @@
 import { Bar as RBar, BarChart, ResponsiveContainer, Tooltip, XAxis } from 'recharts';
 import { Bar, Card, EmptyState, Money } from '../../components/ui/ui.jsx';
 import { MONTHS_SHORT, money } from '../../lib/format.js';
-import { GROUP_TONE, showKm } from './vehicles.js';
+import { GROUP_TONE, showDate, showKm } from './vehicles.js';
 
 function Kpi({ label, children, hint }) {
   return (
@@ -34,6 +34,31 @@ export default function SummaryTab({ summary, vehicle, onPickVehicle, year }) {
         {vehicle && s.costPerKm != null && <Kpi label="Custo por km rodado" hint={`histórico ÷ ${showKm(s.kmSpan)} registrados`}>{money(s.costPerKm)}</Kpi>}
         {acquisition > 0 && <Kpi label="Gasto × valor de compra" hint={`compra: ${money(acquisition)}`}>{Math.round((vehicle.totalSpent / acquisition) * 100)}%</Kpi>}
       </div>
+
+      {vehicle && (
+        <Card title="Últimos serviços e gastos">
+          {s.recentExpenses.length === 0 ? (
+            <p className="muted small">Nenhum lançamento neste período.</p>
+          ) : (
+            <div className="table-wrap">
+              <table className="table">
+                <thead><tr><th>Data</th><th>Serviço / categoria</th><th>Descrição</th><th className="num">KM</th><th className="num">Valor</th></tr></thead>
+                <tbody>
+                  {s.recentExpenses.map((expense) => (
+                    <tr key={expense.id}>
+                      <td className="nowrap">{showDate(expense.date)}</td>
+                      <td>{expense.categoryLabel}</td>
+                      <td>{expense.description || <span className="muted">—</span>}</td>
+                      <td className="num">{showKm(expense.km)}</td>
+                      <td className="num"><Money value={expense.amount} /></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Card>
+      )}
 
       <div className="grid-2 first">
         <Card title="Por grupo">

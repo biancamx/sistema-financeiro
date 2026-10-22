@@ -31,8 +31,8 @@ export function cashEntryToForm(entry) {
     kind: entry.kind,
     description: entry.description,
     total: stringMoney(entry.total),
-    categoryId: entry.categoryId ?? '',
-    personId: entry.personId ?? '',
+    categoryId: entry.categoryId == null ? '' : String(entry.categoryId),
+    personId: entry.personId == null ? '' : String(entry.personId),
     counterparty: entry.counterparty ?? '',
     entryDate: entry.entryDate ?? TODAY,
     paymentMethod: entry.paymentMethod ?? 'pix',
@@ -45,7 +45,7 @@ export function cashEntryToForm(entry) {
     protocol: entry.protocol ?? '',
     expectedReturnDate: entry.expectedReturnDate ?? '',
     refundStatus: entry.refundStatus ?? 'requested',
-    vehicleId: entry.vehicleId ?? '',
+    vehicleId: entry.vehicleId == null ? '' : String(entry.vehicleId),
     notes: entry.notes ?? '',
   };
 }
@@ -77,9 +77,9 @@ export default function CashEntryForm({ value, onClose, onSubmit, lookups }) {
       await onSubmit({
         ...form,
         total: amount,
-        categoryId: form.categoryId ? Number(form.categoryId) : null,
-        personId: form.personId ? Number(form.personId) : null,
-        vehicleId: form.vehicleId ? Number(form.vehicleId) : null,
+        categoryId: form.categoryId || null,
+        personId: form.personId || null,
+        vehicleId: form.vehicleId || null,
         downPayment: parseMoney(form.downPayment || 0),
         installmentCount: count || 1,
         interestRate: Number(String(form.interestRate || '0').replace(',', '.')),
@@ -106,7 +106,7 @@ export default function CashEntryForm({ value, onClose, onSubmit, lookups }) {
   ];
 
   return (
-    <Modal open title={`${isEdit ? 'Editar' : 'Novo registro'}${isEdit ? ` · ${title}` : ''}`} onClose={onClose} wide
+    <Modal open title={`${isEdit ? 'Editar' : 'Novo registro'}${isEdit ? ` · ${title}` : ''}`} wide
       footer={<><Button variant="ghost" onClick={onClose}>Cancelar</Button><Button variant="primary" disabled={busy} onClick={submit}>{busy ? 'Salvando…' : isEdit ? 'Salvar alterações' : 'Registrar'}</Button></>}>
       <div className="form-grid">
         {!isEdit && <Field label="Tipo">{(id) => <Select id={id} value={form.kind} onChange={(kind) => setForm((current) => ({ ...emptyCashEntry(kind), description: current.description, total: current.total, entryDate: current.entryDate }))} options={kindOptions} />}</Field>}

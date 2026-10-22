@@ -104,7 +104,7 @@ export default function CardsPage() {
       lastFour: form.lastFour || null,
       color: form.color,
       imageData: form.imageData || null,
-      ownerId: form.ownerId ? Number(form.ownerId) : null,
+      ownerId: form.ownerId || null,
       dueDay: Number.parseInt(form.dueDay, 10) || 10,
       closingDay: Number.parseInt(form.closingDay, 10) || 3,
       closingDayEqual: form.closingDayEqual || 'next',
@@ -233,7 +233,7 @@ export default function CardsPage() {
         </section>
       )}
 
-      <Modal open={!!editing} title={editing?.id ? 'Editar cartão' : 'Novo cartão'} onClose={() => setEditing(null)} wide
+      <Modal open={!!editing} title={editing?.id ? 'Editar cartão' : 'Novo cartão'} wide
         footer={<><Button variant="ghost" onClick={() => setEditing(null)}>Cancelar</Button><Button variant="primary" onClick={() => save(editing)}>Salvar cartão</Button></>}>
         {editing && (
           <div className="form-grid">
@@ -252,7 +252,7 @@ export default function CardsPage() {
           </div>
         )}
       </Modal>
-      <Modal open={!!paying} title={`Pagar fatura · ${paying?.name || ''}`} onClose={() => setPaying(null)}
+      <Modal open={!!paying} title={`Pagar fatura · ${paying?.name || ''}`}
         footer={<><Button variant="ghost" onClick={() => setPaying(null)}>Cancelar</Button><Button variant="primary" onClick={payInvoice}>Registrar pagamento</Button></>}>
         {paying && (
           <div className="form-grid">

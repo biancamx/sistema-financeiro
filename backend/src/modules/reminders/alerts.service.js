@@ -1,152 +1,81 @@
 import { SECTIONS } from '../budgets/budgets.defaults.js';
-import { getInvoiceDueDate } from '../../lib/cardBilling.js';
-import { outstandingInstallmentCentsSql } from '../../lib/installments.js';
+import { getInvoiceDueDate, getInstallmentBalanceCents } from '../../lib/cardBilling.js';
+import { BudgetSheet } from '../../models/BudgetSheet.js';
+import { Installment } from '../../models/Installment.js';
+import { MonthStatus } from '../../models/MonthStatus.js';
+import { Person } from '../../models/Person.js';
+import { Purchase } from '../../models/Purchase.js';
 
-const DAY_MS = 24 * 60 * 60 * 1000;
-const EXPENSE_SECTIONS = SECTIONS
-  .filter((section) => section.kind === 'expense' && !section.computed)
-  .map((section) => section.key);
-const MONTH_NAMES = [
-  'janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho',
-  'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro',
-];
+const DAY_MS = 86400000;
+const MONTH_NAMES = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
+const dateOnly = (date) => Date.UTC(date.getFullYear(), date.getMonth(), date.getDate());
+const daysBetween = (from, to) => Math.round((dateOnly(to) - dateOnly(from)) / DAY_MS);
 
-function dateOnly(date) {
-  return Date.UTC(date.getFullYear(), date.getMonth(), date.getDate());
-}
-
-function daysBetween(from, to) {
-  return Math.round((dateOnly(to) - dateOnly(from)) / DAY_MS);
-}
-
-function getSystemAlerts(db, userId, today = new Date()) {
-  const currentDay = today.getDate();
+async function getSystemAlerts(userId, today = new Date()) {
   const currentMonth = today.getMonth() + 1;
   const currentYear = today.getFullYear();
   const alerts = [];
-
-  const cardDebts = db.prepare(
-    `SELECT c.id AS cardId, c.name AS cardName, c.due_day AS dueDay,
-            c.closing_day AS closingDay, c.closing_day_equal AS closingDayEqual,
-            i.month, i.year, p.person_id AS personId, pe.name AS personName,
-            SUM(${outstandingInstallmentCentsSql}) AS pendingCents
-     FROM installments i
-     JOIN purchases p ON p.id = i.purchase_id
-     JOIN cards c ON c.id = p.card_id
-     LEFT JOIN people pe ON pe.id = p.person_id
-     WHERE p.user_id = ?
-       AND i.paid = 0
-       AND (i.year < ? OR (i.year = ? AND i.month <= ?))
-     GROUP BY c.id, i.month, i.year, p.person_id
-     HAVING pendingCents > 0`,
-  ).all(userId, currentYear, currentYear, currentMonth);
-
-  for (const debt of cardDebts) {
-    const card = { dueDay: debt.dueDay, closingDay: debt.closingDay, closingDayEqual: debt.closingDayEqual };
-    const dueDateValue = getInvoiceDueDate(card, debt.year, debt.month);
-    const [, dueYear, dueMonth, dueDay] = dueDateValue.match(/^(\d{4})-(\d{2})-(\d{2})$/).map(Number);
+  const [purchases, installments] = await Promise.all([
+    Purchase.find({ userId }).populate('cardId', 'name dueDay closingDay closingDayEqual').populate('personId', 'name').lean(),
+    Installment.find({ userId, $or: [{ year: { $lt: currentYear } }, { year: currentYear, month: { $lte: currentMonth } }], paid: false }).lean(),
+  ]);
+  const purchaseMap = new Map(purchases.map((purchase) => [String(purchase._id), purchase]));
+  const cardInvoices = new Map();
+  for (const installment of installments) {
+    const purchase = purchaseMap.get(String(installment.purchaseId));
+    if (!purchase?.cardId) continue;
+    const balance = getInstallmentBalanceCents(installment.amount, installment.paidAmount, installment.paid);
+    if (!balance) continue;
+    const card = purchase.cardId;
+    const key = `${card._id}:${purchase.personId?._id}:${installment.year}:${installment.month}`;
+    const invoice = cardInvoices.get(key) ?? { card, person: purchase.personId, year: installment.year, month: installment.month, cents: 0 };
+    invoice.cents += balance; cardInvoices.set(key, invoice);
+  }
+  for (const item of cardInvoices.values()) {
+    const dueDateValue = getInvoiceDueDate(item.card, item.year, item.month);
+    const [dueYear, dueMonth, dueDay] = dueDateValue.split('-').map(Number);
     const dueDate = new Date(dueYear, dueMonth - 1, dueDay);
     const diffDays = daysBetween(today, dueDate);
-    let status;
-    let severity;
-
-    if (diffDays < 0) {
-      status = 'overdue';
-      severity = 'danger';
-    } else if (diffDays === 0) {
-      status = 'today';
-      severity = 'danger';
-    } else if (diffDays <= 5) {
-      status = 'upcoming';
-      severity = 'warning';
-    } else {
-      continue;
-    }
-
+    const status = diffDays < 0 ? 'overdue' : diffDays === 0 ? 'today' : diffDays <= 5 ? 'upcoming' : null;
+    if (!status) continue;
+    const day = String(dueDay).padStart(2, '0'); const month = String(dueMonth).padStart(2, '0');
     alerts.push({
-      id: `card-${debt.cardId}-${debt.personId}-${debt.month}-${debt.year}`,
-      type: 'card_invoice',
-      title: `Fatura ${debt.cardName} • ${debt.personName || 'Geral'}`,
-      description: status === 'overdue'
-        ? `Venceu em ${String(dueDay).padStart(2, '0')}/${String(dueMonth).padStart(2, '0')} e ainda há saldo pendente.`
-        : status === 'today'
-          ? `Vence hoje, dia ${dueDay}.`
-          : `Vence em ${diffDays} dias, no dia ${String(dueDay).padStart(2, '0')}/${String(dueMonth).padStart(2, '0')}.`,
-      amount: debt.pendingCents / 100,
-      dueDate: dueDateValue,
-      status,
-      severity,
-      personName: debt.personName,
-      link: '/cartoes',
+      id: `card-${item.card._id}-${item.person?._id ?? 'all'}-${item.month}-${item.year}`,
+      type: 'card_invoice', title: `Fatura ${item.card.name} • ${item.person?.name || 'Geral'}`,
+      description: status === 'overdue' ? `Venceu em ${day}/${month} e ainda há saldo pendente.`
+        : status === 'today' ? `Vence hoje, dia ${dueDay}.` : `Vence em ${diffDays} dias, no dia ${day}/${month}.`,
+      amount: item.cents / 100, dueDate: dueDateValue, status,
+      severity: status === 'upcoming' ? 'warning' : 'danger', personName: item.person?.name, link: '/cartoes',
     });
   }
-
-  const placeholders = EXPENSE_SECTIONS.map(() => '?').join(', ');
-  const detailedSections = EXPENSE_SECTIONS.filter((section) => section !== 'fixed');
-  const detailedPlaceholders = detailedSections.map(() => '?').join(', ');
-  const budgetDebts = db.prepare(
-    `SELECT pe.id AS personId, pe.name AS personName, SUM(bc.value) AS pendingAmount
-     FROM people pe
-     JOIN budget_sheets bs ON bs.person_id = pe.id AND bs.user_id = pe.user_id
-     JOIN budget_rows br ON br.sheet_id = bs.id AND br.user_id = bs.user_id
-     JOIN budget_cells bc ON bc.row_id = br.id AND bc.user_id = bs.user_id
-     LEFT JOIN month_status ms
-       ON ms.user_id = pe.user_id AND ms.person_id = pe.id
-       AND ms.year = bs.year AND ms.month = bc.month
-     WHERE pe.user_id = ? AND bs.year = ? AND bc.month = ?
-       AND br.section IN (${placeholders})
-       AND bc.value > 0
-       AND NOT (
-         br.section = 'fixed'
-         AND EXISTS (
-           SELECT 1
-           FROM budget_rows detailed_row
-           JOIN budget_cells detailed_cell
-             ON detailed_cell.row_id = detailed_row.id
-             AND detailed_cell.user_id = detailed_row.user_id
-           WHERE detailed_row.sheet_id = bs.id
-             AND detailed_row.user_id = bs.user_id
-             AND detailed_row.section IN (${detailedPlaceholders})
-             AND detailed_cell.month = bc.month
-             AND detailed_cell.value <> 0
-         )
-       )
-       AND COALESCE(ms.status, 'pending') = 'pending'
-     GROUP BY pe.id
-     HAVING pendingAmount > 0`,
-  ).all(
-    userId,
-    currentYear,
-    currentMonth,
-    ...EXPENSE_SECTIONS,
-    ...detailedSections,
-  );
-
-  for (const debt of budgetDebts) {
+  const people = await Person.find({ userId }).select('name').lean();
+  const sheets = await BudgetSheet.find({ userId, year: currentYear, personId: { $in: people.map((person) => person._id) } }).lean();
+  const statuses = await MonthStatus.find({ userId, year: currentYear, month: currentMonth }).lean();
+  const statusSet = new Set(statuses.filter((item) => item.status === 'paid').map((item) => String(item.personId)));
+  const expenseSections = new Set(SECTIONS.filter((section) => section.kind === 'expense' && !section.computed).map((section) => section.key));
+  const detailedSections = new Set([...expenseSections].filter((section) => section !== 'fixed'));
+  for (const sheet of sheets) {
+    if (statusSet.has(String(sheet.personId))) continue;
+    const activeRows = sheet.rows.filter((row) => expenseSections.has(row.section) && row.cells.some((cell) => cell.month === currentMonth && cell.value > 0));
+    const hasDetail = activeRows.some((row) => detailedSections.has(row.section));
+    const sum = activeRows.filter((row) => !(hasDetail && row.section === 'fixed'))
+      .reduce((total, row) => total + (row.cells.find((cell) => cell.month === currentMonth)?.value ?? 0), 0);
+    if (sum <= 0) continue;
+    const person = people.find((item) => String(item._id) === String(sheet.personId));
     alerts.push({
-      id: `budget-${debt.personId}-${currentMonth}-${currentYear}`,
-      type: 'monthly_budget',
-      title: `Despesas do mês • ${debt.personName}`,
+      id: `budget-${sheet.personId}-${currentMonth}-${currentYear}`,
+      type: 'monthly_budget', title: `Despesas do mês • ${person?.name ?? ''}`,
       description: `A planilha de ${MONTH_NAMES[currentMonth - 1]}/${currentYear} ainda está marcada como pendente.`,
-      amount: Math.round(debt.pendingAmount * 100) / 100,
-      dueDate: null,
-      status: 'upcoming',
-      severity: 'warning',
-      personName: debt.personName,
-      link: '/planilha',
+      amount: Math.round(sum * 100) / 100, dueDate: null, status: 'upcoming', severity: 'warning',
+      personName: person?.name, link: '/planilha',
     });
   }
-
   const severityOrder = { danger: 1, warning: 2, info: 3 };
-  alerts.sort((a, b) => {
-    const severityDifference = severityOrder[a.severity] - severityOrder[b.severity];
-    return severityDifference || (a.dueDate || '').localeCompare(b.dueDate || '');
-  });
-
+  alerts.sort((a, b) => severityOrder[a.severity] - severityOrder[b.severity] || (a.dueDate || '').localeCompare(b.dueDate || ''));
   return {
     totalAlerts: alerts.length,
     overdueCount: alerts.filter((alert) => alert.status === 'overdue').length,
-    upcomingCount: alerts.filter((alert) => alert.status === 'upcoming' || alert.status === 'today').length,
+    upcomingCount: alerts.filter((alert) => ['upcoming', 'today'].includes(alert.status)).length,
     alerts,
   };
 }

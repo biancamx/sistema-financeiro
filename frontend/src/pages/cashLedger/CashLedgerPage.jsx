@@ -107,8 +107,8 @@ export default function CashLedgerPage() {
     if (appliedDashboardQuery.current || !searchParams.size) return;
     appliedDashboardQuery.current = true;
     if (searchParams.get('new') === '1') setForm(emptyCashEntry());
-    const entryId = Number(searchParams.get('entryId'));
-    if (entryId > 0) openDetails(entryId);
+    const entryId = searchParams.get('entryId');
+    if (entryId) openDetails(entryId);
     setSearchParams({}, { replace: true });
   }, [searchParams, setSearchParams]);
 
@@ -297,7 +297,7 @@ export default function CashLedgerPage() {
       {form && <CashEntryForm value={form} onClose={() => setForm(null)} onSubmit={saveEntry} lookups={{ ...lookups, vehicles: vehicles.data ?? [] }} />}
 
       {receiveItem && (
-        <Modal open title={`Receber · ${receiveItem.description}`} onClose={() => setReceiveItem(null)}
+        <Modal open title={`Receber · ${receiveItem.description}`}
           footer={<><Button variant="ghost" onClick={() => setReceiveItem(null)}>Cancelar</Button><Button variant="primary" disabled={saving} onClick={receive}>Confirmar recebimento</Button></>}>
           <div className="form-grid">
             <Field label={`Valor (saldo: ${money(receiveItem.outstanding)})`}>{(id) => <input id={id} className="input" inputMode="decimal" value={receiveAmount} onChange={(event) => setReceiveAmount(event.target.value)} />}</Field>
@@ -308,7 +308,7 @@ export default function CashLedgerPage() {
       )}
 
       {details && (
-        <Modal open title={details.entry?.description ?? 'Detalhe do registro'} onClose={() => setDetails(null)} wide
+        <Modal open title={details.entry?.description ?? 'Detalhe do registro'} wide
           footer={<><Button variant="ghost" onClick={() => setDetails(null)}>Fechar</Button><Button onClick={() => openEdit(details.entry.id)}>Editar registro</Button></>}>
           {details.entry && <>
             <div className="cash-detail-grid">

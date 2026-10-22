@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "API do sistema de gestão financeira (Express + SQLite)",
+  "description": "API do sistema de gestão financeira (Express + MongoDB)",
   "main": "src/server.js",
   "engines": {
     "node": ">=18.17"
@@ -17,7 +17,6 @@
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
-    "better-sqlite3": "^13.0.3",
     "compression": "^1.7.4",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
@@ -32,8 +31,10 @@
     "pino": "^9.5.0",
     "pino-http": "^10.3.0",
     "pino-pretty": "^11.3.0",
-    "sql.js": "^1.15.1",
     "xlsx": "^0.18.5",
     "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "better-sqlite3": "^13.0.3"
   }
 }

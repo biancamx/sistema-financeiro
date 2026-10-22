@@ -24,7 +24,7 @@ const personSchema = new mongoose.Schema(
     shareToken: {
       type: String,
       unique: true,
-      default: () => generateShortToken(8),
+      default: () => generateShortToken(10),
     },
   },
   { timestamps: true }
@@ -32,5 +32,6 @@ const personSchema = new mongoose.Schema(
 
 // Garante isolamento: o nome é único por usuário, não no banco inteiro!
 personSchema.index({ userId: 1, name: 1 }, { unique: true });
+personSchema.index({ userId: 1, email: 1 });
 
 export const Person = mongoose.model('Person', personSchema);

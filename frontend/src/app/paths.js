@@ -12,4 +12,5 @@ export const PATHS = {
   birthdays: '/aniversarios',
   rescission: '/rescisao',
   settings: '/configuracoes',
+  adminUsers: '/admin/acessos',
 };

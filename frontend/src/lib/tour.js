@@ -58,6 +58,11 @@ const tourSteps = [
     title: 'Configurações',
     description: 'Acesse as opções da conta, revise importações e encontre as ações de gerenciamento de dados.',
   },
+  {
+    path: PATHS.adminUsers,
+    title: 'Gerenciar acessos',
+    description: 'Administradores podem aprovar ou bloquear contas cadastradas no sistema.',
+  },
 ];
 
 export function startTour() {

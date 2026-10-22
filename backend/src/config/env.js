@@ -20,6 +20,7 @@ export const env = {
   frontendUrls: (process.env.FRONTEND_URL || 'http://localhost:5173,http://127.0.0.1:5173').split(',').map((s) => s.trim()),
   jwtSecret: required('JWT_SECRET', 'dev-only-secret-nao-use-em-producao'),
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || '7d',
+  adminEmail: (process.env.ADMIN_EMAIL || '').trim().toLowerCase(),
   cookieName: 'fin_token',
   cookieSameSite: process.env.COOKIE_SAMESITE || 'lax',
   localLoginEnabled: bool(process.env.ENABLE_LOCAL_LOGIN, !isProd),

@@ -1,6 +1,6 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { authApi } from '../services/api.js';
-import { setUnauthorizedHandler } from '../services/http.js';
+import { setAccountPendingHandler, setUnauthorizedHandler } from '../services/http.js';
 
 const AuthContext = createContext(null);
 export const useAuth = () => useContext(AuthContext);
@@ -8,9 +8,19 @@ export const useAuth = () => useContext(AuthContext);
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [booting, setBooting] = useState(true);
+  const accountRefresh = useRef(null);
 
   useEffect(() => {
     setUnauthorizedHandler(() => setUser(null));
+    setAccountPendingHandler(() => {
+      if (!accountRefresh.current) {
+        accountRefresh.current = authApi.me()
+          .then((r) => setUser(r?.user || r?.data?.user))
+          .catch(() => setUser(null))
+          .finally(() => { accountRefresh.current = null; });
+      }
+      return accountRefresh.current;
+    });
     authApi.me().then((r) => setUser(r?.user || r?.data?.user)).catch(() => setUser(null)).finally(() => setBooting(false));
   }, []);
 

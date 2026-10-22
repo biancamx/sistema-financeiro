@@ -5,6 +5,33 @@ import { conflict, unauthorized } from '../../lib/errors.js';
 import { User } from '../../models/User.js';
 
 const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+const adminEmail = (process.env.ADMIN_EMAIL || '').trim().toLowerCase();
+
+function newAccountAccessFields(email) {
+  return adminEmail && email.toLowerCase() === adminEmail
+    ? { role: 'admin', status: 'active' }
+    : {};
+}
+
+async function promoteConfiguredAdmin(user) {
+  if (!adminEmail || user.email.toLowerCase() !== adminEmail) return;
+  if (user.role !== 'admin' || user.status !== 'active') {
+    user.role = 'admin';
+    user.status = 'active';
+    await user.save();
+  }
+}
+
+function publicUser(user) {
+  return {
+    id: user._id.toString(),
+    name: user.name,
+    email: user.email,
+    avatar: user.avatar || null,
+    status: user.status || 'pending',
+    role: user.role || 'user',
+  };
+}
 
 export async function loginWithGoogle(credential) {
   if (!process.env.GOOGLE_CLIENT_ID) {
@@ -35,6 +62,7 @@ export async function loginWithGoogle(credential) {
       email: cleanEmail,
       googleId,
       avatar: picture || null,
+      ...newAccountAccessFields(cleanEmail),
     });
     console.log(`🎉 Novo usuário registrado via Google no MongoDB: ${cleanEmail}`);
   } else {
@@ -50,6 +78,7 @@ export async function loginWithGoogle(credential) {
     }
     if (updated) await user.save();
   }
+  await promoteConfiguredAdmin(user);
 
   // 3. Emite o JWT de sessão assinado
   const jwtSecret = process.env.JWT_SECRET || 'REDACTED_SECRET';
@@ -59,6 +88,8 @@ export async function loginWithGoogle(credential) {
       email: user.email,
       name: user.name,
       avatar: user.avatar,
+      role: user.role || 'user',
+      status: user.status || 'pending',
     },
     jwtSecret,
     { expiresIn: '30d' }
@@ -66,12 +97,7 @@ export async function loginWithGoogle(credential) {
 
   return {
     token,
-    user: {
-      id: user._id.toString(),
-      name: user.name,
-      email: user.email,
-      avatar: user.avatar,
-    },
+    user: publicUser(user),
   };
 }
 
@@ -84,6 +110,8 @@ export function generateToken(user) {
       email: user.email,
       name: user.name,
       avatar: user.avatar,
+      status: user.status || 'pending',
+      role: user.role || 'user',
     },
     jwtSecret,
     { expiresIn: '30d' }
@@ -107,6 +135,7 @@ export async function registerWithEmail(name, email, password) {
       email: cleanEmail,
       passwordHash,
       provider: 'password',
+      ...newAccountAccessFields(cleanEmail),
     });
   } catch (error) {
     if (error.code === 11000 && error.keyPattern?.email) {
@@ -117,12 +146,7 @@ export async function registerWithEmail(name, email, password) {
 
   const token = generateToken(user);
   return {
-    user: {
-      id: user._id.toString(),
-      name: user.name,
-      email: user.email,
-      avatar: user.avatar,
-    },
+    user: publicUser(user),
     token,
   };
 }
@@ -141,14 +165,10 @@ export async function loginWithEmail(email, password) {
     throw unauthorized('E-mail ou senha incorretos.');
   }
 
+  await promoteConfiguredAdmin(user);
   const token = generateToken(user);
   return {
-    user: {
-      id: user._id.toString(),
-      name: user.name,
-      email: user.email,
-      avatar: user.avatar,
-    },
+    user: publicUser(user),
     token,
   };
 }
@@ -162,6 +182,8 @@ export async function getCurrentUser(userId) {
     name: user.name,
     email: user.email,
     avatar: user.avatar,
+    status: user.status || 'pending',
+    role: user.role || 'user',
   };
 }
 
@@ -175,6 +197,8 @@ export async function getOrCreateDemoUser() {
         email,
         passwordHash: 'local',
         provider: 'local',
+        status: 'active',
+        role: 'user',
       },
     },
     { returnDocument: 'after', upsert: true, runValidators: true }
@@ -185,5 +209,7 @@ export async function getOrCreateDemoUser() {
     name: user.name,
     email: user.email,
     avatar: user.avatar,
+    status: user.status || 'active',
+    role: user.role || 'user',
   };
 }

@@ -20,12 +20,19 @@ const Rescission = lazy(() => import('../pages/rescission/RescissionPage.jsx'));
 const Settings = lazy(() => import('../pages/settings/SettingsPage.jsx'));
 const Portal = lazy(() => import('../pages/portal/PortalPage.jsx'));
 const NotFound = lazy(() => import('../pages/system/NotFoundPage.jsx'));
+const AccountStatus = lazy(() => import('../pages/auth/AccountStatusPage.jsx'));
+const AdminUsers = lazy(() => import('../pages/admin/AdminUsersPage.jsx'));
 
 /** Camada "Auth & Permissions" no front: rotas privadas só abrem com sessão. */
 function Protected() {
   const { user, booting } = useAuth();
   if (booting) return <Spinner />;
-  return user ? <Outlet /> : <Navigate to={PATHS.login} replace />;
+  if (!user) return <Navigate to={PATHS.login} replace />;
+  return user.status === 'active' ? <Outlet /> : <AccountStatus />;
+}
+function AdminOnly() {
+  const { user } = useAuth();
+  return user?.role === 'admin' ? <AdminUsers /> : <Navigate to={PATHS.dashboard} replace />;
 }
 function PublicOnly() {
   const { user, booting } = useAuth();
@@ -54,6 +61,7 @@ export const router = createBrowserRouter([
           { path: PATHS.birthdays, element: <Birthdays /> },
           { path: PATHS.rescission, element: <Rescission /> },
           { path: PATHS.settings, element: <Settings /> },
+          { path: PATHS.adminUsers, element: <AdminOnly /> },
           { path: '*', element: <NotFound /> },
         ],
       },

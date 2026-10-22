@@ -20,6 +20,8 @@ export class ApiError extends Error {
 
 let onUnauthorized = () => {};
 export const setUnauthorizedHandler = (fn) => (onUnauthorized = fn);
+let onAccountPending = () => {};
+export const setAccountPendingHandler = (fn) => (onAccountPending = fn);
 
 export async function http(method, path, { body, query } = {}) {
   const qs = query ? '?' + new URLSearchParams(Object.entries(query).filter(([, v]) => v !== undefined && v !== null && v !== '')).toString() : '';
@@ -38,6 +40,7 @@ export async function http(method, path, { body, query } = {}) {
   const json = await res.json().catch(() => null);
   if (!res.ok) {
     if (res.status === 401 && !path.startsWith('/auth/')) onUnauthorized();
+    if (json?.error?.code === 'ACCOUNT_PENDING') onAccountPending();
     throw new ApiError(res.status, json);
   }
   return json;
@@ -58,6 +61,7 @@ export async function postFormData(path, formData) {
   const json = await res.json().catch(() => null);
   if (!res.ok) {
     if (res.status === 401 && !path.startsWith('/auth/')) onUnauthorized();
+    if (json?.error?.code === 'ACCOUNT_PENDING') onAccountPending();
     throw new ApiError(res.status, json);
   }
   return json;

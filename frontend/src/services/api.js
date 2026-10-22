@@ -10,6 +10,10 @@ export const authApi = {
   google: (credential) => post('/auth/google', { credential }),
   logout: () => post('/auth/logout'),
 };
+export const adminApi = {
+  users: () => get('/admin/users').then((r) => r.data),
+  updateUserStatus: (userId, status) => patch(`/admin/users/${userId}`, { status }).then((r) => r.data),
+};
 
 export const dashboardApi = {
   summary: (q) => get('/dashboard/summary', q).then((r) => r.data),

@@ -15,6 +15,7 @@ import {
   Menu,
   ReceiptText,
   Settings,
+  ShieldCheck,
   Table,
   Users,
 } from 'lucide-react';
@@ -48,6 +49,9 @@ const NAV = [
     { to: PATHS.rescission, label: 'Calculadora de rescisão', icon: Calculator },
     { to: PATHS.settings, label: 'Configurações', icon: Settings },
   ] },
+  { title: 'Administração', adminOnly: true, items: [
+    { to: PATHS.adminUsers, label: 'Acessos', icon: ShieldCheck },
+  ] },
 ];
 
 // Telas em que o seletor de mês/ano do topo faz sentido
@@ -69,7 +73,7 @@ function PeriodPicker() {
   );
 }
 
-const MOBILE_NAV = NAV.flatMap((group) => group.items);
+const MOBILE_NAV = NAV.flatMap((group) => group.items.map((item) => ({ ...item, adminOnly: group.adminOnly })));
 const navTourId = (path) => `nav-${path.replace(/^\//, '')}`;
 
 export default function AppLayout() {
@@ -136,7 +140,7 @@ export default function AppLayout() {
       <aside className="sidebar">
         <div className="brand"><span className="brand-mark" aria-hidden="true" />{!desktopCollapsed && 'Caderno de Contas'}</div>
         <nav className="sidebar-nav" aria-label="Principal">
-          {NAV.map((g) => (
+          {NAV.filter((group) => !group.adminOnly || user?.role === 'admin').map((g) => (
             <div key={g.title} className="nav-group">
               {!desktopCollapsed && <div className="nav-title">{g.title}</div>}
               {g.items.map((i) => (
@@ -323,7 +327,7 @@ export default function AppLayout() {
               <button className="icon-btn" type="button" aria-label="Fechar menu" onClick={() => setMobileMenuOpen(false)}>×</button>
             </header>
             <nav className="mobile-drawer-nav" aria-label="Navegação móvel">
-              {NAV.map((group) => (
+              {NAV.filter((group) => !group.adminOnly || user?.role === 'admin').map((group) => (
                 <div key={group.title} className="nav-group">
                   <div className="nav-title">{group.title}</div>
                   {group.items.map((item) => (
@@ -369,7 +373,7 @@ export default function AppLayout() {
 
       <nav className="mobile-bottom-nav" aria-label="Navegação rápida">
         <div className="mobile-bottom-scroll no-scrollbar">
-          {MOBILE_NAV.map((item) => (
+          {MOBILE_NAV.filter((item) => !item.adminOnly || user?.role === 'admin').map((item) => (
             <NavLink
               key={item.to}
               to={item.to}

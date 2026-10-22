@@ -1,9 +1,11 @@
 import express, { Router } from 'express';
 import cookieParser from 'cookie-parser';
 import cors from 'cors';
-import { env } from './config/env.js';
+import { existsSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { isAllowedOrigin, setupSecurity } from './middleware/security.js';
-import { requireAuth } from './middleware/auth.js';
+import { requireActiveAccount, requireAuth } from './middleware/auth.js';
 import { cacheControl } from './middleware/cacheControl.js';
 import { errorHandler } from './middleware/errorHandler.js';
 
@@ -22,6 +24,9 @@ import { remindersRoutes } from './modules/reminders/reminders.routes.js';
 import { portalRoutes } from './modules/portal/portal.routes.js';
 import { importRoutes } from './modules/import/import.routes.js';
 import { cashLedgerRoutes } from './modules/cashLedger/cashLedger.routes.js';
+import { adminRoutes } from './modules/admin/admin.routes.js';
+
+const frontendDist = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../frontend/dist');
 
 export function createApp() {
   const app = express();
@@ -51,11 +56,12 @@ export function createApp() {
 
   // ROTAS PÚBLICAS DO API
   const api = Router();
-  api.use(systemRoutes());
   api.use('/system', systemRoutes());
   api.use('/auth', authRoutes());
   api.use(requireAuth());
+  api.use(requireActiveAccount());
   api.use(cacheControl);
+  api.use('/admin', adminRoutes());
   api.use('/purchases', purchasesRoutes());
   api.use('/dashboard', dashboardRoutes());
   api.use('/cards', cardsRoutes());
@@ -70,6 +76,20 @@ export function createApp() {
   api.use('/cash-ledger', cashLedgerRoutes());
 
   app.use('/api', api);
+
+  if (existsSync(frontendDist)) {
+    app.use(express.static(frontendDist, { index: false }));
+    app.get('*', (req, res, next) => {
+      if (req.path === '/api' || req.path.startsWith('/api/')
+        || req.path === '/portal' || req.path.startsWith('/portal/')
+        || !req.accepts('html')) {
+        return next();
+      }
+      return res.sendFile(path.join(frontendDist, 'index.html'), (error) => {
+        if (error) next(error);
+      });
+    });
+  }
 
   app.use((req, res) => {
     res.status(404).json({ error: 'Rota não encontrada' });

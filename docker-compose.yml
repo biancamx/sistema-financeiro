@@ -2,7 +2,9 @@
 # Configure MONGODB_URI e JWT_SECRET no ambiente antes de iniciar.
 services:
   api:
-    build: ./backend
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
     restart: unless-stopped
     environment:
       NODE_ENV: production
@@ -10,9 +12,11 @@ services:
       JWT_SECRET: ${JWT_SECRET:?defina JWT_SECRET no .env (openssl rand -hex 32)}
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:8080}
       ENABLE_LOCAL_LOGIN: ${ENABLE_LOCAL_LOGIN:-false}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
-  web:
-    build: ./frontend
-    restart: unless-stopped
-    depends_on: [ api ]
-    ports: [ "8080:80" ]
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-7d}
+      COOKIE_SAMESITE: ${COOKIE_SAMESITE:-lax}
+      RATE_LIMIT_MAX: ${RATE_LIMIT_MAX:-600}
+      AUTH_RATE_LIMIT_MAX: ${AUTH_RATE_LIMIT_MAX:-40}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    ports: [ "8080:4000" ]

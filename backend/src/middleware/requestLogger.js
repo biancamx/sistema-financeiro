@@ -14,5 +14,5 @@ export const requestLogger = pinoHttp({
     req: (r) => ({ id: r.id, method: r.method, url: r.url }),
     res: (r) => ({ statusCode: r.statusCode }),
   },
-  autoLogging: { ignore: (req) => req.url === '/api/health' },
+  autoLogging: { ignore: (req) => req.url === '/api/system/health' },
 });

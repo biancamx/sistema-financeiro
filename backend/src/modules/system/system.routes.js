@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import mongoose from 'mongoose';
 import { asyncHandler, badRequest } from '../../lib/errors.js';
-import { requireAuth } from '../../middleware/auth.js';
+import { requireActiveAccount, requireAuth } from '../../middleware/auth.js';
 import { validate } from '../../middleware/validate.js';
 import { clientLogLimiter } from '../../middleware/rateLimit.js';
 import { Birthday } from '../../models/Birthday.js';
@@ -46,7 +46,7 @@ export function systemRoutes() {
     },
   );
 
-  r.get('/portal-contact', requireAuth(), asyncHandler(async (req, res) => {
+  r.get('/portal-contact', requireAuth(), requireActiveAccount(), asyncHandler(async (req, res) => {
     const user = await User.findById(req.user._id).select('portalContactPersonId').lean();
     const person = user?.portalContactPersonId
       ? await Person.findOne({ _id: user.portalContactPersonId, userId: req.user._id }).select('name phone').lean()
@@ -56,7 +56,7 @@ export function systemRoutes() {
       : { personId: null, name: null, phone: null } });
   }));
 
-  r.put('/portal-contact', requireAuth(), validate({
+  r.put('/portal-contact', requireAuth(), requireActiveAccount(), validate({
     body: z.object({ personId: z.string().regex(/^[\da-f]{24}$/i).nullable() }),
   }), asyncHandler(async (req, res) => {
     const { personId } = req.body;
@@ -74,7 +74,7 @@ export function systemRoutes() {
     res.json({ data: contact });
   }));
 
-  r.post('/reset-purchases', requireAuth(), asyncHandler(async (req, res) => {
+  r.post('/reset-purchases', requireAuth(), requireActiveAccount(), asyncHandler(async (req, res) => {
     const session = await mongoose.startSession();
     try {
       await session.withTransaction(async () => {
@@ -90,7 +90,7 @@ export function systemRoutes() {
     }
   }));
 
-  r.post('/reset-all', requireAuth(), asyncHandler(async (req, res) => {
+  r.post('/reset-all', requireAuth(), requireActiveAccount(), asyncHandler(async (req, res) => {
     const session = await mongoose.startSession();
     try {
       await session.withTransaction(async () => {

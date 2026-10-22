@@ -9,7 +9,7 @@ import GoogleButton from './GoogleButton.jsx';
 
 export default function LoginPage() {
   const nav = useNavigate();
-  const { loginLocal, login, register, loginGoogle } = useAuth();
+  const { login, register, loginGoogle } = useAuth();
   const { data: cfg, loading, error } = useFetch(() => authApi.config(), []);
   const [mode, setMode] = useState('login');
   const [form, setForm] = useState({ name: '', email: '', password: '' });
@@ -45,15 +45,6 @@ export default function LoginPage() {
 
         {cfg && (
           <>
-            {cfg.local.enabled && (
-              <div className="login-local">
-                <Button variant="primary" size="lg" disabled={busy} onClick={() => run(loginLocal)}>Entrar em modo local</Button>
-                <p className="muted">Abre direto com os dados de exemplo da sua planilha. Nada para configurar.</p>
-              </div>
-            )}
-
-            <div className="divider"><span>ou use sua conta</span></div>
-
             {cfg.google.enabled ? (
               <GoogleButton clientId={cfg.google.clientId} onCredential={(c) => run(() => loginGoogle(c))} onError={setErr} />
             ) : (
@@ -65,6 +56,8 @@ export default function LoginPage() {
                 <p id="g-hint" className="field-hint">Ainda não ativado. Para ligar, preencha GOOGLE_CLIENT_ID no backend (veja o README).</p>
               </>
             )}
+
+            <div className="divider"><span>ou entre com e-mail</span></div>
 
             <form
               className="login-form"

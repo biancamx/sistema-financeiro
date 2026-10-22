@@ -18,6 +18,25 @@ O login com Google aparece desativado (veja “Ativar o Google”).
 
 Outros comandos: `npm test` (testes da API) · `npm run seed` (recria os dados de exemplo) · `npm run build`.
 
+Para publicar frontend e API no mesmo servidor Node, configure `backend/.env` com base em
+`backend/.env.example`, execute `npm run build` e depois `npm start`. Defina `ADMIN_EMAIL` com o
+e-mail que será o administrador inicial; essa conta recebe acesso ativo automaticamente.
+
+Para o deploy unificado em Docker, copie `.env.example` para `.env`, informe `MONGODB_URI`,
+`JWT_SECRET` e `ADMIN_EMAIL`, e execute `docker compose up --build`. O container compila o frontend,
+empacota `frontend/dist` com a API e publica ambos em `http://localhost:8080`.
+
+Novos cadastros ficam aguardando aprovação. O administrador pode liberar ou bloquear contas na área
+**Acessos**. Usuários pendentes ou bloqueados não conseguem acessar os dados da API.
+
+## Instalar como aplicativo (PWA)
+
+O frontend inclui manifesto e ícones para instalação. Em produção, publique o site por HTTPS; no desenvolvimento, use `localhost`.
+
+- **iPhone:** abra o endereço no Safari, toque em **Compartilhar** e escolha **Adicionar à Tela de Início**. Confirme o nome e toque em **Adicionar**.
+- **Samsung Tab S6 (Chrome):** abra o endereço no Chrome, toque em **⋮** e escolha **Instalar app** ou **Adicionar à tela inicial**; confirme a instalação.
+- **Samsung Internet:** abra o endereço, toque em **☰** e escolha **Adicionar página a** → **Tela inicial**.
+
 ## Estrutura (camadas)
 
 | Camada | Onde está |
@@ -34,13 +53,13 @@ Outros comandos: `npm test` (testes da API) · `npm run seed` (recria os dados d
 | Caching & CDN | `lib/cache.js` (cache por usuário, invalidado em escritas) · `frontend/nginx.conf` (assets imutáveis p/ CDN) |
 | Load Balancing & Scaling | API stateless (JWT); para escalar: Postgres + Redis + réplicas atrás do nginx |
 | Error Tracking & Logs | `lib/logger.js` (pino, com requestId) · `middleware/errorHandler.js` · `ErrorBoundary` do React reporta em `/api/client-errors` |
-| Availability & Recovery | `/api/health` e `/api/ready`, desligamento limpo, `npm --prefix backend run backup`, healthcheck + restart no Docker |
+| Availability & Recovery | `/api/system/health` e `/api/system/ready`, desligamento limpo, backup MongoDB com `npm --prefix backend run backup`, healthcheck + restart no Docker |
 
 ## Rotas
 
 **Front:** `/login` · `/painel` · `/lancamentos` · `/avulsos` · `/cartoes` · `/veiculos/:id?` · `/planilha/:pessoa?/:ano?` · `/visao-geral/:pessoa?/:ano?` · `/pessoas` · `/aniversarios` · `/rescisao` · `/configuracoes`
 
-**API (`/api`):** `GET /health` `GET /ready` · `/auth/{config,local,register,login,google,me,logout}` ·
+**API (`/api`):** `GET /system/health` `GET /system/ready` · `/auth/{config,local,register,login,google,me,logout}` ·
 `/dashboard/{summary,person-overview,status}` · `/purchases` (+ `/installments`, `/export.csv`, `/shared`) · `/budgets` (+ linhas e células) ·
 `/cash-ledger` (+ `/entries`, `/installments`, `/receipts`, `/people/:id`, `/summary`, `/dashboard`, `/export.csv`) ·
 `/cards` · `/people` · `/categories` · `/birthdays` · `/tools/rescission` · `/vehicles` (+ `/summary`, `/categories`, `/expenses`, `/expenses/export.csv`)

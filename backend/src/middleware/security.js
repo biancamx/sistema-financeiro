@@ -5,6 +5,7 @@ import { forbidden } from '../lib/errors.js';
 
 // Camada "Security & RLS": cabeçalhos seguros, CORS restrito e checagem de Origin em escritas.
 export const securityHeaders = helmet({
+  crossOriginOpenerPolicy: { policy: 'same-origin-allow-popups' },
   contentSecurityPolicy: {
     directives: {
       scriptSrc: ["'self'", 'https://accounts.google.com/gsi/client'],

@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { asyncHandler } from '../../lib/errors.js';
+import { AppError, asyncHandler } from '../../lib/errors.js';
 import { requireAuth } from '../../middleware/auth.js';
 import { authLimiter } from '../../middleware/rateLimit.js';
 import { validate } from '../../middleware/validate.js';
@@ -63,7 +63,7 @@ export function authRoutes() {
   }));
 
   // Login com Google
-  router.post('/google', authLimiter, async (req, res) => {
+  router.post('/google', authLimiter, async (req, res, next) => {
     try {
       const { credential } = req.body;
       if (!credential) {
@@ -80,6 +80,7 @@ export function authRoutes() {
 
       res.json({ data: { user } });
     } catch (err) {
+      if (err instanceof AppError) return next(err);
       console.error('Erro no login Google:', err.message);
       res.status(401).json({ error: 'Falha ao autenticar com o Google' });
     }

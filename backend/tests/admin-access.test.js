@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 process.env.NODE_ENV = 'test';
 process.env.JWT_SECRET = 'test-secret-for-access-control';
 process.env.ADMIN_EMAIL = 'admin@example.com';
+process.env.ALLOWED_DOMAINS = '';
 process.env.AUTH_RATE_LIMIT_MAX = '1000';
 
 const [{ createApp }, { User }] = await Promise.all([

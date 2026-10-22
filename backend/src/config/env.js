@@ -21,6 +21,10 @@ export const env = {
   jwtSecret: required('JWT_SECRET', 'dev-only-secret-nao-use-em-producao'),
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || '7d',
   adminEmail: (process.env.ADMIN_EMAIL || '').trim().toLowerCase(),
+  allowedDomains: (process.env.ALLOWED_DOMAINS || '')
+    .split(',')
+    .map((entry) => entry.trim().toLowerCase())
+    .filter(Boolean),
   cookieName: 'fin_token',
   cookieSameSite: process.env.COOKIE_SAMESITE || 'lax',
   localLoginEnabled: bool(process.env.ENABLE_LOCAL_LOGIN, !isProd),

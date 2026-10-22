@@ -28,6 +28,9 @@ empacota `frontend/dist` com a API e publica ambos em `http://localhost:8080`.
 
 Novos cadastros ficam aguardando aprovação. O administrador pode liberar ou bloquear contas na área
 **Acessos**. Usuários pendentes ou bloqueados não conseguem acessar os dados da API.
+Para limitar cadastros e logins Google/e-mail a domínios ou endereços específicos, configure
+`ALLOWED_DOMAINS` como uma lista separada por vírgulas (por exemplo, `gmail.com,contato@empresa.com`).
+Uma lista vazia não restringe e-mails; o endereço de `ADMIN_EMAIL` continua autorizado.
 
 ## Instalar como aplicativo (PWA)
 

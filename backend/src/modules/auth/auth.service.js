@@ -1,11 +1,27 @@
 import { OAuth2Client } from 'google-auth-library';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
-import { conflict, unauthorized } from '../../lib/errors.js';
+import { env } from '../../config/env.js';
+import { AppError, conflict, unauthorized } from '../../lib/errors.js';
 import { User } from '../../models/User.js';
 
 const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
-const adminEmail = (process.env.ADMIN_EMAIL || '').trim().toLowerCase();
+const adminEmail = env.adminEmail;
+
+function ensureEmailAllowed(email) {
+  const normalizedEmail = email.toLowerCase().trim();
+  if (!env.allowedDomains.length
+    || normalizedEmail === adminEmail
+    || env.allowedDomains.includes(normalizedEmail)) return;
+
+  const domain = normalizedEmail.slice(normalizedEmail.lastIndexOf('@') + 1);
+  const allowed = env.allowedDomains.some((entry) => (
+    entry.replace(/^@/, '') === domain
+  ));
+  if (!allowed) {
+    throw new AppError(403, 'EMAIL_NOT_ALLOWED', 'Este domínio ou e-mail não está autorizado a acessar o sistema.');
+  }
+}
 
 function newAccountAccessFields(email) {
   return adminEmail && email.toLowerCase() === adminEmail
@@ -51,6 +67,7 @@ export async function loginWithGoogle(credential) {
 
   const { sub: googleId, email, name, picture } = payload;
   const cleanEmail = email.toLowerCase().trim();
+  ensureEmailAllowed(cleanEmail);
 
   // 2. Busca ou Cria o usuário no MongoDB Atlas
   let user = await User.findOne({ email: cleanEmail });
@@ -121,6 +138,7 @@ export function generateToken(user) {
 // 2. CADASTRO TRADICIONAL COM E-MAIL E SENHA
 export async function registerWithEmail(name, email, password) {
   const cleanEmail = email.toLowerCase().trim();
+  ensureEmailAllowed(cleanEmail);
 
   const existing = await User.findOne({ email: cleanEmail });
   if (existing) {
@@ -154,6 +172,7 @@ export async function registerWithEmail(name, email, password) {
 // 3. LOGIN TRADICIONAL COM E-MAIL E SENHA
 export async function loginWithEmail(email, password) {
   const cleanEmail = email.toLowerCase().trim();
+  ensureEmailAllowed(cleanEmail);
 
   const user = await User.findOne({ email: cleanEmail });
   if (!user || !user.passwordHash) {

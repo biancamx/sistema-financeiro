@@ -38,6 +38,9 @@ export const corsPolicy = cors({
 export function originCheck(req, _res, next) {
   const safe = ['GET', 'HEAD', 'OPTIONS'].includes(req.method);
   const origin = req.headers.origin;
+  const googleCredentialCallback = req.method === 'POST'
+    && req.path === '/api/auth/google/callback';
+  if (googleCredentialCallback) return next();
   if (!safe && origin && !isAllowedOrigin(origin)) {
     req.log?.warn({ origin }, 'Origem de escrita bloqueada');
     return next(forbidden('Origem não permitida'));

@@ -10,6 +10,10 @@ test('rotas do sistema existem somente sob /api/system', async (t) => {
   const officialHealth = await fetch(`${baseUrl}/system/health`);
   assert.equal(officialHealth.status, 200);
   assert.equal((await officialHealth.json()).status, 'ok');
+  const csp = officialHealth.headers.get('content-security-policy');
+  assert.match(csp, /script-src[^;]*'self'[^;]*https:\/\/accounts\.google\.com\/gsi\/client/);
+  assert.match(csp, /frame-src[^;]*'self'[^;]*https:\/\/accounts\.google\.com\/gsi\//);
+  assert.match(csp, /connect-src[^;]*'self'[^;]*https:\/\/accounts\.google\.com\/gsi\//);
 
   assert.equal((await fetch(`${baseUrl}/health`)).status, 401);
   assert.equal((await fetch(`${baseUrl}/system/system/health`)).status, 401);

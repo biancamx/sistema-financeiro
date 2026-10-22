@@ -4,7 +4,15 @@ import { env } from '../config/env.js';
 import { forbidden } from '../lib/errors.js';
 
 // Camada "Security & RLS": cabeçalhos seguros, CORS restrito e checagem de Origin em escritas.
-export const securityHeaders = helmet();
+export const securityHeaders = helmet({
+  contentSecurityPolicy: {
+    directives: {
+      scriptSrc: ["'self'", 'https://accounts.google.com/gsi/client'],
+      frameSrc: ["'self'", 'https://accounts.google.com/gsi/'],
+      connectSrc: ["'self'", 'https://accounts.google.com/gsi/'],
+    },
+  },
+});
 
 export function isAllowedOrigin(origin) {
   if (!origin || env.frontendUrls.includes(origin)) return true;

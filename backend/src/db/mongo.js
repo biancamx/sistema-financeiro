@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { ensurePersonShareTokens } from '../models/Person.js';
 
 let isConnected = false;
 
@@ -17,6 +18,7 @@ export async function connectMongo() {
     });
 
     isConnected = conn.connection.readyState === 1;
+    await ensurePersonShareTokens();
     console.log('✅ Conexão com o MongoDB Atlas estabelecida com sucesso!');
     return conn.connection;
   } catch (err) {

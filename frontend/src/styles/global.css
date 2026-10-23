@@ -32,11 +32,15 @@
 }
 
 *, *::before, *::after { box-sizing: border-box; }
-html { -webkit-text-size-adjust: 100%; }
+html { -webkit-text-size-adjust: 100%; max-width: 100%; overflow-x: hidden; }
 body {
-  margin: 0; background: var(--bg); color: var(--ink);
+  margin: 0; max-width: 100%; background: var(--bg); color: var(--ink);
   font: 400 14px/1.5 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  overflow-x: hidden;
 }
+img, svg, video, canvas, iframe { display: block; max-width: 100%; height: auto; }
+a, button, input, select, textarea { max-width: 100%; }
+#root { max-width: 100%; overflow-x: hidden; }
 h1, h2, h3 { margin: 0; line-height: 1.2; font-weight: 600; letter-spacing: -0.01em; }
 h1 { font-size: 24px; }
 h2 { font-size: 15px; }
@@ -80,9 +84,9 @@ a { color: var(--primary); }
 .topbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 12px 28px; min-height: 58px; border-bottom: 1px solid var(--line); background: var(--surface); position: sticky; top: 0; z-index: 5; }
 .user { display: flex; align-items: center; gap: 10px; }
 .user-name { color: var(--muted); }
-.content { padding: 28px; max-width: 1280px; width: 100%; }
+.content { padding: 28px; max-width: 1280px; width: 100%; max-width: 100%; }
 .content.content-wide { max-width: none; }
-.budget-page { width: 100%; min-width: 0; }
+.budget-page { width: 100%; min-width: 0; max-width: 100%; }
 .period { display: flex; align-items: center; gap: 4px; }
 .mobile-brand, .mobile-drawer, .mobile-bottom-nav { display: none; }
 .menu-toggle-button { display: inline-flex; flex: 0 0 auto; padding: 6px 9px; }
@@ -121,6 +125,7 @@ a { color: var(--primary); }
   .shell-collapsed { grid-template-columns: 1fr; }
   .sidebar { display: none; }
   .main { min-width: 0; }
+  .menu-toggle-button { display: none !important; }
   .topbar { justify-content: space-between; gap: 8px; padding: 8px 12px; min-height: 56px; }
   .content { padding: 20px 16px calc(86px + env(safe-area-inset-bottom)); }
   .content.content-wide { max-width: none; }

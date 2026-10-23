@@ -80,11 +80,9 @@ export function createApp() {
   if (existsSync(frontendDist)) {
     app.use(express.static(frontendDist, { index: false }));
     app.get('*', (req, res, next) => {
-      if (req.path === '/api' || req.path.startsWith('/api/')
-        || req.path === '/portal' || req.path.startsWith('/portal/')
-        || !req.accepts('html')) {
-        return next();
-      }
+      if (req.method !== 'GET') return next();
+      if (req.path.startsWith('/api')) return next();
+      if (path.extname(req.path)) return next();
       return res.sendFile(path.join(frontendDist, 'index.html'), (error) => {
         if (error) next(error);
       });

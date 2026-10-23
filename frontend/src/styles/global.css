@@ -37,9 +37,10 @@ body {
   margin: 0; max-width: 100%; background: var(--bg); color: var(--ink);
   font: 400 14px/1.5 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
   overflow-x: hidden;
+  touch-action: manipulation;
 }
 img, svg, video, canvas, iframe { display: block; max-width: 100%; height: auto; }
-a, button, input, select, textarea { max-width: 100%; }
+a, button, input, select, textarea { max-width: 100%; touch-action: manipulation; }
 #root { max-width: 100%; overflow-x: hidden; }
 h1, h2, h3 { margin: 0; line-height: 1.2; font-weight: 600; letter-spacing: -0.01em; }
 h1 { font-size: 24px; }

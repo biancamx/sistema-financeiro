@@ -32,11 +32,16 @@ const personSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-personSchema.pre('validate', function ensureShareToken(next) {
+personSchema.pre('validate', function ensureShareToken() {
   if (!isValidShareToken(this.shareToken)) {
     this.shareToken = generateShortToken(10);
   }
-  next();
+});
+
+personSchema.pre('save', function ensureShareTokenOnSave() {
+  if (!isValidShareToken(this.shareToken)) {
+    this.shareToken = generateShortToken(10);
+  }
 });
 
 // Garante isolamento: o nome é único por usuário, não no banco inteiro!

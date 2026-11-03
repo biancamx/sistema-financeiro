@@ -1,6 +1,6 @@
 // Camada de acesso à API (única que conhece fetch/URL/cookies).
 const BASE = (import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '');
-const GET_CACHE_TTL_MS = 15_000;
+const GET_CACHE_TTL_MS = 60_000;
 const getCache = new Map();
 const pendingGets = new Map();
 let cacheVersion = 0;

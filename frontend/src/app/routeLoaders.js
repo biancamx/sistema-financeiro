@@ -15,9 +15,14 @@ const loaders = {
   [PATHS.adminUsers]: () => import('../pages/admin/AdminUsersPage.jsx'),
 };
 
+export const routePaths = Object.keys(loaders);
+
 export const loadRoute = (path) => loaders[path];
 
 export function preloadRoute(path) {
   const load = loadRoute(path);
-  if (load) load().catch((error) => console.error(`Falha ao antecipar o carregamento de ${path}:`, error));
+  if (!load) return Promise.resolve();
+  return load().catch((error) => {
+    console.error(`Falha ao antecipar o carregamento de ${path}:`, error);
+  });
 }

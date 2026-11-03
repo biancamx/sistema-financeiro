@@ -25,7 +25,7 @@ import { MONTHS, yearsAround } from '../../lib/format.js';
 import { Spinner } from '../ui/ui.jsx';
 import ErrorBoundary from '../ErrorBoundary.jsx';
 import { PATHS } from '../../app/paths.js';
-import { preloadRoute } from '../../app/routeLoaders.js';
+import { preloadRoute, routePaths } from '../../app/routeLoaders.js';
 import { remindersApi } from '../../services/api.js';
 import { useAppBusy } from '../../context/BusyContext.jsx';
 import { startTour } from '../../lib/tour.js';
@@ -96,6 +96,39 @@ export default function AppLayout() {
     setMobileMenuOpen(false);
     setNotificationsOpen(false);
   }, [pathname]);
+
+  useEffect(() => {
+    const connection = navigator.connection;
+    if (connection?.saveData || /(^|-)2g$/.test(connection?.effectiveType ?? '')) return undefined;
+
+    let cancelled = false;
+    let timer;
+    let idleId;
+    let index = 0;
+    const preloadNext = () => {
+      if (cancelled || index >= routePaths.length) return;
+      preloadRoute(routePaths[index++]);
+      if ('requestIdleCallback' in window) {
+        idleId = window.requestIdleCallback(preloadNext, { timeout: 2_000 });
+      } else {
+        timer = window.setTimeout(preloadNext, 500);
+      }
+    };
+
+    timer = window.setTimeout(() => {
+      if ('requestIdleCallback' in window) {
+        idleId = window.requestIdleCallback(preloadNext, { timeout: 2_000 });
+      } else {
+        preloadNext();
+      }
+    }, 1_000);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+      if (idleId !== undefined && 'cancelIdleCallback' in window) window.cancelIdleCallback(idleId);
+    };
+  }, []);
 
   useEffect(() => {
     if (!notificationsOpen) return undefined;

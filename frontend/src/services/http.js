@@ -1,4 +1,6 @@
 // Camada de acesso à API (única que conhece fetch/URL/cookies).
+import { clearFetchData } from './fetchDataCache.js';
+
 const BASE = (import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '');
 const GET_CACHE_TTL_MS = 60_000;
 const getCache = new Map();
@@ -9,6 +11,7 @@ export function clearHttpCache() {
   cacheVersion += 1;
   getCache.clear();
   pendingGets.clear();
+  clearFetchData();
 }
 
 export class ApiError extends Error {

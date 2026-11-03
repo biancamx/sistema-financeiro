@@ -133,7 +133,7 @@ export default function AppLayout() {
       window.removeEventListener('reminders:refresh', loadAlerts);
       window.removeEventListener('finance:refresh', loadAlerts);
     };
-  }, [pathname]);
+  }, []);
 
   return (
     <div ref={shellRef} className={`shell ${desktopCollapsed ? 'shell-collapsed' : ''}`} aria-busy={Boolean(busyMessage)}>

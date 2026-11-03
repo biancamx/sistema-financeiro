@@ -5,6 +5,7 @@ import {
   Cake,
   Car,
   CircleDollarSign,
+  Clock3,
   CreditCard,
   Bell,
   CircleHelp,
@@ -70,6 +71,29 @@ function PeriodPicker() {
         {yearsAround(new Date().getFullYear()).map((y) => <option key={y}>{y}</option>)}
       </select>
       <button className="icon-btn" onClick={() => shift(1)} aria-label="Próximo mês">›</button>
+    </div>
+  );
+}
+
+function SystemClock() {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(new Date()), 1_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const date = new Intl.DateTimeFormat('pt-BR', {
+    day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'America/Sao_Paulo',
+  }).format(now);
+  const time = new Intl.DateTimeFormat('pt-BR', {
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23', timeZone: 'America/Sao_Paulo',
+  }).format(now);
+
+  return (
+    <div className="system-clock" aria-label="Data e hora de Brasília">
+      <Clock3 aria-hidden="true" />
+      <time dateTime={now.toISOString()}>{date}</time>
+      <strong>{time}</strong>
     </div>
   );
 }
@@ -255,6 +279,7 @@ export default function AppLayout() {
             <span className="mobile-brand">Caderno de Contas</span>
           </div>
           <div className="topbar-actions">
+            <SystemClock />
             {USES_PERIOD.some((p) => pathname.startsWith(p)) && <PeriodPicker />}
             <button
               className="icon-btn tour-trigger"

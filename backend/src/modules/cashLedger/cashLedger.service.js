@@ -113,6 +113,7 @@ export function createCashLedgerService() {
     const shapedReceipts = receipts.map((item) => ({
       id: String(item._id), installmentId: String(item.installmentId), amountCents: item.amountCents,
       amount: money(item.amountCents), receivedOn: item.receivedOn, paymentMethod: item.paymentMethod,
+      createdAt: item.createdAt ?? null, updatedAt: item.updatedAt ?? null,
     }));
     const balance = shapedInstallments.reduce((sum, item) => sum + item.outstandingCents, 0);
     const entryStatus = entry.kind === 'expense' ? 'expense'
@@ -145,6 +146,7 @@ export function createCashLedgerService() {
     return {
       id: installment ? String(installment._id) : String(entry._id),
       entryId: String(entry._id), kind: entry.kind, description: entry.description,
+      createdAt: entry.createdAt ?? null, updatedAt: entry.updatedAt ?? null,
       totalCents: entry.totalCents, total: money(entry.totalCents), amountCents, amount: money(amountCents),
       receivedCents, received: money(receivedCents), outstandingCents, outstanding: money(outstandingCents),
       number: installment?.number ?? null, count: installment?.count ?? null, dueDate: installment?.dueDate ?? null,

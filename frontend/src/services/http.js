@@ -36,6 +36,11 @@ export const setUnauthorizedHandler = (fn) => (onUnauthorized = fn);
 let onAccountPending = () => {};
 export const setAccountPendingHandler = (fn) => (onAccountPending = fn);
 
+function notifySuccessfulMutation(method, path) {
+  if (path.startsWith('/auth/') || path.startsWith('/tools/') || path === '/import/preview' || path === '/system/client-errors') return;
+  window.dispatchEvent(new CustomEvent('app:mutation-success', { detail: { method, path } }));
+}
+
 export async function http(method, path, { body, query } = {}) {
   const qs = query ? '?' + new URLSearchParams(Object.entries(query).filter(([, v]) => v !== undefined && v !== null && v !== '')).toString() : '';
   const url = `${BASE}${path}${qs}`;
@@ -63,7 +68,10 @@ export async function http(method, path, { body, query } = {}) {
     } catch {
       throw new ApiError(0, { error: { code: 'NETWORK', message: 'Não foi possível falar com a API. O backend está rodando em http://localhost:4000?' } });
     }
-    if (res.status === 204) return null;
+    if (res.status === 204) {
+      if (!cacheable) notifySuccessfulMutation(method, path);
+      return null;
+    }
     const json = await res.json().catch(() => null);
     if (!res.ok) {
       if (res.status === 401) {
@@ -80,6 +88,7 @@ export async function http(method, path, { body, query } = {}) {
       if (getCache.size >= 100) getCache.delete(getCache.keys().next().value);
       getCache.set(url, { data: json, expiresAt: Date.now() + GET_CACHE_TTL_MS });
     }
+    if (!cacheable) notifySuccessfulMutation(method, path);
     return json;
   })();
 

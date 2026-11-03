@@ -7,7 +7,7 @@ import { useDebounced } from '../../hooks/useDebounced.js';
 import { useLookups } from '../../hooks/useLookups.js';
 import { purchasesApi } from '../../services/api.js';
 import { Button, Card, EmptyState, ErrorState, Money, PageHeader, Select, Spinner } from '../../components/ui/ui.jsx';
-import { MONTHS_SHORT, monthLabel } from '../../lib/format.js';
+import { dateTimeLabel, MONTHS_SHORT, monthLabel } from '../../lib/format.js';
 import PurchaseForm, { emptyPurchase, toForm, toSharedForm } from './PurchaseForm.jsx';
 
 export default function PurchasesPage() {
@@ -194,6 +194,7 @@ export default function PurchasesPage() {
                       <td>
                         {r.description}{r.sharedGroup && <span className="tag" title="Compra dividida entre várias pessoas">Compartilhada</span>}
                         {r.vehicleExpenseId && <span className="tag" title="Edite este gasto pela Gestão de Veículos">Veículo</span>}
+                        <div className="muted small">Compra registrada: {dateTimeLabel(r.purchaseCreatedAt)} · Parcela atualizada: {dateTimeLabel(r.updatedAt)}</div>
                         {r.sharedWith && <div className="muted small">Dividida com {r.sharedWith}</div>}
                       </td>
                       <td className="muted">{r.category || '—'}</td>
@@ -225,6 +226,7 @@ export default function PurchasesPage() {
                           {p.description}{p.shared && <span className="tag" title="Compra dividida entre várias pessoas">Compartilhada</span>}
                           {p.vehicleExpenseId && <span className="tag" title="Edite este gasto pela Gestão de Veículos">Veículo</span>}
                           {p.category && <div className="muted small">{p.category}</div>}
+                          <div className="muted small">Registrada: {dateTimeLabel(p.createdAt)} · Atualizada: {dateTimeLabel(p.updatedAt)}</div>
                           {p.shared && filters.personId && <div className="muted small">Parte de {p.person} · total da compra <Money value={p.groupTotal} /></div>}
                         </td>
                         <td>{p.person}</td>

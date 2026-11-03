@@ -7,7 +7,7 @@ import { useFinanceRefresh, notifyFinanceChanged } from '../../hooks/useFinanceR
 import { useLookups } from '../../hooks/useLookups.js';
 import { cashLedgerApi, vehiclesApi } from '../../services/api.js';
 import { Button, Card, EmptyState, ErrorState, Field, Modal, Money, PageHeader, Select, Spinner } from '../../components/ui/ui.jsx';
-import { money, parseMoney } from '../../lib/format.js';
+import { dateTimeLabel, money, parseMoney } from '../../lib/format.js';
 import CashEntryForm, { cashEntryToForm, emptyCashEntry } from './CashEntryForm.jsx';
 
 const kindLabels = { expense: 'Compra avulsa', sale: 'Venda', loan: 'Empréstimo', refund: 'Reembolso' };
@@ -274,7 +274,7 @@ export default function CashLedgerPage() {
                     <tr key={`${row.id}-${row.installmentId ?? 'expense'}-${index}`} className={`cash-row cash-row-${row.status}`}>
                       <td>{selectable && <input type="checkbox" checked={selected.includes(row.installmentId)} onChange={() => toggleOne(row.installmentId)} aria-label={`Selecionar ${row.description} ${row.number}/${row.count}`} />}</td>
                       <td>{kindLabels[row.kind]}</td>
-                      <td><button className="link-btn cash-description" onClick={() => openDetails(row.id)}>{row.description}</button>{row.category && <small className="muted cash-subline">{row.category}</small>}</td>
+                      <td><button className="link-btn cash-description" onClick={() => openDetails(row.id)}>{row.description}</button>{row.category && <small className="muted cash-subline">{row.category}</small>}<small className="muted cash-subline">Registrado: {dateTimeLabel(row.createdAt)}</small></td>
                       <td>{row.personId ? <button className="link-btn" onClick={() => { setPersonId(row.personId); setFilters((current) => ({ ...current, personId: String(row.personId) })); }}>{person}</button> : person || '—'}</td>
                       <td>{dateLabel(row.entryDate)}</td><td>{dateLabel(row.dueDate)}</td>
                       <td>{row.number ? `${row.number}/${row.count}` : '—'}</td>
@@ -321,6 +321,8 @@ export default function CashLedgerPage() {
               </>}
               <div><span className="muted">Pessoa / empresa</span><strong>{details.entry.person || details.entry.counterparty || '—'}</strong></div>
               <div><span className="muted">Data</span><strong>{dateLabel(details.entry.entryDate)}</strong></div>
+              <div><span className="muted">Registrado em</span><strong>{dateTimeLabel(details.entry.createdAt)}</strong></div>
+              <div><span className="muted">Última atualização</span><strong>{dateTimeLabel(details.entry.updatedAt)}</strong></div>
               {details.entry.category && <div><span className="muted">Categoria</span><strong>{details.entry.category}</strong></div>}
               {details.entry.paymentMethod && <div><span className="muted">Forma</span><strong>{methodLabels[details.entry.paymentMethod]}</strong></div>}
               {details.entry.expectedReturnDate && <div><span className="muted">Previsão de devolução</span><strong>{dateLabel(details.entry.expectedReturnDate)}</strong></div>}
@@ -344,7 +346,7 @@ export default function CashLedgerPage() {
             <h3>Histórico de recebimentos</h3>
             {details.receipts.length === 0 ? <p className="muted">Nenhum recebimento registrado.</p> : (
               <ul className="cash-receipt-history">{details.receipts.map((receipt) => <li key={receipt.id}>
-                <span>{dateLabel(receipt.receivedOn)} · parcela {details.installments.find((item) => item.installmentId === receipt.installmentId)?.number ?? '—'} · {methodLabels[receipt.paymentMethod]}</span>
+                <span>{dateLabel(receipt.receivedOn)} · parcela {details.installments.find((item) => item.installmentId === receipt.installmentId)?.number ?? '—'} · {methodLabels[receipt.paymentMethod]}<small className="muted cash-subline">Registrado: {dateTimeLabel(receipt.createdAt)}</small></span>
                 <Money value={receipt.amount} tone="pos" />
                 <Button size="sm" variant="ghost" onClick={() => undoReceipt(receipt)}>Desfazer</Button>
               </li>)}</ul>

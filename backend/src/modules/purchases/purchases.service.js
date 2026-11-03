@@ -52,6 +52,8 @@ export function createPurchasesService() {
     const total = purchase.totalAmount;
     const out = {
       id: String(purchase._id),
+      createdAt: purchase.createdAt ?? null,
+      updatedAt: purchase.updatedAt ?? null,
       description: purchase.description,
       observation: purchase.observation,
       purchaseDate: purchase.purchaseDate,
@@ -158,6 +160,7 @@ export function createPurchasesService() {
         const p = purchaseById.get(String(item.purchaseId));
         return {
           id: String(item._id), purchaseId: String(p._id), number: item.number, count: p.totalInstallments,
+          purchaseCreatedAt: p.createdAt ?? null, updatedAt: item.updatedAt ?? null,
           amount: item.amount, paidAmount: item.paidAmount, paid: item.paid, description: p.description,
           person: p.personId?.name ?? '', card: p.cardId?.name ?? '', category: p.categoryId?.name ?? null,
           sharedGroup: p.splitGroupId, vehicleExpenseId: p.vehicleExpenseId ? String(p.vehicleExpenseId) : null,

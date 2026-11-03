@@ -94,6 +94,9 @@ a { color: var(--primary); }
 .menu-toggle-button svg { width: 20px; height: 20px; color: var(--primary); }
 .topbar-left { display: flex; min-width: 0; flex: 0 1 auto; align-items: center; gap: 10px; }
 .topbar-actions { display: flex; min-width: 0; flex: 0 0 auto; align-items: center; gap: 10px; margin-left: auto; }
+.system-clock { display: grid; grid-template-columns: 16px auto; align-items: center; column-gap: 5px; color: var(--muted); font-size: 11px; line-height: 1.25; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.system-clock svg { grid-row: span 2; width: 15px; height: 15px; color: var(--primary); }
+.system-clock strong { color: var(--ink); font-size: 12px; font-weight: 600; }
 .notification-menu { position: relative; flex: 0 0 auto; }
 .notification-trigger { position: relative; display: inline-flex; width: 36px; height: 36px; align-items: center; justify-content: center; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--muted); cursor: pointer; }
 .notification-trigger:hover { background: var(--hover); color: var(--ink); }
@@ -164,6 +167,9 @@ a { color: var(--primary); }
   .period .input-ghost { max-width: 92px; }
   .period .icon-btn { width: 25px; height: 30px; }
   .topbar-actions { flex: 0 0 auto; gap: 5px; }
+  .system-clock { display: flex; gap: 4px; font-size: 10px; }
+  .system-clock svg { width: 13px; height: 13px; }
+  .system-clock strong { font-size: 10px; }
   .topbar > span:not(.mobile-brand) { display: none; }
   .user { flex: 0 0 auto; gap: 4px; }
   .user-name, .desktop-logout { display: none; }
@@ -580,13 +586,22 @@ img, canvas { max-width: 100%; }
 .login-intro h1 { font-size: 38px; line-height: 1.15; max-width: 16ch; }
 .login-intro p { color: var(--side-ink); max-width: 46ch; font-size: 16px; }
 .brand-lg { font-size: 17px; padding: 0 0 24px; }
-.login-panel { padding: 56px; display: flex; flex-direction: column; justify-content: center; gap: 16px; max-width: 460px; width: 100%; margin: 0 auto; }
+.login-panel { padding: 56px; display: flex; flex-direction: column; justify-content: center; gap: 16px; max-width: 900px; width: 100%; margin: 0 auto; }
 .login-local p { margin-top: 8px; }
 .login-form { display: flex; flex-direction: column; gap: 12px; margin-top: 8px; }
 .divider { display: flex; align-items: center; gap: 12px; color: var(--muted); font-size: 12px; }
 .divider::before, .divider::after { content: ''; flex: 1; height: 1px; background: var(--line); }
-.google-slot { min-height: 44px; }
+.login-methods { display: grid; width: 100%; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: stretch; }
+.login-method { display: flex; min-width: 0; flex-direction: column; gap: 12px; padding: 18px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+.login-method h2 { font-size: 15px; }
+.login-method .login-form { flex: 1; }
+.login-method .google-slot { display: flex; min-height: 44px; align-items: flex-start; }
+.login-method .google-slot iframe { max-width: 100%; }
+.login-method .btn-google { min-height: 44px; }
+.login-mode-toggle { align-self: center; padding: 4px; border: 0; background: transparent; color: var(--primary); font: inherit; cursor: pointer; }
+.login-mode-toggle:hover { text-decoration: underline; }
 @media (max-width: 860px) { .login { grid-template-columns: 1fr; } .login-intro { padding: 28px; } .login-intro h1 { font-size: 26px; } .login-panel { padding: 28px; } }
+@media (max-width: 640px) { .login-methods { grid-template-columns: minmax(0, 1fr); } .login-method { padding: 16px; } }
 
 /* ───────── Gestão de Veículos ───────── */
 .veh-switch { display: flex; gap: 8px; overflow-x: auto; padding: 2px 2px 10px; margin-bottom: 4px; }

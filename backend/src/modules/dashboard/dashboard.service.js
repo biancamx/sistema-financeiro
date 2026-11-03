@@ -1,9 +1,10 @@
 import { monthIndex, round2 } from '../../lib/months.js';
 import { badRequest } from '../../lib/errors.js';
-import { createCardBilling, getInstallmentBalanceCents } from '../../lib/cardBilling.js';
+import { createCardBilling, getInstallmentBalanceCents, getInvoiceDueDate } from '../../lib/cardBilling.js';
 import { createBudgetsService } from '../budgets/budgets.service.js';
 import { createCashLedgerService } from '../cashLedger/cashLedger.service.js';
 import { BudgetSheet } from '../../models/BudgetSheet.js';
+import { Card } from '../../models/Card.js';
 import { Category } from '../../models/Category.js';
 import { Installment } from '../../models/Installment.js';
 import { MonthStatus } from '../../models/MonthStatus.js';
@@ -18,20 +19,38 @@ export function createDashboardService() {
     async summary(userId, { month, year, personId }) {
       const idx = monthIndex(year, month);
       const sum = (rows) => round2(rows.reduce((total, row) => total + row.amount, 0));
-      const [cards, cash, peopleDocs, purchases, installments] = await Promise.all([
-        billing.listCards(userId, month, year),
+      const [cardDocs, cash, peopleDocs, purchases, installments] = await Promise.all([
+        Card.find({ userId })
+          .select('name limit issuer brand lastDigits color ownerId dueDay closingDay closingDayEqual')
+          .populate('ownerId', 'name').sort({ name: 1 }).lean(),
         cashLedger.summary(userId, month, year),
         Person.find({ userId }).select('name').sort({ name: 1 }).lean(),
-        Purchase.find({ userId }).select('_id personId categoryId').lean(),
-        Installment.find({ userId }).lean(),
+        Purchase.find({ userId }).select('_id personId cardId categoryId').lean(),
+        Installment.find({ userId }).select('purchaseId year month amount paidAmount paid').lean(),
       ]);
       const purchaseMap = new Map(purchases.map((purchase) => [String(purchase._id), purchase]));
       const byPersonInstallments = new Map();
       const seriesByMonth = Array(12).fill(0);
       const categoryTotals = new Map();
+      const invoiceByCard = new Map();
+      const invoiceByPersonCard = new Map();
+      const usedByCard = new Map();
+      const today = new Date();
+      const currentIndex = monthIndex(today.getFullYear(), today.getMonth() + 1);
       for (const installment of installments) {
         const purchase = purchaseMap.get(String(installment.purchaseId));
         if (!purchase) continue;
+        const remainingCents = getInstallmentBalanceCents(installment.amount, installment.paidAmount, installment.paid);
+        const periodIndex = installment.year * 12 + installment.month;
+        const cardKey = String(purchase.cardId);
+        if (installment.year === year && installment.month === month) {
+          invoiceByCard.set(cardKey, (invoiceByCard.get(cardKey) ?? 0) + remainingCents);
+          const personCardKey = `${purchase.personId}:${cardKey}`;
+          invoiceByPersonCard.set(personCardKey, (invoiceByPersonCard.get(personCardKey) ?? 0) + remainingCents);
+        }
+        if (periodIndex >= currentIndex) {
+          usedByCard.set(cardKey, (usedByCard.get(cardKey) ?? 0) + remainingCents);
+        }
         if (installment.year === year) seriesByMonth[installment.month - 1] += installment.amount;
         if (installment.year === year && installment.month === month) {
           const key = purchase.categoryId ? String(purchase.categoryId) : 'none';
@@ -39,7 +58,7 @@ export function createDashboardService() {
         }
         const personKey = String(purchase.personId);
         const data = byPersonInstallments.get(personKey) ?? { month: 0, owed: 0, lastIndex: 0 };
-        const remaining = getInstallmentBalanceCents(installment.amount, installment.paidAmount, installment.paid) / 100;
+        const remaining = remainingCents / 100;
         if (installment.year === year && installment.month === month) data.month += remaining;
         if (installment.year * 12 + installment.month >= idx) data.owed += remaining;
         data.lastIndex = Math.max(data.lastIndex, installment.year * 12 + installment.month);
@@ -52,15 +71,29 @@ export function createDashboardService() {
           lastPayment: info.lastIndex ? { year: Math.floor((info.lastIndex - 1) / 12), month: ((info.lastIndex - 1) % 12) + 1 } : null,
         };
       });
+      const cards = cardDocs.map((card) => {
+        const id = String(card._id);
+        const invoice = (invoiceByCard.get(id) ?? 0) / 100;
+        const used = (usedByCard.get(id) ?? 0) / 100;
+        return {
+          id, name: card.name, limit: card.limit, issuer: card.issuer, brand: card.brand,
+          lastFour: card.lastDigits, color: card.color, imageData: null,
+          ownerId: card.ownerId ? String(card.ownerId._id) : null, owner: card.ownerId?.name ?? null,
+          dueDay: card.dueDay, closingDay: card.closingDay, closingDayEqual: card.closingDayEqual,
+          invoice, invoiceDueDate: getInvoiceDueDate(card, year, month), used,
+          available: card.limit > 0 ? round2(card.limit - used) : 0,
+          percentUsed: card.limit > 0 ? (used / card.limit) * 100 : 0,
+        };
+      });
       const cardTotals = cards.map(({ invoice, ...card }) => ({ ...card, amount: invoice }));
       const chosen = personId ?? people.find((person) => person.month > 0)?.id ?? people[0]?.id;
       let person = null;
       if (chosen) {
-        const invoices = await Promise.all(cards.map(async (card) => ({
+        const invoices = cards.map((card) => ({
           id: card.id, name: card.name,
-          amount: (await billing.calculateInvoice(userId, card.id, month, year, chosen)).amount,
+          amount: (invoiceByPersonCard.get(`${chosen}:${card.id}`) ?? 0) / 100,
           dueDate: card.invoiceDueDate,
-        })));
+        }));
         person = { id: chosen, name: people.find((item) => item.id === String(chosen))?.name, cards: invoices, total: sum(invoices) };
       }
       const categoryIds = [...categoryTotals.keys()].filter((key) => key !== 'none');

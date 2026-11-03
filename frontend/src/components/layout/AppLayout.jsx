@@ -25,6 +25,7 @@ import { MONTHS, yearsAround } from '../../lib/format.js';
 import { Spinner } from '../ui/ui.jsx';
 import ErrorBoundary from '../ErrorBoundary.jsx';
 import { PATHS } from '../../app/paths.js';
+import { preloadRoute } from '../../app/routeLoaders.js';
 import { remindersApi } from '../../services/api.js';
 import { useAppBusy } from '../../context/BusyContext.jsx';
 import { startTour } from '../../lib/tour.js';
@@ -147,6 +148,8 @@ export default function AppLayout() {
                 <NavLink
                   key={i.to}
                   to={i.to}
+                  onPointerEnter={() => preloadRoute(i.to)}
+                  onFocus={() => preloadRoute(i.to)}
                   data-tour={navTourId(i.to)}
                   title={desktopCollapsed ? i.label : undefined}
                   className={({ isActive }) => `nav-link ${desktopCollapsed ? 'nav-link-collapsed' : ''} ${isActive ? 'active' : ''}`}
@@ -334,6 +337,8 @@ export default function AppLayout() {
                     <NavLink
                       key={item.to}
                       to={item.to}
+                      onPointerEnter={() => preloadRoute(item.to)}
+                      onFocus={() => preloadRoute(item.to)}
                       data-tour={navTourId(item.to)}
                       onClick={() => setMobileMenuOpen(false)}
                       className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
@@ -377,6 +382,8 @@ export default function AppLayout() {
             <NavLink
               key={item.to}
               to={item.to}
+              onPointerEnter={() => preloadRoute(item.to)}
+              onFocus={() => preloadRoute(item.to)}
               data-tour={navTourId(item.to)}
               className={({ isActive }) => `mobile-bottom-link ${isActive ? 'active' : ''}`}
             >

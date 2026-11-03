@@ -4,24 +4,25 @@ import { useAuth } from '../context/AuthContext.jsx';
 import { Spinner } from '../components/ui/ui.jsx';
 import AppLayout from '../components/layout/AppLayout.jsx';
 import { PATHS } from './paths.js';
+import { loadRoute } from './routeLoaders.js';
 
 // Code splitting: cada tela vira um arquivo carregado só quando visitada.
 const Login = lazy(() => import('../pages/auth/LoginPage.jsx'));
-const Dashboard = lazy(() => import('../pages/dashboard/DashboardPage.jsx'));
-const Purchases = lazy(() => import('../pages/purchases/PurchasesPage.jsx'));
-const CashLedger = lazy(() => import('../pages/cashLedger/CashLedgerPage.jsx'));
-const Vehicles = lazy(() => import('../pages/vehicles/VehiclesPage.jsx'));
-const Cards = lazy(() => import('../pages/cards/CardsPage.jsx'));
-const Budget = lazy(() => import('../pages/budget/BudgetPage.jsx'));
-const Overview = lazy(() => import('../pages/overview/OverviewPage.jsx'));
-const People = lazy(() => import('../pages/people/PeoplePage.jsx'));
-const Birthdays = lazy(() => import('../pages/birthdays/BirthdaysPage.jsx'));
-const Rescission = lazy(() => import('../pages/rescission/RescissionPage.jsx'));
-const Settings = lazy(() => import('../pages/settings/SettingsPage.jsx'));
+const Dashboard = lazy(loadRoute(PATHS.dashboard));
+const Purchases = lazy(loadRoute(PATHS.purchases));
+const CashLedger = lazy(loadRoute(PATHS.cashLedger));
+const Vehicles = lazy(loadRoute(PATHS.vehicles));
+const Cards = lazy(loadRoute(PATHS.cards));
+const Budget = lazy(loadRoute(PATHS.budget));
+const Overview = lazy(loadRoute(PATHS.overview));
+const People = lazy(loadRoute(PATHS.people));
+const Birthdays = lazy(loadRoute(PATHS.birthdays));
+const Rescission = lazy(loadRoute(PATHS.rescission));
+const Settings = lazy(loadRoute(PATHS.settings));
 const Portal = lazy(() => import('../pages/portal/PortalPage.jsx'));
 const NotFound = lazy(() => import('../pages/system/NotFoundPage.jsx'));
 const AccountStatus = lazy(() => import('../pages/auth/AccountStatusPage.jsx'));
-const AdminUsers = lazy(() => import('../pages/admin/AdminUsersPage.jsx'));
+const AdminUsers = lazy(loadRoute(PATHS.adminUsers));
 
 /** Camada "Auth & Permissions" no front: rotas privadas só abrem com sessão. */
 function Protected() {

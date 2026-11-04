@@ -523,6 +523,85 @@ select option {
   .responsive-desktop-table { display: none; }
   .mobile-card-list { display: grid; }
 }
+.purchase-filter-toggle, .purchase-bulk-toggle {
+  display: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font: inherit;
+  cursor: pointer;
+}
+.purchase-advanced-filters { display: contents; }
+.purchase-bulk-content { display: block; }
+.purchase-bulk-hint { margin: 0 0 12px; }
+.purchase-status {
+  display: inline-flex;
+  align-items: center;
+  min-height: 23px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 650;
+}
+.purchase-status.is-paid { color: var(--pos); background: color-mix(in srgb, var(--pos) 13%, transparent); }
+.purchase-status.is-pending { color: var(--warn-ink); background: var(--warn-bg); }
+.purchase-mobile-amounts { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px 18px; }
+.purchase-mobile-amounts > div { display: grid; gap: 2px; }
+.purchase-mobile-amounts > div:first-child > .money { font-size: 17px; font-weight: 700; }
+.purchase-mobile-amounts > div:last-child { justify-items: end; }
+.purchase-mobile-card .mobile-record-details { grid-template-columns: repeat(2, minmax(0, 1fr)); font-size: 12px; }
+.purchase-mobile-card.is-paid { opacity: 1; }
+@media (max-width: 767px) {
+  .purchases-page { padding-bottom: calc(7rem + env(safe-area-inset-bottom)); }
+  .purchases-page .page-head { align-items: center; gap: 10px; margin-bottom: 14px; }
+  .purchases-page .page-head h1 { margin: 0; font-size: 22px; }
+  .purchase-page-subtitle { display: none; }
+  .purchases-page .page-actions { gap: 7px; }
+  .purchase-new { min-height: 42px; padding: 8px 12px; white-space: nowrap; }
+  .purchase-export { width: 40px; min-width: 40px; height: 40px; justify-content: center; padding: 0; }
+  .purchase-export span { display: none; }
+  .purchases-page > .toolbar { align-items: stretch; gap: 10px; }
+  .purchases-page .tabs { width: 100%; }
+  .purchases-page .tabs button { flex: 1 1 50%; min-width: 0; padding: 8px 5px; font-size: 12px; }
+  .purchase-filters { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; width: 100%; }
+  .purchase-filters .purchase-search { width: 100%; min-width: 0; min-height: 44px; }
+  .purchase-filter-toggle { display: flex; width: 100%; min-height: 40px; padding: 8px 11px; color: var(--text-secondary); font-size: 13px; }
+  .purchase-filter-toggle span { flex: 1; text-align: left; }
+  .purchase-filter-toggle svg:last-child, .purchase-bulk-toggle svg:last-child { transition: transform .18s ease; }
+  .purchase-filter-toggle[aria-expanded="true"] svg:last-child,
+  .purchase-bulk-panel.is-open .purchase-bulk-toggle svg:last-child { transform: rotate(180deg); }
+  .purchase-advanced-filters { display: none; grid-template-columns: 1fr; gap: 8px; padding-top: 2px; }
+  .purchase-advanced-filters.is-open { display: grid; }
+  .purchase-advanced-filters select { width: 100%; min-height: 42px; }
+  .purchases-page .card { padding: 12px; }
+  .purchase-bulk-panel { margin-bottom: 12px; border: 1px solid var(--border-color); border-radius: 11px; overflow: hidden; background: var(--bg-surface); }
+  .purchase-bulk-toggle { display: flex; width: 100%; min-height: 48px; padding: 10px 12px; border: 0; border-radius: 0; text-align: left; font-size: 13px; }
+  .purchase-bulk-toggle > svg:first-child { flex: 0 0 auto; color: var(--accent); }
+  .purchase-bulk-toggle > span { flex: 1; }
+  .purchase-bulk-toggle strong { color: var(--text-secondary); font-weight: 500; }
+  .purchase-bulk-content { display: none; padding: 0 12px 12px; }
+  .purchase-bulk-panel.is-open .purchase-bulk-content { display: block; }
+  .purchase-bulk-toolbar { margin: 0; }
+  .purchase-bulk-selection { gap: 8px; padding: 8px 0; }
+  .purchase-bulk-checkbox { flex: 1 1 100%; font-size: 12px; }
+  .purchase-bulk-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
+  .purchase-bulk-actions > .btn { min-height: 40px; padding: 7px; border-radius: 9px; font-size: 12px; }
+  .purchase-bulk-hint { padding-top: 8px; font-size: 11px; }
+  .purchase-mobile-card { gap: 11px; padding: 14px; border-radius: 12px; }
+  .purchase-mobile-card .mobile-record-heading { justify-content: flex-start; }
+  .purchase-mobile-card .mobile-record-title { align-items: flex-start; gap: 7px; }
+  .purchase-mobile-card .mobile-record-title strong { flex: 1 1 100%; font-size: 15px; line-height: 1.4; }
+  .purchase-mobile-amounts { padding: 3px 0; }
+  .purchase-mobile-card .mobile-record-details { gap: 7px 10px; }
+  .purchase-mobile-card .mobile-record-details > span { overflow-wrap: anywhere; }
+  .purchase-mobile-card .mobile-record-actions { gap: 7px; }
+  .purchase-mobile-card .mobile-record-actions > .btn { min-height: 40px; border-radius: 9px; }
+  .purchase-mobile-card .mobile-record-check { min-height: 40px; }
+}
 
 /* ───────── Estados ───────── */
 .state { text-align: center; padding: 36px 16px; color: var(--muted); display: flex; flex-direction: column; gap: 6px; align-items: center; }

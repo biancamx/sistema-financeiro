@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { ChevronDown, Download, Plus, SlidersHorizontal, Zap } from 'lucide-react';
 import { usePeriod } from '../../context/PeriodContext.jsx';
 import { useToast } from '../../context/ToastContext.jsx';
 import { useFetch } from '../../hooks/useFetch.js';
@@ -20,6 +21,8 @@ export default function PurchasesPage() {
   const [form, setForm] = useState(null);
   const [selectedInstallments, setSelectedInstallments] = useState([]);
   const [payingAll, setPayingAll] = useState(false);
+  const [advancedFiltersOpen, setAdvancedFiltersOpen] = useState(false);
+  const [bulkActionsOpen, setBulkActionsOpen] = useState(false);
   const search = useDebounced(filters.search);
   const q = { personId: filters.personId, cardId: filters.cardId, categoryId: filters.categoryId, search };
   const setF = (k) => (v) => { setFilters((f) => ({ ...f, [k]: v?.target ? v.target.value : v })); setPage(1); };
@@ -111,13 +114,17 @@ export default function PurchasesPage() {
   const pages = all.data ? Math.max(1, Math.ceil(all.data.total / all.data.pageSize)) : 1;
 
   return (
-    <>
+    <div className="purchases-page">
       <PageHeader
         title="Lançamentos"
-        subtitle="Compras no cartão e suas parcelas — a antiga aba “Banco de Dados”"
+        subtitle={<span className="purchase-page-subtitle">Compras no cartão e suas parcelas — a antiga aba “Banco de Dados”</span>}
         actions={<>
-          <a className="btn btn-ghost" href={purchasesApi.exportUrl()}>Exportar CSV</a>
-          <Button variant="primary" onClick={() => setForm(emptyPurchase(period))} disabled={!lookups.ready}>Nova compra</Button>
+          <a className="btn btn-ghost purchase-export" href={purchasesApi.exportUrl()} aria-label="Exportar CSV">
+            <Download size={16} aria-hidden="true" /><span>Exportar CSV</span>
+          </a>
+          <Button className="purchase-new" variant="primary" onClick={() => setForm(emptyPurchase(period))} disabled={!lookups.ready}>
+            <Plus size={17} aria-hidden="true" /> Nova compra
+          </Button>
         </>}
       />
 
@@ -126,11 +133,24 @@ export default function PurchasesPage() {
           <button role="tab" aria-selected={tab === 'month'} className={tab === 'month' ? 'on' : ''} onClick={() => setTab('month')}>Parcelas de {monthLabel(period.month, period.year)}</button>
           <button role="tab" aria-selected={tab === 'all'} className={tab === 'all' ? 'on' : ''} onClick={() => setTab('all')}>Todas as compras</button>
         </div>
-        <div className="filters">
-          <input className="input" type="search" placeholder="Buscar descrição…" value={filters.search} onChange={setF('search')} aria-label="Buscar" />
-          <Select value={filters.personId} onChange={setF('personId')} placeholder="Todas as pessoas" options={opt(lookups.people)} aria-label="Pessoa" />
-          <Select value={filters.cardId} onChange={setF('cardId')} placeholder="Todos os cartões" options={opt(lookups.cards)} aria-label="Cartão" />
-          <Select value={filters.categoryId} onChange={setF('categoryId')} placeholder="Todas as categorias" options={opt(lookups.categories)} aria-label="Categoria" />
+        <div className="filters purchase-filters">
+          <input className="input purchase-search" type="search" placeholder="Buscar descrição…" value={filters.search} onChange={setF('search')} aria-label="Buscar descrição" />
+          <button
+            type="button"
+            className="purchase-filter-toggle"
+            aria-expanded={advancedFiltersOpen}
+            aria-controls="purchase-advanced-filters"
+            onClick={() => setAdvancedFiltersOpen((open) => !open)}
+          >
+            <SlidersHorizontal size={15} aria-hidden="true" />
+            <span>Filtros avançados</span>
+            <ChevronDown size={15} aria-hidden="true" />
+          </button>
+          <div id="purchase-advanced-filters" className={`purchase-advanced-filters${advancedFiltersOpen ? ' is-open' : ''}`}>
+            <Select value={filters.personId} onChange={setF('personId')} placeholder="Todas as pessoas" options={opt(lookups.people)} aria-label="Pessoa" />
+            <Select value={filters.cardId} onChange={setF('cardId')} placeholder="Todos os cartões" options={opt(lookups.cards)} aria-label="Cartão" />
+            <Select value={filters.categoryId} onChange={setF('categoryId')} placeholder="Todas as categorias" options={opt(lookups.categories)} aria-label="Categoria" />
+          </div>
         </div>
       </div>
 
@@ -141,47 +161,62 @@ export default function PurchasesPage() {
         {tab === 'month' && month.data && (
           month.data.data.length === 0 ? <EmptyState title="Nenhuma parcela neste mês">Registre uma compra ou mude o mês no topo.</EmptyState> : (
             <>
-              <div className="toolbar purchase-bulk-toolbar">
-                <div className="small purchase-bulk-selection">
-                  <label className="purchase-bulk-checkbox">
-                    <input type="checkbox" checked={allUnpaidSelected} onChange={toggleAllUnpaid} disabled={unpaidRows.length === 0} />
-                    {' '}Selecionar pendentes ({unpaidRows.length})
-                  </label>
-                  <label className="purchase-bulk-checkbox">
-                    <input type="checkbox" checked={allPaidSelected} onChange={toggleAllPaid} disabled={paidRows.length === 0} />
-                    {' '}Selecionar pagas ({paidRows.length})
-                  </label>
+              <section className={`purchase-bulk-panel${bulkActionsOpen ? ' is-open' : ''}`}>
+                <button
+                  type="button"
+                  className="purchase-bulk-toggle"
+                  aria-expanded={bulkActionsOpen}
+                  aria-controls="purchase-bulk-content"
+                  onClick={() => setBulkActionsOpen((open) => !open)}
+                >
+                  <Zap size={17} aria-hidden="true" />
+                  <span>Pagar / despagar em lote <strong>({unpaidRows.length} pendentes)</strong></span>
+                  <ChevronDown size={16} aria-hidden="true" />
+                </button>
+                <div id="purchase-bulk-content" className="purchase-bulk-content">
+                  <div className="toolbar purchase-bulk-toolbar">
+                    <div className="small purchase-bulk-selection">
+                      <label className="purchase-bulk-checkbox">
+                        <input type="checkbox" checked={allUnpaidSelected} onChange={toggleAllUnpaid} disabled={unpaidRows.length === 0} />
+                        {' '}Selecionar pendentes ({unpaidRows.length})
+                      </label>
+                      <label className="purchase-bulk-checkbox">
+                        <input type="checkbox" checked={allPaidSelected} onChange={toggleAllPaid} disabled={paidRows.length === 0} />
+                        {' '}Selecionar pagas ({paidRows.length})
+                      </label>
+                    </div>
+                    <div className={`purchase-bulk-actions${selectedInstallments.length ? ' has-selection' : ''}`}>
+                      <Button
+                        variant="primary"
+                        onClick={() => setInstallmentsPaid(selectedUnpaidRows, true)}
+                        disabled={!selectedUnpaidRows.length || payingAll}
+                      >
+                        Pagar selecionadas ({selectedUnpaidRows.length})
+                      </Button>
+                      <Button
+                        variant="primary"
+                        onClick={() => setInstallmentsPaid(unpaidRows, true)}
+                        disabled={!unpaidRows.length || payingAll}
+                      >
+                        Pagar todas exibidas
+                      </Button>
+                      <Button
+                        onClick={() => setInstallmentsPaid(selectedPaidRows, false)}
+                        disabled={!selectedPaidRows.length || payingAll}
+                      >
+                        Despagar selecionadas ({selectedPaidRows.length})
+                      </Button>
+                      <Button
+                        onClick={() => setInstallmentsPaid(paidRows, false)}
+                        disabled={!paidRows.length || payingAll}
+                      >
+                        Despagar todas exibidas
+                      </Button>
+                    </div>
+                  </div>
+                  <p className="muted small purchase-bulk-hint">As ações consideram o mês e os filtros selecionados.</p>
                 </div>
-                <div className="purchase-bulk-actions">
-                  <Button
-                    variant="primary"
-                    onClick={() => setInstallmentsPaid(selectedUnpaidRows, true)}
-                    disabled={!selectedUnpaidRows.length || payingAll}
-                  >
-                    Pagar selecionadas ({selectedUnpaidRows.length})
-                  </Button>
-                  <Button
-                    variant="primary"
-                    onClick={() => setInstallmentsPaid(unpaidRows, true)}
-                    disabled={!unpaidRows.length || payingAll}
-                  >
-                    Pagar todas exibidas
-                  </Button>
-                  <Button
-                    onClick={() => setInstallmentsPaid(selectedPaidRows, false)}
-                    disabled={!selectedPaidRows.length || payingAll}
-                  >
-                    Despagar selecionadas ({selectedPaidRows.length})
-                  </Button>
-                  <Button
-                    onClick={() => setInstallmentsPaid(paidRows, false)}
-                    disabled={!paidRows.length || payingAll}
-                  >
-                    Despagar todas exibidas
-                  </Button>
-                </div>
-              </div>
-              <p className="muted small">As ações consideram o mês e os filtros selecionados.</p>
+              </section>
               <div className="table-wrap responsive-desktop-table">
                 <table className="table">
                   <thead><tr><th>Selecionar</th><th>Pago</th><th>Descrição</th><th>Categoria</th><th>Pessoa</th><th>Cartão</th><th>Parcela</th><th className="num">Valor</th><th /></tr></thead>
@@ -214,23 +249,20 @@ export default function PurchasesPage() {
                     <div className="mobile-record-heading">
                       <div className="mobile-record-title">
                         <strong>{r.description}</strong>
-                        <span className={r.paid ? 'tag tag-flush' : 'cash-status cash-status-pending'}>{r.paid ? 'Paga' : 'Pendente'}</span>
+                        <span className={`purchase-status ${r.paid ? 'is-paid' : 'is-pending'}`}>{r.paid ? 'Pago' : 'Pendente'}</span>
                         {r.sharedGroup && <span className="tag tag-flush">Compartilhada</span>}
                         {r.vehicleExpenseId && <span className="tag tag-flush">Veículo</span>}
                       </div>
-                      <div className="mobile-record-total">
-                        <span className="muted small">Total</span>
-                        <Money value={r.purchaseTotal} strong />
-                      </div>
                     </div>
-                    <p className="muted small">
-                      Parcela {r.number}/{r.count}: <Money value={r.amount} />
-                      {' · '}Compra em {r.purchaseDate ? r.purchaseDate.split('-').reverse().join('/') : monthLabel(period.month, period.year)}
-                    </p>
+                    <div className="purchase-mobile-amounts">
+                      <div><span className="muted small">Parcela {r.number}/{r.count}</span><Money value={r.amount} strong /></div>
+                      <div><span className="muted small">Total da compra</span><Money value={r.purchaseTotal} /></div>
+                    </div>
                     <div className="mobile-record-details">
-                      <span className="tag tag-flush">{r.category || 'Sem categoria'}</span>
-                      <span>{r.person}</span>
                       <span>{r.card}</span>
+                      <span>{r.person}</span>
+                      <span>{r.category || 'Sem categoria'}</span>
+                      <span>Compra em {r.purchaseDate ? r.purchaseDate.split('-').reverse().join('/') : monthLabel(period.month, period.year)}</span>
                       {r.sharedWith && <span>Dividida com {r.sharedWith}</span>}
                     </div>
                     <div className="mobile-record-actions">
@@ -321,6 +353,6 @@ export default function PurchasesPage() {
       </Card>
 
       {form && <PurchaseForm value={form} lookups={lookups} onClose={() => setForm(null)} onSubmit={submit} />}
-    </>
+    </div>
   );
 }

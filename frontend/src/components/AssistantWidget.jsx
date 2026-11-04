@@ -150,7 +150,6 @@ export default function AssistantWidget() {
           title="Assistente financeiro"
         >
           <Sparkles aria-hidden="true" />
-          <span>Assistente</span>
         </button>
       )}
     </div>

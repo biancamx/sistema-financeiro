@@ -594,45 +594,143 @@ img, canvas { max-width: 100%; }
 .sheet .strong td { font-weight: 600; }
 @media (max-width: 767px) {
   .budget-page { padding-bottom: 6rem; }
-  .budget-month-controls { display: grid; gap: 6px; padding: 12px; border-bottom: 1px solid var(--line); }
-  .budget-month-picker { display: grid; grid-template-columns: 44px minmax(0, 1fr) 44px; align-items: center; gap: 8px; }
-  .budget-month-picker > .icon-btn { width: 44px; height: 44px; font-size: 24px; }
-  .budget-month-picker > .input { min-width: 0; text-align: center; }
-  .budget-full-year-toggle { min-height: 36px; padding: 6px 2px; white-space: normal; text-align: left; }
+  .budget-month-controls {
+    display: grid;
+    gap: 12px;
+    padding: 16px;
+    border-bottom: 1px solid var(--line);
+    background: linear-gradient(135deg, color-mix(in srgb, var(--primary-soft) 42%, var(--surface)), var(--surface) 72%);
+  }
+  .budget-month-controls-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .budget-month-controls-heading > span { color: var(--muted); font-size: 10px; font-weight: 700; letter-spacing: .1em; }
+  .budget-month-controls-heading > strong { color: var(--primary); font-size: 12px; font-variant-numeric: tabular-nums; }
+  .budget-month-picker {
+    display: grid;
+    grid-template-columns: 44px minmax(0, 1fr) 44px;
+    align-items: center;
+    gap: 10px;
+    padding: 6px;
+    border: 1px solid color-mix(in srgb, var(--primary) 18%, var(--line));
+    border-radius: 14px;
+    background: var(--surface);
+    box-shadow: 0 2px 8px rgb(15 40 40 / .05);
+  }
+  .budget-month-picker > .icon-btn {
+    display: grid;
+    width: 44px;
+    height: 44px;
+    place-items: center;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--hover);
+    color: var(--primary);
+    font-size: 25px;
+    line-height: 1;
+  }
+  .budget-month-picker > .icon-btn:disabled { opacity: .35; }
+  .budget-month-picker > .input {
+    min-width: 0;
+    min-height: 44px;
+    border-color: transparent;
+    background-color: transparent;
+    color: var(--ink);
+    font-size: 16px;
+    font-weight: 600;
+    text-align: center;
+  }
+  .budget-full-year-toggle {
+    min-height: 38px;
+    justify-content: center;
+    padding: 7px 10px;
+    border: 1px solid var(--line);
+    border-radius: 9px;
+    color: var(--muted);
+    font-size: 12px;
+    white-space: normal;
+    text-align: center;
+  }
+  .budget-full-year-toggle:hover { border-color: var(--primary); color: var(--primary); }
   .budget-month-table {
     display: block;
     width: 100%;
     min-width: 0;
     overflow: visible;
     overscroll-behavior: auto;
+    background: var(--surface);
   }
   .budget-month-table.is-hidden { display: none; }
   .budget-month-view {
     width: 100%;
     min-width: 0;
     table-layout: fixed;
-    border-collapse: collapse;
+    border-collapse: separate;
+    border-spacing: 0;
     font-size: 13px;
   }
   .budget-month-view th, .budget-month-view td {
     height: auto;
     min-width: 0;
-    padding: 9px 10px;
+    padding: 12px 14px;
     overflow-wrap: anywhere;
     white-space: normal;
   }
   .budget-month-view thead th {
     position: static;
-    background: var(--surface);
+    padding-top: 11px;
+    padding-bottom: 11px;
+    background: var(--hover);
+    color: var(--muted);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: .06em;
+    text-transform: uppercase;
   }
   .budget-month-view thead th:first-child { width: 62%; }
   .budget-month-view thead th:last-child { width: 38%; }
-  .budget-month-view .sec-head th { position: static; }
-  .budget-month-label { overflow-wrap: anywhere; }
-  .budget-month-label .cell-label { display: block; min-height: 36px; padding: 4px 2px; text-align: left; white-space: normal; }
-  .budget-month-row-actions { display: flex; gap: 4px; margin-top: 3px; }
-  .budget-month-view td.num { text-align: right; white-space: normal; }
-  .budget-month-view td.num .cell { min-width: 0; padding: 4px 0; font-size: 12px; }
+  .budget-month-view .sec-head th {
+    position: static;
+    padding: 10px 14px;
+    background: color-mix(in srgb, var(--primary-soft) 72%, var(--surface));
+    color: var(--primary);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: .035em;
+  }
+  .budget-month-view .sec-head .pill { margin-left: 6px; font-size: 9px; }
+  .budget-month-view tbody:not(.summary) tr:not(.sec-head):not(.sec-total) td { border-bottom-color: color-mix(in srgb, var(--line) 75%, transparent); }
+  .budget-month-label { overflow-wrap: anywhere; vertical-align: middle; }
+  .budget-month-label .cell-label {
+    display: block;
+    min-height: 38px;
+    padding: 6px 8px;
+    border: 1px solid transparent;
+    border-radius: 7px;
+    background: var(--hover);
+    color: var(--ink);
+    font-size: 13px;
+    text-align: left;
+    white-space: normal;
+  }
+  .budget-month-row-actions { display: flex; gap: 4px; margin-top: 5px; }
+  .budget-month-row-actions .icon-btn { width: 32px; height: 32px; background: var(--hover); }
+  .budget-month-view td.num { color: var(--ink); font-size: 13px; font-variant-numeric: tabular-nums; text-align: right; white-space: normal; }
+  .budget-month-view td.num .cell {
+    min-width: 0;
+    min-height: 38px;
+    padding: 6px 8px;
+    border: 1px solid color-mix(in srgb, var(--primary) 16%, var(--line));
+    border-radius: 7px;
+    background: color-mix(in srgb, var(--primary-soft) 28%, var(--surface));
+    color: var(--ink);
+    font-size: 13px;
+    font-weight: 600;
+  }
+  .budget-month-view .sec-total td { background: var(--hover); font-weight: 700; }
+  .budget-month-view .sec-total .budget-month-label { color: var(--ink); }
+  .budget-month-view tbody.summary .sec-head th { background: var(--side); color: var(--side-ink); }
+  .budget-month-view tbody.summary tr:not(.sec-head) td:first-child { color: var(--muted); }
+  .budget-month-view tbody.summary tr.strong td { background: color-mix(in srgb, var(--primary-soft) 30%, var(--surface)); color: var(--ink); font-size: 13px; font-weight: 700; }
+  .budget-month-view tbody.summary tr.line-balance td { border-top: 2px solid color-mix(in srgb, var(--primary) 35%, var(--line)); }
   .budget-full-year-hint { display: none; }
   .budget-full-year-hint.is-visible { display: block; }
   .budget-full-year-table { display: none; max-height: none; overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; -webkit-overflow-scrolling: touch; }

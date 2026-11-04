@@ -198,6 +198,10 @@ export default function BudgetPage() {
 
           <Card className="sheet-card">
             <div className="budget-month-controls">
+              <div className="budget-month-controls-heading">
+                <span>VISUALIZAÇÃO MENSAL</span>
+                <strong>{year}</strong>
+              </div>
               <div className="budget-month-picker" role="group" aria-label="Mês da planilha">
                 <button
                   type="button"
@@ -206,7 +210,7 @@ export default function BudgetPage() {
                   disabled={selectedMonth <= 1}
                   aria-label="Mês anterior"
                 >
-                  ‹
+                  <span aria-hidden="true">‹</span>
                 </button>
                 <Select
                   value={selectedMonth}
@@ -221,7 +225,7 @@ export default function BudgetPage() {
                   disabled={selectedMonth >= 12}
                   aria-label="Próximo mês"
                 >
-                  ›
+                  <span aria-hidden="true">›</span>
                 </button>
               </div>
               <button

@@ -62,8 +62,8 @@ export default function OverviewPage() {
   return (
     <>
       <PageHeader
-        title="Visão geral"
-        subtitle="Faturas dos cartões + contas fixas (luz, água, internet, veículo…) de cada pessoa, mês a mês"
+        title="Extrato por Pessoa"
+        subtitle="Consolidado anual de faturas, contas fixas e pendências de cada participante."
         actions={<>
           <Select value={personId || ''} onChange={(v) => go(v, year)} options={people.data.map((p) => ({ value: p.id, label: p.name }))} aria-label="Pessoa" />
           <Select value={year} onChange={(v) => go(personId, v)} options={yearsAround(thisYear).map((y) => ({ value: y, label: y }))} aria-label="Ano" />

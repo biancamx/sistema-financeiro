@@ -33,28 +33,26 @@ import { startTour } from '../../lib/tour.js';
 import AssistantWidget from '../AssistantWidget.jsx';
 
 const NAV = [
-  { title: 'Finanças', items: [
-    { to: PATHS.dashboard, label: 'Painel', icon: LayoutDashboard },
+  { title: 'Visão & Relatórios', items: [
+    { to: PATHS.dashboard, label: 'Resumo do Mês', icon: LayoutDashboard },
+    { to: PATHS.overview, label: 'Extrato por Pessoa', icon: Eye },
+    { to: PATHS.budget, label: 'Planilha Mensal', icon: Table },
+  ] },
+  { title: 'Movimentações', items: [
     { to: PATHS.purchases, label: 'Lançamentos', icon: ReceiptText },
     { to: PATHS.cashLedger, label: 'Avulsos', icon: CircleDollarSign },
+  ] },
+  { title: 'Gestão & Cadastros', items: [
     { to: PATHS.cards, label: 'Cartões', icon: CreditCard },
-    { to: PATHS.budget, label: 'Planilha mensal', icon: Table },
-    { to: PATHS.overview, label: 'Visão geral', icon: Eye },
-  ] },
-  { title: 'Patrimônio', items: [
     { to: PATHS.vehicles, label: 'Gestão de Veículos', icon: Car },
-  ] },
-  { title: 'Cadastros', items: [
     { to: PATHS.people, label: 'Pessoas', icon: Users },
     { to: PATHS.birthdays, label: 'Aniversários', icon: Cake },
   ] },
-  { title: 'Ferramentas', items: [
+  { title: 'Sistema & Ferramentas', items: [
     { to: PATHS.rescission, label: 'Calculadora de rescisão', icon: Calculator },
     { to: PATHS.settings, label: 'Configurações', icon: Settings },
-  ] },
-  { title: 'Administração', adminOnly: true, items: [
     { to: PATHS.adminUsers, label: 'Acessos', icon: ShieldCheck },
-  ] },
+  ], itemAdminOnly: [PATHS.adminUsers] },
 ];
 
 // Telas em que o seletor de mês/ano do topo faz sentido
@@ -199,10 +197,10 @@ export default function AppLayout() {
       <aside className="sidebar">
         <div className="brand"><span className="brand-mark" aria-hidden="true" />{!desktopCollapsed && 'Caderno de Contas'}</div>
         <nav className="sidebar-nav" aria-label="Principal">
-          {NAV.filter((group) => !group.adminOnly || user?.role === 'admin').map((g) => (
+          {NAV.map((g) => (
             <div key={g.title} className="nav-group">
               {!desktopCollapsed && <div className="nav-title">{g.title}</div>}
-              {g.items.map((i) => (
+              {g.items.filter((item) => !g.itemAdminOnly?.includes(item.to) || user?.role === 'admin').map((i) => (
                 <NavLink
                   key={i.to}
                   to={i.to}
@@ -392,10 +390,13 @@ export default function AppLayout() {
               <button className="icon-btn" type="button" aria-label="Fechar menu" onClick={() => setMobileMenuOpen(false)}>×</button>
             </header>
             <nav className="mobile-drawer-nav" aria-label="Navegação móvel">
-              {NAV.filter((group) => !group.adminOnly || user?.role === 'admin').map((group) => (
+              {NAV.map((group) => {
+                const items = group.items.filter((item) => !group.itemAdminOnly?.includes(item.to) || user?.role === 'admin');
+                if (!items.length) return null;
+                return (
                 <div key={group.title} className="nav-group">
                   <div className="nav-title">{group.title}</div>
-                  {group.items.map((item) => (
+                  {items.map((item) => (
                     <NavLink
                       key={item.to}
                       to={item.to}
@@ -410,7 +411,8 @@ export default function AppLayout() {
                     </NavLink>
                   ))}
                 </div>
-              ))}
+                );
+              })}
             </nav>
             <div className="mobile-drawer-user">
               <div className="flex items-center gap-3">

@@ -2,9 +2,31 @@ import 'dotenv/config';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { executarFerramenta, toolsDeclaration } from './assistant.tools.js';
 
-const MODEL_NAME = 'gemini-3.6-flash';
 const MAX_TOOL_ROUNDS = 4;
 const MAX_HISTORY_MESSAGES = 40;
+const MODEL_CACHE_TTL_MS = 15 * 60 * 1000;
+const FALLBACK_CACHE_TTL_MS = 60 * 1000;
+const MAX_DISCOVERED_MODELS = 12;
+const DEFAULT_MODELS = [
+  'gemini-3.6-flash',
+  'gemini-3.5-flash',
+  'gemini-2.5-flash',
+  'gemini-2.0-flash',
+  'gemini-1.5-flash-latest',
+  'gemini-1.5-flash',
+  'gemini-1.5-pro',
+];
+const PREFERRED_MODELS = [
+  'gemini-3.6-flash',
+  'gemini-3.5-flash',
+  'gemini-2.5-flash',
+  'gemini-2.0-flash',
+  'gemini-1.5-flash-latest',
+  'gemini-1.5-flash',
+  'gemini-1.5-pro',
+];
+let modelCache = { models: [], expiresAt: 0 };
+let modelInUse = null;
 const SYSTEM_INSTRUCTION = `
 Você é o assistente financeiro oficial do "Caderno de Contas", uma aplicação web para organizar as finanças de pessoas e grupos familiares.
 Ajude a entender as funções do sistema, esclarecer dúvidas financeiras sobre os dados consultáveis e registrar operações quando o usuário pedir. Seja cordial, objetivo, empático e claro.
@@ -46,15 +68,64 @@ DIRETRIZES DE RESPOSTA
 8. Privacidade: nunca revele nem peça chaves Pix, telefones, aniversários ou dados bancários pessoais. A ferramenta de pessoas fornece apenas nomes; encaminhe o usuário à aba Pessoas para dados pessoais.
 `;
 
-function getModel() {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
-    throw new Error('A IA não está configurada no servidor (falta a GEMINI_API_KEY).');
+async function discoverModels(apiKey) {
+  if (Date.now() < modelCache.expiresAt && modelCache.models.length > 0) {
+    return modelCache.models;
   }
 
-  const genAI = new GoogleGenerativeAI(apiKey);
+  try {
+    const response = await fetch('https://generativelanguage.googleapis.com/v1beta/models?pageSize=100', {
+      headers: { 'x-goog-api-key': apiKey },
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!response.ok) {
+      const error = new Error(`A API de modelos respondeu HTTP ${response.status}.`);
+      error.status = response.status;
+      throw error;
+    }
+
+    const data = await response.json();
+    const discovered = Array.isArray(data.models)
+      ? data.models
+        .filter((model) => model.supportedGenerationMethods?.includes('generateContent'))
+        .map((model) => model.name?.replace(/^models\//, ''))
+        .filter((name) => typeof name === 'string' && name.startsWith('gemini-'))
+      : [];
+    const ordered = [...new Set([...PREFERRED_MODELS, ...discovered])]
+      .filter((name) => discovered.includes(name) || DEFAULT_MODELS.includes(name))
+      .sort((a, b) => {
+        const aIndex = PREFERRED_MODELS.indexOf(a);
+        const bIndex = PREFERRED_MODELS.indexOf(b);
+        if (aIndex !== -1 || bIndex !== -1) {
+          return (aIndex === -1 ? Number.MAX_SAFE_INTEGER : aIndex)
+            - (bIndex === -1 ? Number.MAX_SAFE_INTEGER : bIndex);
+        }
+        return Number(a.includes('preview')) - Number(b.includes('preview'))
+          || Number(b.includes('flash')) - Number(a.includes('flash'));
+      })
+      .slice(0, MAX_DISCOVERED_MODELS);
+
+    if (ordered.length === 0) {
+      throw new Error('A API não retornou modelos Gemini compatíveis.');
+    }
+    modelCache = { models: ordered, expiresAt: Date.now() + MODEL_CACHE_TTL_MS };
+    return ordered;
+  } catch (error) {
+    if (error.status === 401 || error.status === 403) {
+      throw error;
+    }
+    console.warn('Não foi possível descobrir os modelos Gemini; usando a lista padrão:', error.message);
+    modelCache = {
+      models: DEFAULT_MODELS,
+      expiresAt: Date.now() + FALLBACK_CACHE_TTL_MS,
+    };
+    return DEFAULT_MODELS;
+  }
+}
+
+function createModel(genAI, modelName) {
   return genAI.getGenerativeModel({
-    model: MODEL_NAME,
+    model: modelName,
     systemInstruction: SYSTEM_INSTRUCTION,
     tools: [{ functionDeclarations: toolsDeclaration }],
   });
@@ -82,15 +153,8 @@ function normalizeHistory(history) {
   });
 }
 
-export async function processUserMessage({ message, history = [], userId }) {
-  if (typeof message !== 'string' || !message.trim()) {
-    throw new Error('A mensagem não pode estar vazia.');
-  }
-  if (typeof userId !== 'string' || !userId) {
-    throw new Error('É necessário informar o usuário autenticado.');
-  }
-
-  const model = getModel();
+async function sendWithModel(genAI, modelName, { message, history, userId }, onToolCall) {
+  const model = createModel(genAI, modelName);
   const chat = model.startChat({ history: normalizeHistory(history) });
   let result = await chat.sendMessage(message.trim());
 
@@ -98,7 +162,7 @@ export async function processUserMessage({ message, history = [], userId }) {
     const response = result.response;
     const functionCalls = response.functionCalls() ?? [];
     if (functionCalls.length === 0) {
-      return { reply: response.text() };
+      return response.text();
     }
     if (round === MAX_TOOL_ROUNDS) {
       throw new Error('O assistente excedeu o limite de chamadas de ferramentas nesta mensagem.');
@@ -106,6 +170,7 @@ export async function processUserMessage({ message, history = [], userId }) {
 
     const toolResults = [];
     for (const call of functionCalls) {
+      onToolCall();
       let toolResult;
       try {
         toolResult = await executarFerramenta(call.name, call.args ?? {}, userId);
@@ -124,4 +189,51 @@ export async function processUserMessage({ message, history = [], userId }) {
   }
 
   throw new Error('Não foi possível concluir a conversa com o assistente.');
+}
+
+export async function processUserMessage({ message, history = [], userId }) {
+  if (typeof message !== 'string' || !message.trim()) {
+    throw new Error('A mensagem não pode estar vazia.');
+  }
+  if (typeof userId !== 'string' || !userId) {
+    throw new Error('É necessário informar o usuário autenticado.');
+  }
+
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    throw new Error('A IA não está configurada no servidor (falta a GEMINI_API_KEY).');
+  }
+
+  const genAI = new GoogleGenerativeAI(apiKey);
+  const models = await discoverModels(apiKey);
+  const modelCandidates = [...new Set([modelInUse, ...models].filter(Boolean))];
+  let lastError;
+
+  for (const modelName of modelCandidates) {
+    let toolWasCalled = false;
+    try {
+      const reply = await sendWithModel(
+        genAI,
+        modelName,
+        { message, history, userId },
+        () => { toolWasCalled = true; },
+      );
+      modelInUse = modelName;
+      return { reply };
+    } catch (error) {
+      modelInUse = null;
+      lastError = error;
+      if (error.status === 401 || error.status === 403) {
+        throw error;
+      }
+      if (toolWasCalled) {
+        throw error;
+      }
+      console.warn(`O modelo Gemini ${modelName} falhou; tentando o próximo modelo disponível:`, error.message);
+    }
+  }
+
+  throw new Error(
+    `Nenhum modelo Gemini disponível conseguiu responder. Último erro: ${lastError?.message ?? 'serviço indisponível.'}`,
+  );
 }

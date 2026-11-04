@@ -8,7 +8,7 @@ export const emptyPurchase = (period, defaults = {}) => {
   return {
     description: '', categoryId: '', personId: defaults.personId || '', cardId: defaults.cardId || '',
     observation: '', purchaseDate, total: '', count: '1', startMonth: period.month, startYear: period.year,
-    shared: false, participantIds: [], splitMode: 'equal', values: {},
+    shared: false, isSubscription: false, participantIds: [], splitMode: 'equal', values: {},
   };
 };
 
@@ -17,7 +17,7 @@ export function toForm(p) {
     id: p.id, description: p.description, categoryId: p.categoryId == null ? '' : String(p.categoryId), personId: p.personId == null ? '' : String(p.personId), cardId: p.cardId == null ? '' : String(p.cardId),
     observation: p.observation || '', purchaseDate: p.purchaseDate || '', total: String(p.total).replace('.', ','), count: String(p.count),
     startMonth: p.first?.month || 1, startYear: p.first?.year || new Date().getFullYear(),
-    shared: false, participantIds: [], splitMode: 'equal', values: {},
+    shared: false, isSubscription: Boolean(p.isSubscription), participantIds: [], splitMode: 'equal', values: {},
   };
 }
 
@@ -27,7 +27,7 @@ export function toSharedForm(g) {
     group: g.group, description: g.description, categoryId: g.categoryId == null ? '' : String(g.categoryId), personId: '', cardId: g.cardId == null ? '' : String(g.cardId),
     observation: g.observation || '', purchaseDate: g.purchaseDate || '', total: String(g.total).replace('.', ','), count: String(g.count),
     startMonth: g.first?.month || 1, startYear: g.first?.year || new Date().getFullYear(),
-    shared: true, participantIds: g.participants.map((x) => String(x.personId)),
+    shared: true, isSubscription: false, participantIds: g.participants.map((x) => String(x.personId)),
     // divisão desigual volta como "valor em R$" (exato, sem arredondar porcentagem)
     splitMode: g.splitMode === 'equal' ? 'equal' : 'amount',
     values: Object.fromEntries(g.participants.map((x) => [String(x.personId), String(x.total).replace('.', ',')])),
@@ -59,7 +59,7 @@ export default function PurchaseForm({ value, onClose, onSubmit, lookups }) {
   const count = Number(f.count);
   const editing = Boolean(f.id || f.group);
   const n = f.participantIds.length;
-  const valid = f.description.trim() && (f.shared ? n >= 2 : f.personId) && f.cardId && total > 0 && count >= 1;
+  const valid = f.description.trim() && (f.shared ? n >= 2 : f.personId) && f.cardId && total > 0 && (f.isSubscription || count >= 1);
   const perInstallment = total / count;
   const custom = f.shared && f.splitMode !== 'equal';
   const vals = f.participantIds.map((id) => parseMoney(f.values[id]));
@@ -101,7 +101,7 @@ export default function PurchaseForm({ value, onClose, onSubmit, lookups }) {
     if (!f.purchaseDate) e.purchaseDate = 'Informe a data da compra';
     if (!(total > 0)) e.total = 'Informe um valor maior que zero';
     else if (total > 10_000_000) e.total = 'O valor máximo é R$ 10.000.000,00';
-    if (!(Number.isInteger(count) && count >= 1 && count <= 120)) e.count = 'Informe um número inteiro entre 1 e 120 parcelas';
+    if (!f.isSubscription && !(Number.isInteger(count) && count >= 1 && count <= 120)) e.count = 'Informe um número inteiro entre 1 e 120 parcelas';
     setErrors(e);
     if (Object.keys(e).length) return;
     setBusy(true);
@@ -109,7 +109,8 @@ export default function PurchaseForm({ value, onClose, onSubmit, lookups }) {
       const body = {
         description: f.description.trim(), observation: f.observation.trim(), categoryId: f.categoryId || null,
         cardId: f.cardId, purchaseDate: f.purchaseDate || null,
-        total, count, startMonth: Number(f.startMonth), startYear: Number(f.startYear),
+        total, count: f.isSubscription ? 1 : count, isSubscription: f.isSubscription,
+        startMonth: Number(f.startMonth), startYear: Number(f.startYear),
       };
       await onSubmit(f.shared
         ? { ...body, splitMode: f.splitMode, participants: f.participantIds.map((id, i) => ({ personId: id, ...(custom && { value: vals[i] }) })) }
@@ -129,12 +130,26 @@ export default function PurchaseForm({ value, onClose, onSubmit, lookups }) {
         {!f.shared && <Field label="Pessoa" error={errors.personId}>{(id) => <Select id={id} value={f.personId} onChange={set('personId')} placeholder="Escolha…" options={opt(lookups.people)} />}</Field>}
         <Field label="Cartão" error={errors.cardId}>{(id) => <Select id={id} value={f.cardId} onChange={setCard} placeholder="Escolha…" options={opt(lookups.cards)} />}</Field>
         <Field label="Valor total (R$)" error={errors.total}>{(id) => <input id={id} className="input" inputMode="decimal" value={f.total} onChange={set('total')} placeholder="0,00" />}</Field>
-        <Field label="Parcelas" error={errors.count}>{(id) => <input id={id} className="input" type="number" inputMode="numeric" min="1" max="120" step="1" value={f.count} onChange={set('count')} />}</Field>
+        {!f.isSubscription && <Field label="Parcelas" error={errors.count}>{(id) => <input id={id} className="input" type="number" inputMode="numeric" min="1" max="120" step="1" value={f.count} onChange={set('count')} />}</Field>}
         <Field label="Data da compra" error={errors.purchaseDate} hint="Define a fatura conforme o dia de fechamento do cartão.">{(id) => <input id={id} className="input" type="date" value={f.purchaseDate} onChange={set('purchaseDate')} />}</Field>
         <Field label="Observação" hint="Opcional · até 1.000 caracteres">{(id) => <textarea id={id} className="input" maxLength={1000} value={f.observation} onChange={set('observation')} rows={3} placeholder="Ex.: pagamento combinado, garantia, detalhe da compra" />}</Field>
       </div>
 
-      {!editing && (
+      {!f.shared && (
+        <label className="share-toggle subscription-toggle">
+          <input
+            type="checkbox"
+            checked={f.isSubscription}
+            onChange={(event) => setF((current) => ({
+              ...current,
+              isSubscription: event.target.checked,
+              count: event.target.checked ? '1' : current.count,
+            }))}
+          />
+          <span><strong>🔄 É uma assinatura mensal recorrente?</strong> — streaming, academia etc.</span>
+        </label>
+      )}
+      {!editing && !f.isSubscription && (
         <label className="share-toggle">
           <input type="checkbox" checked={f.shared} onChange={(e) => setF((s) => ({ ...s, shared: e.target.checked, participantIds: e.target.checked ? s.participantIds : [], splitMode: 'equal', values: {} }))} />
           <span><strong>Compra compartilhada</strong> — dividir entre várias pessoas (você escolhe quanto cada uma paga)</span>
@@ -192,7 +207,9 @@ export default function PurchaseForm({ value, onClose, onSubmit, lookups }) {
 
       {valid && (
         <p className="preview">
-          {count}x de <strong>{money(perInstallment)}</strong> · faturas calculadas pela data da compra e fechamento do cartão
+          {f.isSubscription
+            ? <>Cobrança mensal recorrente de <strong>{money(total)}</strong> · entra na fatura conforme o fechamento do cartão.</>
+            : <>{count}x de <strong>{money(perInstallment)}</strong> · faturas calculadas pela data da compra e fechamento do cartão</>}
           {f.shared && n >= 2 && splitOk && (
             <>
               <br />{f.participantIds.map((id, i) => `${lookups.people.find((x) => x.id === id)?.name}: ${exactSplit || custom ? '' : '≈ '}${money(monthlyOf(i))}/mês`).join(' · ')}.

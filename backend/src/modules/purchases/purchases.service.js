@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import mongoose from 'mongoose';
 import { badRequest, conflict, notFound } from '../../lib/errors.js';
 import { round2 } from '../../lib/months.js';
-import { buildSharedInstallments, createCardBilling, generateCardInstallments, generateInstallments, getFirstStatementPeriod, splitWeighted } from '../../lib/cardBilling.js';
+import { buildSharedInstallments, createCardBilling, ensureSubscriptionInstallments, generateCardInstallments, generateInstallments, getFirstStatementPeriod, splitWeighted, subscriptionActiveInPeriod } from '../../lib/cardBilling.js';
 import { Card } from '../../models/Card.js';
 import { Category } from '../../models/Category.js';
 import { Installment } from '../../models/Installment.js';
@@ -59,6 +59,9 @@ export function createPurchasesService() {
       purchaseDate: purchase.purchaseDate,
       total,
       count: purchase.totalInstallments,
+      isSubscription: Boolean(purchase.isSubscription),
+      subscriptionStatus: purchase.subscriptionStatus ?? 'active',
+      canceledAt: purchase.canceledAt ?? null,
       personId: purchase.personId?._id ? String(purchase.personId._id) : String(purchase.personId),
       person: purchase.personId?.name ?? '',
       cardId: purchase.cardId?._id ? String(purchase.cardId._id) : String(purchase.cardId),
@@ -87,6 +90,7 @@ export function createPurchasesService() {
       userId, description: data.description, observation: data.observation ?? '', purchaseDate: data.purchaseDate ?? null,
       categoryId: data.categoryId ?? null, personId: data.personId, cardId: data.cardId,
       totalAmount, totalInstallments: data.count, splitGroupId,
+      isSubscription: Boolean(data.isSubscription),
     }], { session });
     const schedule = await scheduleFor(userId, { ...data, total: totalAmount });
     await Installment.insertMany(schedule.map((item) => {
@@ -94,6 +98,7 @@ export function createPurchasesService() {
       return {
         userId, purchaseId: purchase._id, number: item.number, year: item.year, month: item.month, amount: item.amount,
         paidAmount, paid: paidAmount >= item.amount - 0.005,
+        ...(data.isSubscription && { subscriptionPeriod: `${purchase._id}:${item.year}-${String(item.month).padStart(2, '0')}` }),
       };
     }), { session });
     return purchase;
@@ -150,16 +155,21 @@ export function createPurchasesService() {
 
   return {
     async listInstallments(userId, query) {
+      await ensureSubscriptionInstallments(userId, query.month, query.year);
       const filter = listFor(userId, query);
       const purchases = await populatePurchases(filter, { _id: 1 });
       const purchaseById = new Map(purchases.map((p) => [String(p._id), p]));
       const installments = purchases.length ? await Installment.find({
         userId, purchaseId: { $in: purchases.map((p) => p._id) }, year: query.year, month: query.month,
       }).sort({ number: 1 }).lean() : [];
-      const data = installments.map((item) => {
+      const data = installments.filter((item) => {
+        const purchase = purchaseById.get(String(item.purchaseId));
+        return !purchase?.isSubscription || subscriptionActiveInPeriod(purchase, query.year, query.month);
+      }).map((item) => {
         const p = purchaseById.get(String(item.purchaseId));
         return {
           id: String(item._id), purchaseId: String(p._id), number: item.number, count: p.totalInstallments,
+          isSubscription: Boolean(p.isSubscription),
           purchaseCreatedAt: p.createdAt ?? null, updatedAt: item.updatedAt ?? null,
           purchaseDate: p.purchaseDate,
           purchaseTotal: p.splitGroupId
@@ -175,6 +185,29 @@ export function createPurchasesService() {
         };
       });
       return { data, total: round2(data.reduce((sum, item) => sum + item.amount, 0)) };
+    },
+    async listSubscriptions(userId, query = {}) {
+      const all = await populatePurchases({ userId, isSubscription: true });
+      const active = all.filter((purchase) => purchase.subscriptionStatus !== 'canceled');
+      const filter = listFor(userId, query);
+      filter.isSubscription = true;
+      if (query.status) filter.subscriptionStatus = query.status;
+      const data = await populatePurchases(filter).then((rows) => rows.map((purchase) => ({
+        id: String(purchase._id),
+        description: purchase.description,
+        amount: purchase.totalAmount,
+        person: purchase.personId?.name ?? '',
+        card: purchase.cardId?.name ?? '',
+        subscriptionStatus: purchase.subscriptionStatus ?? 'active',
+        canceledAt: purchase.canceledAt ?? null,
+        createdAt: purchase.createdAt ?? null,
+      })));
+      return {
+        data,
+        activeCount: active.length,
+        canceledCount: all.length - active.length,
+        activeMonthlyTotal: round2(active.reduce((sum, purchase) => sum + purchase.totalAmount, 0)),
+      };
     },
     async list(userId, query) {
       const filter = listFor(userId, query);
@@ -226,7 +259,8 @@ export function createPurchasesService() {
       const period = getFirstStatementPeriod(data.purchaseDate, card, { startYear: data.startYear, startMonth: data.startMonth });
       const scheduleChanged = current.totalAmount !== data.total || current.totalInstallments !== data.count
         || String(current.cardId) !== String(data.cardId) || current.purchaseDate !== (data.purchaseDate ?? null)
-        || first?.year !== period.year || first?.month !== period.month;
+        || first?.year !== period.year || first?.month !== period.month
+        || Boolean(current.isSubscription) !== Boolean(data.isSubscription);
       const session = await mongoose.startSession();
       try {
         await session.withTransaction(async () => {
@@ -235,6 +269,11 @@ export function createPurchasesService() {
               description: data.description, categoryId: data.categoryId ?? null, personId: data.personId,
               cardId: data.cardId, purchaseDate: data.purchaseDate ?? null, totalAmount: data.total,
               totalInstallments: data.count, observation: data.observation ?? current.observation ?? '',
+              isSubscription: Boolean(data.isSubscription),
+              subscriptionStatus: data.isSubscription
+                ? (current.isSubscription ? current.subscriptionStatus : 'active')
+                : 'active',
+              canceledAt: data.isSubscription && current.isSubscription ? current.canceledAt : null,
             },
           }, { session });
           if (scheduleChanged) {
@@ -246,12 +285,38 @@ export function createPurchasesService() {
               return {
                 userId, purchaseId: id, number: item.number, year: item.year, month: item.month,
                 amount: item.amount, paidAmount, paid: paidAmount >= item.amount - 0.005,
+                ...(data.isSubscription && { subscriptionPeriod: `${id}:${item.year}-${String(item.month).padStart(2, '0')}` }),
               };
             }), { session });
           }
         });
       } finally { await session.endSession(); }
       return get(userId, id);
+    },
+    async setSubscriptionStatus(userId, id, status) {
+      const purchase = await Purchase.findOne({ _id: id, userId });
+      if (!purchase) throw notFound('Compra não encontrada');
+      if (!purchase.isSubscription) throw badRequest('Esta compra não é uma assinatura');
+      if (status === 'canceled' && purchase.subscriptionStatus !== 'canceled') {
+        purchase.subscriptionStatus = 'canceled';
+        purchase.canceledAt = new Date();
+        await purchase.save();
+        const canceledPeriod = purchase.canceledAt.getFullYear() * 12 + purchase.canceledAt.getMonth() + 1;
+        await Installment.deleteMany({
+          userId,
+          purchaseId: purchase._id,
+          $expr: { $gt: [{ $add: [{ $multiply: ['$year', 12] }, '$month'] }, canceledPeriod] },
+        });
+      } else if (status === 'active') {
+        purchase.subscriptionStatus = 'active';
+        purchase.canceledAt = null;
+        await purchase.save();
+      }
+      return {
+        id: String(purchase._id),
+        subscriptionStatus: purchase.subscriptionStatus,
+        canceledAt: purchase.canceledAt,
+      };
     },
     async remove(userId, id) {
       const purchase = await Purchase.findOne({ _id: id, userId });

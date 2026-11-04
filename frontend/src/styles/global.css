@@ -629,7 +629,7 @@ select option {
     overflow: hidden;
   }
   .purchases-page .purchase-toolbar .tabs button {
-    flex: 1 1 50%;
+    flex: 1 1 0;
     min-width: 0;
     margin: 0;
     padding: 9px 7px;
@@ -723,7 +723,7 @@ select option {
     padding: 12px;
   }
   .purchases-page .purchase-toolbar > .tabs { grid-column: 1; width: 100%; }
-  .purchases-page .purchase-toolbar > .tabs button { flex: 1 1 50%; min-width: 0; text-align: center; }
+  .purchases-page .purchase-toolbar > .tabs button { flex: 1 1 0; min-width: 0; text-align: center; }
   .purchases-page .purchase-tab-desktop { display: none; }
   .purchases-page .purchase-tab-mobile { display: inline; }
   .purchases-page .purchase-toolbar .purchase-filters {
@@ -791,6 +791,71 @@ select option {
 }
 @media (max-width: 359px) {
   .purchase-advanced-filters { grid-template-columns: 1fr; }
+}
+
+.subscriptions-panel { display: grid; gap: 14px; }
+.subscription-summary {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 18px;
+  border: 1px solid color-mix(in srgb, var(--primary) 30%, var(--line));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--primary-soft) 48%, var(--surface));
+}
+.subscription-summary > div { display: grid; min-width: 0; gap: 4px; }
+.subscription-summary > div > span { color: var(--muted); font-size: 12px; }
+.subscription-summary strong { display: flex; flex-wrap: wrap; align-items: baseline; gap: 5px; font-size: 21px; }
+.subscription-summary strong small { color: var(--muted); font-size: 12px; font-weight: 500; }
+.subscription-summary > svg { width: 25px; height: 25px; flex: 0 0 auto; color: var(--primary); }
+.subscription-status-pills { display: flex; flex-wrap: wrap; gap: 7px; }
+.subscription-status-pills button {
+  min-height: 36px;
+  padding: 7px 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.subscription-status-pills button.is-selected { border-color: var(--primary); background: var(--primary-soft); color: var(--primary); font-weight: 600; }
+.subscription-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: 10px; }
+.subscription-card {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--surface);
+}
+.subscription-card-main { display: grid; min-width: 0; gap: 7px; }
+.subscription-card-main > strong { overflow: hidden; font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
+.subscription-card-details { display: flex; min-width: 0; flex-wrap: wrap; gap: 5px 12px; color: var(--muted); font-size: 11px; }
+.subscription-card-details > span { display: inline-flex; min-width: 0; align-items: center; gap: 5px; }
+.subscription-card-details svg { width: 13px; height: 13px; flex: 0 0 auto; }
+.subscription-card-price { display: grid; justify-items: end; gap: 2px; white-space: nowrap; }
+.subscription-card-price .money { font-size: 16px; }
+.subscription-card-price > span { color: var(--muted); font-size: 10px; }
+.subscription-card > .btn, .subscription-card-status { grid-column: 1 / -1; }
+.subscription-card .subscription-cancel-button { justify-self: end; min-height: 36px; border-color: color-mix(in srgb, var(--neg) 32%, var(--line)); color: var(--neg); }
+.subscription-card-status { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.subscription-canceled-badge { padding: 5px 9px; border-radius: 999px; background: var(--hover); color: var(--muted); font-size: 11px; }
+.subscription-card-status .btn { min-height: 34px; }
+.subscription-card.is-canceled { background: color-mix(in srgb, var(--hover) 48%, var(--surface)); }
+@media (max-width: 767px) {
+  .subscriptions-panel { gap: 12px; }
+  .subscription-summary { padding: 13px; }
+  .subscription-summary strong { font-size: 19px; }
+  .subscription-list { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .subscription-card { padding: 12px; }
+  .subscription-card .subscription-cancel-button { width: 100%; justify-content: center; }
 }
 
 /* ───────── Estados ───────── */

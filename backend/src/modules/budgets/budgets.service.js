@@ -1,6 +1,6 @@
 import { badRequest, notFound } from '../../lib/errors.js';
 import { round2 } from '../../lib/months.js';
-import { getInstallmentBalanceCents } from '../../lib/cardBilling.js';
+import { ensureSubscriptionInstallments, getInstallmentBalanceCents } from '../../lib/cardBilling.js';
 import { SECTIONS, SECTION_KEYS, createDefaultRows } from './budgets.defaults.js';
 import { Person } from '../../models/Person.js';
 import { BudgetSheet } from '../../models/BudgetSheet.js';
@@ -57,6 +57,9 @@ export function createBudgetsService() {
     },
     async getSheet(userId, personId, year, selectedMonth = new Date().getMonth() + 1) {
       const sheet = await ensureBudgetSheet(userId, personId, year);
+      await Promise.all(Array.from({ length: 12 }, (_, index) =>
+        ensureSubscriptionInstallments(userId, index + 1, year, { personId }),
+      ));
       const rows = sheet.rows.slice().sort((a, b) => a.position - b.position || String(a._id).localeCompare(String(b._id)));
       const byRow = new Map(rows.map((row) => [strId(row._id), {
         id: strId(row._id), section: row.section, label: row.label, position: row.position,

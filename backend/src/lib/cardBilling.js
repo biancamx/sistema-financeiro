@@ -8,6 +8,65 @@ import mongoose from 'mongoose';
 const toCents = (value) => Math.round(Number(value || 0) * 100);
 const fromCents = (value) => value / 100;
 
+export function subscriptionActiveInPeriod(purchase, year, month) {
+  if (!purchase.isSubscription) return false;
+  if (purchase.subscriptionStatus !== 'canceled') return true;
+  if (!purchase.canceledAt) return false;
+  const canceledAt = new Date(purchase.canceledAt);
+  if (Number.isNaN(canceledAt.getTime())) return false;
+  return monthIndex(year, month) <= monthIndex(canceledAt.getFullYear(), canceledAt.getMonth() + 1);
+}
+
+export async function ensureSubscriptionInstallments(userId, month, year, filter = {}) {
+  const purchases = await Purchase.find({ userId, isSubscription: true, ...filter })
+    .populate('cardId', 'closingDay closingDayEqual')
+    .lean();
+  const requestedIndex = monthIndex(year, month);
+  const created = [];
+
+  for (const purchase of purchases) {
+    if (!subscriptionActiveInPeriod(purchase, year, month) || !purchase.cardId) continue;
+    const first = await Installment.findOne({ userId, purchaseId: purchase._id, number: 1 })
+      .sort({ year: 1, month: 1 }).lean();
+    if (!first) continue;
+    const startIndex = monthIndex(first.year, first.month);
+    if (requestedIndex < startIndex) continue;
+
+    const subscriptionPeriod = `${purchase._id}:${year}-${String(month).padStart(2, '0')}`;
+    let installment = await Installment.findOne({ userId, subscriptionPeriod }).lean();
+    if (!installment) {
+      installment = await Installment.findOne({ userId, purchaseId: purchase._id, year, month }).lean();
+      if (installment) {
+        await Installment.updateOne(
+          { _id: installment._id, userId },
+          { $set: { subscriptionPeriod } },
+        );
+        installment.subscriptionPeriod = subscriptionPeriod;
+      } else {
+        try {
+          installment = await Installment.create({
+            userId,
+            purchaseId: purchase._id,
+            number: requestedIndex - startIndex + 1,
+            year,
+            month,
+            amount: purchase.totalAmount,
+            paid: false,
+            paidAmount: 0,
+            subscriptionPeriod,
+          });
+        } catch (error) {
+          if (error.code !== 11000) throw error;
+          installment = await Installment.findOne({ userId, subscriptionPeriod }).lean();
+          if (!installment) throw error;
+        }
+      }
+    }
+    created.push(installment);
+  }
+  return created;
+}
+
 export function getInstallmentBalanceCents(amount, paidAmount, paid) {
   if (paid) return 0;
   return Math.max(0, toCents(amount) - Math.max(0, toCents(paidAmount)));
@@ -100,13 +159,22 @@ export function createCardBilling() {
   }
 
   async function invoiceCents(userId, cardId, month, year, personId = null) {
+    await ensureSubscriptionInstallments(userId, month, year, {
+      cardId,
+      ...(personId === null ? {} : { personId }),
+    });
     const purchases = await Purchase.find({
       userId, cardId, ...(personId === null ? {} : { personId }),
-    }).select('_id').lean();
+    }).select('_id isSubscription subscriptionStatus canceledAt').lean();
     const installments = purchases.length ? await Installment.find({
       userId, purchaseId: { $in: purchases.map((purchase) => purchase._id) }, year, month,
     }).lean() : [];
-    return installments.reduce((sum, item) => sum + getInstallmentBalanceCents(item.amount, item.paidAmount, item.paid), 0);
+    const purchaseMap = new Map(purchases.map((purchase) => [String(purchase._id), purchase]));
+    return installments.reduce((sum, item) => {
+      const purchase = purchaseMap.get(String(item.purchaseId));
+      if (purchase?.isSubscription && !subscriptionActiveInPeriod(purchase, year, month)) return sum;
+      return sum + getInstallmentBalanceCents(item.amount, item.paidAmount, item.paid);
+    }, 0);
   }
 
   async function calculateInvoice(userId, cardId, month, year, personId = null) {
@@ -122,16 +190,27 @@ export function createCardBilling() {
   }
 
   async function calculatePersonInvoice(userId, personId, month, year) {
-    const purchases = await Purchase.find({ userId, personId }).select('_id').lean();
+    await ensureSubscriptionInstallments(userId, month, year, { personId });
+    const purchases = await Purchase.find({ userId, personId }).select('_id isSubscription subscriptionStatus canceledAt').lean();
     const installments = purchases.length ? await Installment.find({
       userId, purchaseId: { $in: purchases.map((purchase) => purchase._id) }, year, month,
     }).lean() : [];
-    const cents = installments.reduce((sum, item) => sum + getInstallmentBalanceCents(item.amount, item.paidAmount, item.paid), 0);
+    const purchaseMap = new Map(purchases.map((purchase) => [String(purchase._id), purchase]));
+    const cents = installments.reduce((sum, item) => {
+      const purchase = purchaseMap.get(String(item.purchaseId));
+      if (purchase?.isSubscription && !subscriptionActiveInPeriod(purchase, year, month)) return sum;
+      return sum + getInstallmentBalanceCents(item.amount, item.paidAmount, item.paid);
+    }, 0);
     return fromCents(cents);
   }
 
   async function calculatePersonInvoicesByYear(userId, personId, year) {
-    const purchases = await Purchase.find({ userId, personId }).populate('cardId', 'name').lean();
+    for (let month = 1; month <= 12; month += 1) {
+      await ensureSubscriptionInstallments(userId, month, year, { personId });
+    }
+    const purchases = await Purchase.find({ userId, personId })
+      .select('isSubscription subscriptionStatus canceledAt')
+      .populate('cardId', 'name').lean();
     const installments = purchases.length ? await Installment.find({
       userId, purchaseId: { $in: purchases.map((purchase) => purchase._id) }, year,
     }).lean() : [];
@@ -140,6 +219,7 @@ export function createCardBilling() {
     for (const installment of installments) {
       const purchase = purchaseMap.get(String(installment.purchaseId));
       if (!purchase?.cardId) continue;
+      if (purchase.isSubscription && !subscriptionActiveInPeriod(purchase, year, installment.month)) continue;
       const key = `${purchase.cardId._id}:${installment.month}`;
       const item = byCardMonth.get(key) ?? { id: String(purchase.cardId._id), name: purchase.cardId.name, month: installment.month, cents: 0 };
       item.cents += getInstallmentBalanceCents(installment.amount, installment.paidAmount, installment.paid);
@@ -152,15 +232,35 @@ export function createCardBilling() {
   async function calculateLimit(userId, cardId, referenceDate = new Date()) {
     const card = await ownedCard(userId, cardId);
     const idx = monthIndex(referenceDate.getFullYear(), referenceDate.getMonth() + 1);
-    const purchases = await Purchase.find({ userId, cardId }).select('_id').lean();
+    await ensureSubscriptionInstallments(userId, referenceDate.getMonth() + 1, referenceDate.getFullYear(), { cardId });
+    const purchases = await Purchase.find({ userId, cardId })
+      .select('_id isSubscription subscriptionStatus canceledAt').lean();
     const installments = purchases.length ? await Installment.find({
       userId, purchaseId: { $in: purchases.map((purchase) => purchase._id) },
     }).lean() : [];
-    const cents = installments.reduce((sum, item) => (
-      item.year * 12 + item.month >= idx
-        ? sum + getInstallmentBalanceCents(item.amount, item.paidAmount, item.paid)
-        : sum
-    ), 0);
+    const purchaseMap = new Map(purchases.map((purchase) => [String(purchase._id), purchase]));
+    const nextSubscriptionPeriods = new Map();
+    for (const item of installments) {
+      const purchase = purchaseMap.get(String(item.purchaseId));
+      const periodIndex = monthIndex(item.year, item.month);
+      if (!purchase?.isSubscription || periodIndex < idx
+        || !subscriptionActiveInPeriod(purchase, item.year, item.month)) continue;
+      const previous = nextSubscriptionPeriods.get(String(item.purchaseId));
+      if (!previous || periodIndex < monthIndex(previous.year, previous.month)) {
+        nextSubscriptionPeriods.set(String(item.purchaseId), item);
+      }
+    }
+    const cents = installments.reduce((sum, item) => {
+      const purchase = purchaseMap.get(String(item.purchaseId));
+      const periodIndex = monthIndex(item.year, item.month);
+      if (purchase?.isSubscription) {
+        const next = nextSubscriptionPeriods.get(String(item.purchaseId));
+        if (next?._id.toString() !== item._id.toString()) return sum;
+      } else if (periodIndex < idx) {
+        return sum;
+      }
+      return sum + getInstallmentBalanceCents(item.amount, item.paidAmount, item.paid);
+    }, 0);
     const used = fromCents(cents);
     return {
       used,
@@ -216,13 +316,20 @@ export function createCardBilling() {
 
   async function recordInvoicePayment(userId, cardId, month, year, amount) {
     const card = await ownedCard(userId, cardId);
-    const purchases = await Purchase.find({ userId, cardId }).select('_id').lean();
+    await ensureSubscriptionInstallments(userId, month, year, { cardId });
+    const purchases = await Purchase.find({ userId, cardId })
+      .select('_id isSubscription subscriptionStatus canceledAt').lean();
     const installments = purchases.length ? await Installment.find({
       userId, purchaseId: { $in: purchases.map((purchase) => purchase._id) }, year, month,
       paid: false,
     }).sort({ _id: 1 }).lean() : [];
+    const purchaseMap = new Map(purchases.map((purchase) => [String(purchase._id), purchase]));
+    const chargeableInstallments = installments.filter((item) => {
+      const purchase = purchaseMap.get(String(item.purchaseId));
+      return !purchase?.isSubscription || subscriptionActiveInPeriod(purchase, year, month);
+    });
     let remainingCents = toCents(amount);
-    const invoiceCents = installments.reduce(
+    const invoiceCents = chargeableInstallments.reduce(
       (sum, item) => sum + Math.max(0, toCents(item.amount) - toCents(item.paidAmount)),
       0,
     );
@@ -230,7 +337,7 @@ export function createCardBilling() {
     const session = await mongoose.startSession();
     try {
       await session.withTransaction(async () => {
-        for (const item of installments) {
+        for (const item of chargeableInstallments) {
           if (!remainingCents) break;
           const dueCents = Math.max(0, toCents(item.amount) - toCents(item.paidAmount));
           const paidCents = Math.min(dueCents, remainingCents);
@@ -254,6 +361,7 @@ export function createCardBilling() {
     const purchases = await Purchase.find({ userId, cardId }).session(session).lean();
     const currentIndex = monthIndex(today.getFullYear(), today.getMonth() + 1);
     for (const purchase of purchases) {
+      if (purchase.isSubscription) continue;
       const existing = await Installment.find({ purchaseId: purchase._id }).session(session).sort({ number: 1 }).lean();
       if (!existing.length) continue;
       const fallbackIndex = Math.min(...existing.map((item) => monthIndex(item.year, item.month)));

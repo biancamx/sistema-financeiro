@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ChevronDown, Download, Pencil, Plus, SlidersHorizontal, Trash2, Zap } from 'lucide-react';
+import { Ban, ChevronDown, CreditCard, Download, Pencil, Plus, RotateCcw, SlidersHorizontal, Trash2, Zap } from 'lucide-react';
 import { usePeriod } from '../../context/PeriodContext.jsx';
 import { useToast } from '../../context/ToastContext.jsx';
 import { useFetch } from '../../hooks/useFetch.js';
@@ -16,6 +16,7 @@ export default function PurchasesPage() {
   const toast = useToast();
   const lookups = useLookups();
   const [tab, setTab] = useState('month');
+  const [subscriptionStatus, setSubscriptionStatusFilter] = useState('active');
   const [filters, setFilters] = useState({ personId: '', cardId: '', categoryId: '', search: '' });
   const [page, setPage] = useState(1);
   const [form, setForm] = useState(null);
@@ -29,7 +30,12 @@ export default function PurchasesPage() {
 
   const month = useFetch(() => purchasesApi.installments({ ...q, month: period.month, year: period.year, pageSize: 200 }), [tab, period.month, period.year, q.personId, q.cardId, q.categoryId, search], { enabled: tab === 'month' });
   const all = useFetch(() => purchasesApi.list({ ...q, page, pageSize: 30 }), [tab, page, q.personId, q.cardId, q.categoryId, search], { enabled: tab === 'all' });
-  const active = tab === 'month' ? month : all;
+  const subscriptions = useFetch(
+    () => purchasesApi.subscriptions({ ...q, status: subscriptionStatus }),
+    [tab, q.personId, q.cardId, q.categoryId, search, subscriptionStatus],
+    { enabled: tab === 'subscriptions' },
+  );
+  const active = tab === 'month' ? month : tab === 'all' ? all : subscriptions;
   const reload = () => active.reload();
   const monthRows = month.data?.data ?? [];
   const unpaidRows = monthRows.filter((row) => !row.paid);
@@ -109,9 +115,28 @@ export default function PurchasesPage() {
       setPayingAll(false);
     }
   };
+  const setSubscriptionStatus = async (subscription, status) => {
+    if (status === 'canceled' && !window.confirm(
+      `Cancelar "${subscription.description}"? A cobrança do mês do cancelamento, se prevista, permanece na fatura; as cobranças dos meses seguintes deixam de ser geradas.`,
+    )) return;
+    try {
+      await purchasesApi.setSubscriptionStatus(subscription.id, status);
+      notifyFinanceChanged();
+      toast.success(status === 'canceled' ? 'Assinatura cancelada.' : 'Assinatura reativada.');
+      subscriptions.reload();
+    } catch (error) {
+      toast.error(error);
+    }
+  };
 
   const opt = (l) => l.map((x) => ({ value: x.id, label: x.name }));
   const pages = all.data ? Math.max(1, Math.ceil(all.data.total / all.data.pageSize)) : 1;
+  const canceledDateLabel = (value) => {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime())
+      ? 'data indisponível'
+      : new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(date);
+  };
 
   return (
     <div className="purchases-page">
@@ -131,12 +156,16 @@ export default function PurchasesPage() {
       <div className="toolbar purchase-toolbar">
         <div className="tabs" role="tablist">
           <button role="tab" aria-selected={tab === 'month'} className={tab === 'month' ? 'on' : ''} onClick={() => setTab('month')}>
-            <span className="purchase-tab-desktop">Parcelas de {monthLabel(period.month, period.year)}</span>
+            <span className="purchase-tab-desktop">Parcelas do mês</span>
             <span className="purchase-tab-mobile">Parcelas</span>
           </button>
           <button role="tab" aria-selected={tab === 'all'} className={tab === 'all' ? 'on' : ''} onClick={() => setTab('all')}>
             <span className="purchase-tab-desktop">Todas as compras</span>
             <span className="purchase-tab-mobile">Todas</span>
+          </button>
+          <button role="tab" aria-selected={tab === 'subscriptions'} className={tab === 'subscriptions' ? 'on' : ''} onClick={() => setTab('subscriptions')}>
+            <span className="purchase-tab-desktop">Assinaturas</span>
+            <span className="purchase-tab-mobile">Assinaturas</span>
           </button>
         </div>
         <div className="filters purchase-filters">
@@ -232,7 +261,7 @@ export default function PurchasesPage() {
                       <td><input type="checkbox" checked={selectedInstallments.includes(r.id)} onChange={() => toggleSelected(r.id)} aria-label={`Selecionar parcela de ${r.description}`} /></td>
                       <td><input type="checkbox" checked={r.paid} onChange={() => togglePaid(r)} aria-label={`Marcar ${r.description} como paga`} /></td>
                       <td>
-                        {r.description}{r.sharedGroup && <span className="tag" title="Compra dividida entre várias pessoas">Compartilhada</span>}
+                        {r.description}{r.isSubscription && <span className="tag">Assinatura</span>}{r.sharedGroup && <span className="tag" title="Compra dividida entre várias pessoas">Compartilhada</span>}
                         {r.vehicleExpenseId && <span className="tag" title="Edite este gasto pela Gestão de Veículos">Veículo</span>}
                         <div className="muted small">Compra registrada: {dateTimeLabel(r.purchaseCreatedAt)} · Parcela atualizada: {dateTimeLabel(r.updatedAt)}</div>
                         {r.sharedWith && <div className="muted small">Dividida com {r.sharedWith}</div>}
@@ -240,7 +269,7 @@ export default function PurchasesPage() {
                       <td className="muted">{r.category || '—'}</td>
                       <td>{r.person}</td>
                       <td>{r.card}</td>
-                      <td>{r.number}/{r.count}</td>
+                      <td>{r.isSubscription ? 'Mensal' : `${r.number}/${r.count}`}</td>
                       <td className="num"><Money value={r.amount} /></td>
                       <td className="row-actions">
                         <div className="purchase-icon-actions">
@@ -265,12 +294,13 @@ export default function PurchasesPage() {
                       <div className="mobile-record-title">
                         <strong>{r.description}</strong>
                         <span className={`purchase-status ${r.paid ? 'is-paid' : 'is-pending'}`}>{r.paid ? 'Pago' : 'Pendente'}</span>
+                        {r.isSubscription && <span className="tag tag-flush">Assinatura</span>}
                         {r.sharedGroup && <span className="tag tag-flush">Compartilhada</span>}
                         {r.vehicleExpenseId && <span className="tag tag-flush">Veículo</span>}
                       </div>
                     </div>
                     <div className="purchase-mobile-amounts">
-                      <div><span className="muted small">Parcela {r.number}/{r.count}</span><Money value={r.amount} strong /></div>
+                      <div><span className="muted small">{r.isSubscription ? 'Mensalidade' : `Parcela ${r.number}/${r.count}`}</span><Money value={r.amount} strong /></div>
                       <div><span className="muted small">Total da compra</span><Money value={r.purchaseTotal} /></div>
                     </div>
                     <div className="mobile-record-details">
@@ -314,7 +344,7 @@ export default function PurchasesPage() {
                     {all.data.data.map((p) => (
                       <tr key={p.id}>
                         <td>
-                          {p.description}{p.shared && <span className="tag" title="Compra dividida entre várias pessoas">Compartilhada</span>}
+                          {p.description}{p.isSubscription && <span className="tag">Assinatura</span>}{p.shared && <span className="tag" title="Compra dividida entre várias pessoas">Compartilhada</span>}
                           {p.vehicleExpenseId && <span className="tag" title="Edite este gasto pela Gestão de Veículos">Veículo</span>}
                           {p.category && <div className="muted small">{p.category}</div>}
                           <div className="muted small">Registrada: {dateTimeLabel(p.createdAt)} · Atualizada: {dateTimeLabel(p.updatedAt)}</div>
@@ -323,8 +353,8 @@ export default function PurchasesPage() {
                         <td>{p.person}</td>
                         <td>{p.card}</td>
                         <td className="num"><Money value={p.total} /></td>
-                        <td>{p.count}x <span className="muted">de</span> <Money value={p.perInstallment} /></td>
-                        <td className="muted">{p.first ? `${MONTHS_SHORT[p.first.month - 1]}/${p.first.year} → ${MONTHS_SHORT[p.last.month - 1]}/${p.last.year}` : '—'}</td>
+                        <td>{p.isSubscription ? <>Mensal · <Money value={p.total} /></> : <>{p.count}x <span className="muted">de</span> <Money value={p.perInstallment} /></>}</td>
+                        <td className="muted">{p.isSubscription ? 'Recorrente' : p.first ? `${MONTHS_SHORT[p.first.month - 1]}/${p.first.year} → ${MONTHS_SHORT[p.last.month - 1]}/${p.last.year}` : '—'}</td>
                         <td className="row-actions">
                           <div className="purchase-icon-actions">
                             <Button className="purchase-icon-action" variant="ghost" title="Editar" aria-label={`Editar ${p.description}`} disabled={Boolean(p.vehicleExpenseId)} onClick={() => openEdit(p.id, p.sharedGroup)}>
@@ -346,6 +376,7 @@ export default function PurchasesPage() {
                     <div className="mobile-record-heading">
                       <div className="mobile-record-title">
                         <strong>{p.description}</strong>
+                        {p.isSubscription && <span className="tag tag-flush">Assinatura</span>}
                         {p.shared && <span className="tag tag-flush">Compartilhada</span>}
                         {p.vehicleExpenseId && <span className="tag tag-flush">Veículo</span>}
                       </div>
@@ -355,8 +386,9 @@ export default function PurchasesPage() {
                       </div>
                     </div>
                     <p className="muted small">
-                      {p.count}x de <Money value={p.perInstallment} />
-                      {p.first && <> · {MONTHS_SHORT[p.first.month - 1]}/{p.first.year} – {MONTHS_SHORT[p.last.month - 1]}/{p.last.year}</>}
+                      {p.isSubscription
+                        ? <>Cobrança recorrente de <Money value={p.total} />/mês</>
+                        : <>{p.count}x de <Money value={p.perInstallment} />{p.first && <> · {MONTHS_SHORT[p.first.month - 1]}/{p.first.year} – {MONTHS_SHORT[p.last.month - 1]}/{p.last.year}</>}</>}
                     </p>
                     <div className="mobile-record-details">
                       {p.category && <span>{p.category}</span>}
@@ -385,6 +417,73 @@ export default function PurchasesPage() {
               </div>
             </>
           )
+        )}
+
+        {tab === 'subscriptions' && subscriptions.data && (
+          <section className="subscriptions-panel">
+            <div className="subscription-summary">
+              <div>
+                <span>Total em assinaturas ativas</span>
+                <strong><Money value={subscriptions.data.activeMonthlyTotal} /> <small>/mês</small></strong>
+              </div>
+              <CreditCard aria-hidden="true" />
+            </div>
+            <div className="subscription-status-pills" role="tablist" aria-label="Filtrar assinaturas">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={subscriptionStatus === 'active'}
+                className={subscriptionStatus === 'active' ? 'is-selected' : ''}
+                onClick={() => setSubscriptionStatusFilter('active')}
+              >
+                Ativas ({subscriptions.data.activeCount})
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={subscriptionStatus === 'canceled'}
+                className={subscriptionStatus === 'canceled' ? 'is-selected' : ''}
+                onClick={() => setSubscriptionStatusFilter('canceled')}
+              >
+                Canceladas ({subscriptions.data.canceledCount})
+              </button>
+            </div>
+            {subscriptions.data.data.length === 0 ? (
+              <EmptyState title={subscriptionStatus === 'active' ? 'Nenhuma assinatura ativa' : 'Nenhuma assinatura cancelada'}>
+                {subscriptionStatus === 'active' ? 'Marque uma compra recorrente ao cadastrar para gerenciá-la aqui.' : 'Assinaturas canceladas aparecerão nesta lista.'}
+              </EmptyState>
+            ) : (
+              <div className="subscription-list">
+                {subscriptions.data.data.map((subscription) => (
+                  <article className={`subscription-card${subscription.subscriptionStatus === 'canceled' ? ' is-canceled' : ''}`} key={subscription.id}>
+                    <div className="subscription-card-main">
+                      <strong>{subscription.description}</strong>
+                      <div className="subscription-card-details">
+                        <span><CreditCard aria-hidden="true" /> {subscription.card}</span>
+                        <span>{subscription.person}</span>
+                      </div>
+                    </div>
+                    <div className="subscription-card-price">
+                      <Money value={subscription.amount} strong />
+                      <span>/mês</span>
+                    </div>
+                    {subscription.subscriptionStatus === 'canceled' ? (
+                      <div className="subscription-card-status">
+                        <span className="subscription-canceled-badge">Cancelada em {canceledDateLabel(subscription.canceledAt)}</span>
+                        <Button variant="ghost" onClick={() => setSubscriptionStatus(subscription, 'active')}>
+                          <RotateCcw size={15} aria-hidden="true" /> Reativar
+                        </Button>
+                      </div>
+                    ) : (
+                      <Button className="subscription-cancel-button" variant="ghost" onClick={() => setSubscriptionStatus(subscription, 'canceled')}>
+                        <Ban size={15} aria-hidden="true" /> Cancelar assinatura
+                      </Button>
+                    )}
+                  </article>
+                ))}
+              </div>
+            )}
+          </section>
         )}
       </Card>
 

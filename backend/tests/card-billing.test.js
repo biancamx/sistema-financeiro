@@ -4,6 +4,7 @@ import {
   generateCardInstallments,
   getFirstStatementPeriod,
   getInvoiceDueDate,
+  subscriptionActiveInPeriod,
 } from '../src/lib/cardBilling.js';
 
 const card = { closingDay: 22, dueDay: 5, closingDayEqual: 'next' };
@@ -45,4 +46,17 @@ test('dia de fechamento é configurável com padrão na próxima fatura; vencime
     startMonth: 10, startYear: 2026,
   }), { year: 2026, month: 10 });
   assert.equal(getInvoiceDueDate({ closingDay: 22, dueDay: 31 }, 2025, 2), '2025-02-28');
+});
+
+test('assinaturas canceladas permanecem na fatura do mês do cancelamento e param no mês seguinte', () => {
+  const purchase = {
+    isSubscription: true,
+    subscriptionStatus: 'canceled',
+    canceledAt: new Date('2026-11-04T12:00:00Z'),
+  };
+  assert.equal(subscriptionActiveInPeriod(purchase, 2026, 11), true);
+  assert.equal(subscriptionActiveInPeriod(purchase, 2026, 10), true);
+  assert.equal(subscriptionActiveInPeriod(purchase, 2026, 12), false);
+  assert.equal(subscriptionActiveInPeriod({ ...purchase, subscriptionStatus: 'active' }, 2030, 1), true);
+  assert.equal(subscriptionActiveInPeriod({ ...purchase, isSubscription: false }, 2026, 11), false);
 });

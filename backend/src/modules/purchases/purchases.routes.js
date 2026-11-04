@@ -20,11 +20,12 @@ const listQuery = z.object({
   pageSize: z.coerce.number().int().min(1).max(200).default(30),
 });
 const monthQuery = listQuery.extend({ month, year });
+const subscriptionQuery = listQuery.extend({ status: z.enum(['active', 'canceled']).optional() });
 const installmentIds = z.object({
   ids: z.array(id).min(1).max(5000).refine((ids) => new Set(ids).size === ids.length, 'Parcelas repetidas'),
 });
 
-const purchaseBody = z.object({
+const purchaseBodyBase = z.object({
   description: z.string().trim().min(1).max(120),
   categoryId: z.union([z.null(), id]).optional(),
   observation: z.string().max(1000).optional(),
@@ -35,12 +36,18 @@ const purchaseBody = z.object({
   count: z.coerce.number().int().min(1).max(120),
   startMonth: month,
   startYear: year,
+  isSubscription: z.boolean().default(false),
+});
+const purchaseBody = purchaseBodyBase.superRefine((body, ctx) => {
+  if (body.isSubscription && body.count !== 1) {
+    ctx.addIssue({ code: 'custom', message: 'Uma assinatura deve ser cadastrada como recorrência mensal.', path: ['count'] });
+  }
 });
 
 // Compra dividida. Participantes: `participants: [{ personId, value }]` (value = % ou R$ do total, conforme splitMode)
 // ou, para partes iguais, só `participantIds: [..]`.
-const sharedBody = purchaseBody
-  .omit({ personId: true })
+const sharedBody = purchaseBodyBase
+  .omit({ personId: true, isSubscription: true })
   .extend({
     splitMode: z.enum(['equal', 'percent', 'amount']).default('equal'),
     participantIds: z.array(id).max(20).optional(),
@@ -64,6 +71,9 @@ export function purchasesRoutes() {
   const svc = createPurchasesService();
 
   r.get('/installments', validate({ query: monthQuery }), asyncHandler(async (req, res) => res.json(await svc.listInstallments(req.user._id, req.query))));
+  r.get('/subscriptions', validate({ query: subscriptionQuery }), asyncHandler(async (req, res) =>
+    res.json(await svc.listSubscriptions(req.user._id, req.query)),
+  ));
   r.get('/export.csv', asyncHandler(async (req, res) => {
     res.set('Content-Type', 'text/csv; charset=utf-8').set('Content-Disposition', 'attachment; filename="lancamentos.csv"');
     res.send('\uFEFF' + await svc.exportCsv(req.user._id));
@@ -81,6 +91,12 @@ export function purchasesRoutes() {
     params: z.object({ id }),
     body: z.object({ observation: z.string().max(1000) }),
   }), asyncHandler(async (req, res) => res.json({ data: await svc.updateObservation(req.user._id, req.params.id, req.body.observation) })));
+  r.patch('/:id/subscription-status', validate({
+    params: z.object({ id }),
+    body: z.object({ status: z.enum(['active', 'canceled']) }),
+  }), asyncHandler(async (req, res) => res.json({
+    data: await svc.setSubscriptionStatus(req.user._id, req.params.id, req.body.status),
+  })));
 
   // Compras compartilhadas (um grupo = uma compra dividida entre várias pessoas)
   r.post('/shared', validate({ body: sharedBody }), asyncHandler(async (req, res) => res.status(201).json({ data: await svc.createShared(req.user._id, req.body) })));

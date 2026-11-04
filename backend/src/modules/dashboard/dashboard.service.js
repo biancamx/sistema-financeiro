@@ -1,6 +1,6 @@
 import { monthIndex, round2 } from '../../lib/months.js';
 import { badRequest } from '../../lib/errors.js';
-import { createCardBilling, getInstallmentBalanceCents, getInvoiceDueDate } from '../../lib/cardBilling.js';
+import { createCardBilling, ensureSubscriptionInstallments, getInstallmentBalanceCents, getInvoiceDueDate, subscriptionActiveInPeriod } from '../../lib/cardBilling.js';
 import { createBudgetsService } from '../budgets/budgets.service.js';
 import { createCashLedgerService } from '../cashLedger/cashLedger.service.js';
 import { BudgetSheet } from '../../models/BudgetSheet.js';
@@ -19,13 +19,16 @@ export function createDashboardService() {
     async summary(userId, { month, year, personId }) {
       const idx = monthIndex(year, month);
       const sum = (rows) => round2(rows.reduce((total, row) => total + row.amount, 0));
+      await Promise.all(Array.from({ length: 12 }, (_, index) => (
+        ensureSubscriptionInstallments(userId, index + 1, year)
+      )));
       const [cardDocs, cash, peopleDocs, purchases, installments] = await Promise.all([
         Card.find({ userId })
           .select('name limit issuer brand lastDigits color ownerId dueDay closingDay closingDayEqual')
           .populate('ownerId', 'name').sort({ name: 1 }).lean(),
         cashLedger.summary(userId, month, year),
         Person.find({ userId }).select('name').sort({ name: 1 }).lean(),
-        Purchase.find({ userId }).select('_id personId cardId categoryId').lean(),
+        Purchase.find({ userId }).select('_id personId cardId categoryId isSubscription subscriptionStatus canceledAt').lean(),
         Installment.find({ userId }).select('purchaseId year month amount paidAmount paid').lean(),
       ]);
       const purchaseMap = new Map(purchases.map((purchase) => [String(purchase._id), purchase]));
@@ -43,12 +46,16 @@ export function createDashboardService() {
         const remainingCents = getInstallmentBalanceCents(installment.amount, installment.paidAmount, installment.paid);
         const periodIndex = installment.year * 12 + installment.month;
         const cardKey = String(purchase.cardId);
+        const subscription = Boolean(purchase.isSubscription);
+        if (subscription && !subscriptionActiveInPeriod(purchase, installment.year, installment.month)) continue;
+        if (subscription && installment.year !== year) continue;
         if (installment.year === year && installment.month === month) {
           invoiceByCard.set(cardKey, (invoiceByCard.get(cardKey) ?? 0) + remainingCents);
           const personCardKey = `${purchase.personId}:${cardKey}`;
           invoiceByPersonCard.set(personCardKey, (invoiceByPersonCard.get(personCardKey) ?? 0) + remainingCents);
         }
-        if (periodIndex >= currentIndex) {
+        if ((!subscription && periodIndex >= currentIndex)
+          || (subscription && periodIndex === currentIndex)) {
           usedByCard.set(cardKey, (usedByCard.get(cardKey) ?? 0) + remainingCents);
         }
         if (installment.year === year) seriesByMonth[installment.month - 1] += installment.amount;
@@ -59,9 +66,12 @@ export function createDashboardService() {
         const personKey = String(purchase.personId);
         const data = byPersonInstallments.get(personKey) ?? { month: 0, owed: 0, lastIndex: 0 };
         const remaining = remainingCents / 100;
-        if (installment.year === year && installment.month === month) data.month += remaining;
-        if (installment.year * 12 + installment.month >= idx) data.owed += remaining;
-        data.lastIndex = Math.max(data.lastIndex, installment.year * 12 + installment.month);
+        if (installment.year === year && installment.month === month) {
+          data.month += remaining;
+          if (subscription) data.owed += remaining;
+        }
+        if (!subscription && installment.year * 12 + installment.month >= idx) data.owed += remaining;
+        if (!subscription) data.lastIndex = Math.max(data.lastIndex, installment.year * 12 + installment.month);
         byPersonInstallments.set(personKey, data);
       }
       const people = peopleDocs.map((person) => {

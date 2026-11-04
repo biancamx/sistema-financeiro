@@ -10,11 +10,16 @@ const installmentSchema = new mongoose.Schema(
     amount: { type: Number, required: true },
     paid: { type: Boolean, default: false },
     paidAmount: { type: Number, default: 0, min: 0 },
+    subscriptionPeriod: { type: String, default: undefined },
   },
   { timestamps: true }
 );
 
 installmentSchema.index({ userId: 1, year: 1, month: 1 });
 installmentSchema.index({ userId: 1, purchaseId: 1, number: 1 });
+installmentSchema.index(
+  { userId: 1, subscriptionPeriod: 1 },
+  { unique: true, partialFilterExpression: { subscriptionPeriod: { $type: 'string' } } },
+);
 
 export const Installment = mongoose.model('Installment', installmentSchema);

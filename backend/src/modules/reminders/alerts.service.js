@@ -1,5 +1,5 @@
 import { SECTIONS } from '../budgets/budgets.defaults.js';
-import { getInvoiceDueDate, getInstallmentBalanceCents } from '../../lib/cardBilling.js';
+import { ensureSubscriptionInstallments, getInvoiceDueDate, getInstallmentBalanceCents } from '../../lib/cardBilling.js';
 import { BudgetSheet } from '../../models/BudgetSheet.js';
 import { Installment } from '../../models/Installment.js';
 import { MonthStatus } from '../../models/MonthStatus.js';
@@ -15,10 +15,21 @@ async function getSystemAlerts(userId, today = new Date()) {
   const currentMonth = today.getMonth() + 1;
   const currentYear = today.getFullYear();
   const alerts = [];
-  const [purchases, installments] = await Promise.all([
-    Purchase.find({ userId }).populate('cardId', 'name dueDay closingDay closingDayEqual').populate('personId', 'name').lean(),
-    Installment.find({ userId, $or: [{ year: { $lt: currentYear } }, { year: currentYear, month: { $lte: currentMonth } }], paid: false }).lean(),
+  const purchases = await Purchase.find({ userId })
+    .populate('cardId', 'name dueDay closingDay closingDayEqual')
+    .populate('personId', 'name')
+    .lean();
+  const previousMonth = currentMonth === 1 ? 12 : currentMonth - 1;
+  const previousYear = currentMonth === 1 ? currentYear - 1 : currentYear;
+  await Promise.all([
+    ensureSubscriptionInstallments(userId, previousMonth, previousYear),
+    ensureSubscriptionInstallments(userId, currentMonth, currentYear),
   ]);
+  const installments = await Installment.find({
+    userId,
+    $or: [{ year: { $lt: currentYear } }, { year: currentYear, month: { $lte: currentMonth } }],
+    paid: false,
+  }).lean();
   const purchaseMap = new Map(purchases.map((purchase) => [String(purchase._id), purchase]));
   const cardInvoices = new Map();
   for (const installment of installments) {

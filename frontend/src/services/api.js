@@ -26,6 +26,8 @@ export const assistantApi = {
 
 export const purchasesApi = {
   installments: (q) => get('/purchases/installments', q),
+  subscriptions: (q) => get('/purchases/subscriptions', q),
+  setSubscriptionStatus: (id, status) => patch(`/purchases/${id}/subscription-status`, { status }),
   list: (q) => get('/purchases', q),
   get: (id) => get(`/purchases/${id}`).then((r) => r.data),
   create: (b) => post('/purchases', b),

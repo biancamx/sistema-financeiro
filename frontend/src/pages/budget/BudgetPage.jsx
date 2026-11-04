@@ -196,6 +196,7 @@ export default function BudgetPage() {
           </section>
 
           <Card className="sheet-card">
+            <p className="sheet-scroll-hint">Deslize a planilha para os lados para ver todos os meses e valores.</p>
             <div className="table-wrap sheet-scroll">
               <table className="sheet sheet-fluid">
                 <colgroup>

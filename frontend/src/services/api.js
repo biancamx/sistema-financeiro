@@ -20,6 +20,9 @@ export const dashboardApi = {
   overview: (q) => get('/dashboard/person-overview', q).then((r) => r.data),
   setStatus: (b) => put('/dashboard/status', b),
 };
+export const assistantApi = {
+  chat: (body) => post('/assistant/chat', body),
+};
 
 export const purchasesApi = {
   installments: (q) => get('/purchases/installments', q),

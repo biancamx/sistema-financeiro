@@ -30,6 +30,7 @@ import { preloadRoute, routePaths } from '../../app/routeLoaders.js';
 import { remindersApi } from '../../services/api.js';
 import { useAppBusy } from '../../context/BusyContext.jsx';
 import { startTour } from '../../lib/tour.js';
+import AssistantWidget from '../AssistantWidget.jsx';
 
 const NAV = [
   { title: 'Finanças', items: [
@@ -451,6 +452,7 @@ export default function AppLayout() {
           ))}
         </div>
       </nav>
+      <AssistantWidget />
     </div>
   );
 }

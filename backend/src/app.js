@@ -25,6 +25,7 @@ import { portalRoutes } from './modules/portal/portal.routes.js';
 import { importRoutes } from './modules/import/import.routes.js';
 import { cashLedgerRoutes } from './modules/cashLedger/cashLedger.routes.js';
 import { adminRoutes } from './modules/admin/admin.routes.js';
+import { assistantRoutes } from './modules/assistant/assistant.routes.js';
 
 const frontendDist = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../frontend/dist');
 
@@ -61,6 +62,7 @@ export function createApp() {
   api.use(requireAuth());
   api.use(requireActiveAccount());
   api.use(cacheControl);
+  api.use('/assistant', assistantRoutes());
   api.use('/admin', adminRoutes());
   api.use('/purchases', purchasesRoutes());
   api.use('/dashboard', dashboardRoutes());

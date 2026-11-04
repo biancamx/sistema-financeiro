@@ -9,6 +9,21 @@ export default function GoogleButton({ clientId, onError }) {
   const box = useRef(null);
   useEffect(() => {
     let cancelled = false;
+    let renderedWidth = 0;
+    const renderButton = () => {
+      if (cancelled || !window.google?.accounts?.id || !box.current) return;
+      const availableWidth = Math.floor(box.current.getBoundingClientRect().width);
+      if (!availableWidth || availableWidth === renderedWidth) return;
+      renderedWidth = availableWidth;
+      box.current.replaceChildren();
+      window.google.accounts.id.renderButton(box.current, {
+        theme: 'outline',
+        size: 'large',
+        text: 'signin_with',
+        locale: 'pt-BR',
+        width: Math.min(400, availableWidth),
+      });
+    };
     const init = () => {
       if (cancelled || !window.google?.accounts?.id) return;
       const loginUri = new URL(apiUrl('/auth/google/callback'), window.location.origin).toString();
@@ -17,8 +32,10 @@ export default function GoogleButton({ clientId, onError }) {
         ux_mode: 'redirect',
         login_uri: loginUri,
       });
-      window.google.accounts.id.renderButton(box.current, { theme: 'outline', size: 'large', text: 'signin_with', locale: 'pt-BR', width: 320 });
+      renderButton();
     };
+    const observer = new ResizeObserver(renderButton);
+    if (box.current) observer.observe(box.current);
     if (window.google?.accounts?.id) init();
     else {
       const s = document.createElement('script');
@@ -28,7 +45,10 @@ export default function GoogleButton({ clientId, onError }) {
       s.onerror = () => onError?.(new Error('Não foi possível carregar o login do Google'));
       document.head.appendChild(s);
     }
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      observer.disconnect();
+    };
   }, [clientId, onError]);
   return <div ref={box} className="google-slot" />;
 }

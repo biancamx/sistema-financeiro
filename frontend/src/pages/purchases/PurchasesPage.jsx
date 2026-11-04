@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ChevronDown, Download, Plus, SlidersHorizontal, Zap } from 'lucide-react';
+import { ChevronDown, Download, Pencil, Plus, SlidersHorizontal, Trash2, Zap } from 'lucide-react';
 import { usePeriod } from '../../context/PeriodContext.jsx';
 import { useToast } from '../../context/ToastContext.jsx';
 import { useFetch } from '../../hooks/useFetch.js';
@@ -273,8 +273,14 @@ export default function PurchasesPage() {
                       <Button variant={r.paid ? 'ghost' : 'primary'} onClick={() => togglePaid(r)}>
                         {r.paid ? 'Desmarcar paga' : 'Marcar como paga'}
                       </Button>
-                      <Button variant="ghost" onClick={() => openEdit(r.purchaseId, r.sharedGroup)} disabled={Boolean(r.vehicleExpenseId)}>Editar</Button>
-                      <Button variant="ghost" onClick={() => remove({ id: r.purchaseId, description: r.description, sharedGroup: r.sharedGroup })} disabled={Boolean(r.vehicleExpenseId)}>Excluir</Button>
+                      <div className="purchase-icon-actions">
+                        <Button className="purchase-icon-action" variant="ghost" title="Editar" aria-label={`Editar ${r.description}`} onClick={() => openEdit(r.purchaseId, r.sharedGroup)} disabled={Boolean(r.vehicleExpenseId)}>
+                          <Pencil size={17} aria-hidden="true" />
+                        </Button>
+                        <Button className="purchase-icon-action is-destructive" variant="ghost" title="Excluir" aria-label={`Excluir ${r.description}`} onClick={() => remove({ id: r.purchaseId, description: r.description, sharedGroup: r.sharedGroup })} disabled={Boolean(r.vehicleExpenseId)}>
+                          <Trash2 size={17} aria-hidden="true" />
+                        </Button>
+                      </div>
                     </div>
                   </article>
                 ))}
@@ -335,8 +341,14 @@ export default function PurchasesPage() {
                       {p.shared && filters.personId && <span>Parte de {p.person}</span>}
                     </div>
                     <div className="mobile-record-actions">
-                      <Button variant="ghost" onClick={() => openEdit(p.id, p.sharedGroup)} disabled={Boolean(p.vehicleExpenseId)}>Editar</Button>
-                      <Button variant="ghost" onClick={() => remove(p)} disabled={Boolean(p.vehicleExpenseId)}>Excluir</Button>
+                      <div className="purchase-icon-actions">
+                        <Button className="purchase-icon-action" variant="ghost" title="Editar" aria-label={`Editar ${p.description}`} onClick={() => openEdit(p.id, p.sharedGroup)} disabled={Boolean(p.vehicleExpenseId)}>
+                          <Pencil size={17} aria-hidden="true" />
+                        </Button>
+                        <Button className="purchase-icon-action is-destructive" variant="ghost" title="Excluir" aria-label={`Excluir ${p.description}`} onClick={() => remove(p)} disabled={Boolean(p.vehicleExpenseId)}>
+                          <Trash2 size={17} aria-hidden="true" />
+                        </Button>
+                      </div>
                     </div>
                   </article>
                 ))}

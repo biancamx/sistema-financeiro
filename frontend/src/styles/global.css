@@ -569,8 +569,8 @@ select option {
   .purchases-page .tabs button { flex: 1 1 50%; min-width: 0; padding: 8px 5px; font-size: 12px; }
   .purchase-filters { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; width: 100%; }
   .purchase-filters .purchase-search { width: 100%; min-width: 0; min-height: 44px; }
-  .purchase-filter-toggle { display: flex; width: 100%; min-height: 40px; padding: 8px 11px; color: var(--text-secondary); font-size: 13px; }
-  .purchase-filter-toggle span { flex: 1; text-align: left; }
+  .purchase-filter-toggle { display: inline-flex; justify-self: start; width: auto; min-height: 36px; justify-content: flex-start; padding: 7px 10px; color: var(--text-secondary); font-size: 13px; }
+  .purchase-filter-toggle span { flex: 0 0 auto; text-align: left; }
   .purchase-filter-toggle svg:last-child, .purchase-bulk-toggle svg:last-child { transition: transform .18s ease; }
   .purchase-filter-toggle[aria-expanded="true"] svg:last-child,
   .purchase-bulk-panel.is-open .purchase-bulk-toggle svg:last-child { transform: rotate(180deg); }
@@ -601,6 +601,19 @@ select option {
   .purchase-mobile-card .mobile-record-actions { gap: 7px; }
   .purchase-mobile-card .mobile-record-actions > .btn { min-height: 40px; border-radius: 9px; }
   .purchase-mobile-card .mobile-record-check { min-height: 40px; }
+  .purchase-mobile-card .purchase-icon-actions { display: flex; flex: 0 0 auto; gap: 6px; margin-left: auto; }
+  .purchase-mobile-card .purchase-icon-action.btn {
+    display: inline-flex;
+    flex: 0 0 40px;
+    width: 40px;
+    min-width: 40px;
+    height: 40px;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    color: var(--text-secondary);
+  }
+  .purchase-mobile-card .purchase-icon-action.is-destructive { color: var(--neg); }
 }
 
 /* ───────── Estados ───────── */

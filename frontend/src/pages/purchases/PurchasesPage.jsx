@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Ban, ChevronDown, CreditCard, Download, Pencil, Plus, RotateCcw, SlidersHorizontal, Trash2, Zap } from 'lucide-react';
+import { Ban, ChevronDown, CreditCard, Download, Pencil, Plus, RotateCcw, SlidersHorizontal, Trash2, Users, Zap } from 'lucide-react';
 import { usePeriod } from '../../context/PeriodContext.jsx';
 import { useToast } from '../../context/ToastContext.jsx';
 import { useFetch } from '../../hooks/useFetch.js';
@@ -131,6 +131,74 @@ export default function PurchasesPage() {
 
   const opt = (l) => l.map((x) => ({ value: x.id, label: x.name }));
   const pages = all.data ? Math.max(1, Math.ceil(all.data.total / all.data.pageSize)) : 1;
+  const parseSharedNames = (person, sharedWith) => {
+    const names = [...new Set([
+      ...(typeof person === 'string' ? person.split(',').map((name) => name.trim()).filter(Boolean) : []),
+      ...(typeof sharedWith === 'string' ? sharedWith.split(',').map((name) => name.trim()).filter(Boolean) : []),
+    ])];
+    return names;
+  };
+  const SharedPeopleBadge = ({ person, sharedWith }) => {
+    const names = parseSharedNames(person, sharedWith);
+    const [open, setOpen] = useState(false);
+    if (names.length <= 1) return <span>{names[0] || person || '—'}</span>;
+    return (
+      <span style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', gap: 6, maxWidth: '100%' }}>
+        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{names[0]}</span>
+        <button
+          type="button"
+          aria-label={`Ver participantes da compra compartilhada: ${names.join(', ')}`}
+          onMouseEnter={() => setOpen(true)}
+          onMouseLeave={() => setOpen(false)}
+          onFocus={() => setOpen(true)}
+          onBlur={() => setOpen(false)}
+          onClick={() => setOpen((current) => !current)}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 3,
+            minWidth: 28,
+            height: 22,
+            borderRadius: 999,
+            border: '1px solid var(--border-color)',
+            background: 'var(--bg-surface-alt, #f6f7fb)',
+            color: 'var(--text-primary, #111827)',
+            cursor: 'pointer',
+            padding: '0 6px',
+            flexShrink: 0,
+          }}
+        >
+          <Users size={12} aria-hidden="true" />
+          {names.length > 2 && <span style={{ fontSize: 10, fontWeight: 700 }}>{`+${names.length - 1}`}</span>}
+        </button>
+        {open && (
+          <div
+            role="dialog"
+            aria-label="Participantes da compra compartilhada"
+            style={{
+              position: 'absolute',
+              top: 'calc(100% + 8px)',
+              left: 0,
+              zIndex: 20,
+              minWidth: 180,
+              maxWidth: 240,
+              padding: '8px 10px',
+              borderRadius: 10,
+              border: '1px solid var(--border-color)',
+              background: 'var(--bg-surface, #fff)',
+              boxShadow: '0 12px 28px rgba(15, 23, 42, 0.12)',
+            }}
+          >
+            <div style={{ fontSize: 11, fontWeight: 700, marginBottom: 6, color: 'var(--text-secondary)' }}>Participantes</div>
+            <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gap: 4 }}>
+              {names.map((name) => <li key={name} style={{ fontSize: 12, color: 'var(--text-primary)' }}>{name}</li>)}
+            </ul>
+          </div>
+        )}
+      </span>
+    );
+  };
   const canceledDateLabel = (value) => {
     const date = new Date(value);
     return Number.isNaN(date.getTime())
@@ -267,7 +335,7 @@ export default function PurchasesPage() {
                         {r.sharedWith && <div className="muted small">Dividida com {r.sharedWith}</div>}
                       </td>
                       <td className="muted">{r.category || '—'}</td>
-                      <td>{r.person}</td>
+                      <td>{r.sharedGroup ? <SharedPeopleBadge person={r.person} sharedWith={r.sharedWith} /> : r.person}</td>
                       <td>{r.card}</td>
                       <td>{r.isSubscription ? 'Mensal' : `${r.number}/${r.count}`}</td>
                       <td className="num"><Money value={r.amount} /></td>
@@ -305,7 +373,7 @@ export default function PurchasesPage() {
                     </div>
                     <div className="mobile-record-details">
                       <span>{r.card}</span>
-                      <span>{r.person}</span>
+                      <span>{r.sharedGroup ? <SharedPeopleBadge person={r.person} sharedWith={r.sharedWith} /> : r.person}</span>
                       <span>{r.category || 'Sem categoria'}</span>
                       <span>Compra em {r.purchaseDate ? r.purchaseDate.split('-').reverse().join('/') : monthLabel(period.month, period.year)}</span>
                       {r.sharedWith && <span>Dividida com {r.sharedWith}</span>}
@@ -350,7 +418,7 @@ export default function PurchasesPage() {
                           <div className="muted small">Registrada: {dateTimeLabel(p.createdAt)} · Atualizada: {dateTimeLabel(p.updatedAt)}</div>
                           {p.shared && filters.personId && <div className="muted small">Parte de {p.person} · total da compra <Money value={p.groupTotal} /></div>}
                         </td>
-                        <td>{p.person}</td>
+                        <td>{p.shared ? <SharedPeopleBadge person={p.person} sharedWith={p.participantsNames || p.person} /> : p.person}</td>
                         <td>{p.card}</td>
                         <td className="num"><Money value={p.total} /></td>
                         <td>{p.isSubscription ? <>Mensal · <Money value={p.total} /></> : <>{p.count}x <span className="muted">de</span> <Money value={p.perInstallment} /></>}</td>
@@ -392,7 +460,7 @@ export default function PurchasesPage() {
                     </p>
                     <div className="mobile-record-details">
                       {p.category && <span>{p.category}</span>}
-                      <span>{p.person}</span>
+                      <span>{p.shared ? <SharedPeopleBadge person={p.person} sharedWith={p.participantsNames || p.person} /> : p.person}</span>
                       <span>{p.card}</span>
                       {p.shared && filters.personId && <span>Parte de {p.person}</span>}
                     </div>

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { BarChart3 } from 'lucide-react';
 import { useToast } from '../../context/ToastContext.jsx';
 import { useFetch } from '../../hooks/useFetch.js';
 import { useFinanceRefresh, notifyFinanceChanged } from '../../hooks/useFinanceRefresh.js';
@@ -234,7 +235,8 @@ export default function BudgetPage() {
                 aria-expanded={showFullYearMobile}
                 onClick={() => setShowFullYearMobile((shown) => !shown)}
               >
-                {showFullYearMobile ? 'Voltar à visualização mensal' : '📊 Ver todos os 12 meses lado a lado'}
+                {!showFullYearMobile && <BarChart3 size={16} aria-hidden="true" />}
+                {showFullYearMobile ? 'Voltar à visualização mensal' : 'Ver todos os 12 meses lado a lado'}
               </button>
             </div>
 

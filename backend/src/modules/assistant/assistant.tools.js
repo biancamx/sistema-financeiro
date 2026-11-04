@@ -92,6 +92,47 @@ export const toolsDeclaration = [
     },
   },
   {
+    name: 'cadastrarNovoVeiculo',
+    description: 'Cadastra um veículo para o usuário atual. Modelo, placa e ano são obrigatórios.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        modelo: { type: 'STRING', description: 'Modelo do veículo (até 80 caracteres)' },
+        placa: { type: 'STRING', description: 'Placa brasileira do veículo' },
+        ano: { type: 'NUMBER', description: 'Ano do veículo (de 1900 a 2100)' },
+        tipo: { type: 'STRING', enum: ['car', 'motorcycle', 'utility', 'other'], description: 'Tipo: carro, moto, utilitário ou outro; padrão carro' },
+        valorCompra: { type: 'NUMBER', description: 'Valor pago na compra em reais, opcional' },
+      },
+      required: ['modelo', 'placa', 'ano'],
+    },
+  },
+  {
+    name: 'cadastrarNovaPessoa',
+    description: 'Cadastra uma pessoa para o usuário atual. Nome obrigatório e telefone opcional.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        nome: { type: 'STRING', description: 'Nome da pessoa (até 60 caracteres)' },
+        telefone: { type: 'STRING', description: 'Telefone ou WhatsApp, opcional (até 30 caracteres)' },
+      },
+      required: ['nome'],
+    },
+  },
+  {
+    name: 'cadastrarNovoCartao',
+    description: 'Cadastra um cartão para o usuário atual. Nome, limite, dia de fechamento e dia de vencimento são obrigatórios. Não solicite número completo do cartão.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        nome: { type: 'STRING', description: 'Nome do cartão (até 60 caracteres)' },
+        limite: { type: 'NUMBER', description: 'Limite total em reais (de 0 a 10.000.000)' },
+        diaFechamento: { type: 'NUMBER', description: 'Dia do fechamento da fatura (1 a 31)' },
+        diaVencimento: { type: 'NUMBER', description: 'Dia do vencimento da fatura (1 a 31)' },
+      },
+      required: ['nome', 'limite', 'diaFechamento', 'diaVencimento'],
+    },
+  },
+  {
     name: 'listarPessoasEChavesPix',
     description: 'Lista os nomes das pessoas cadastradas. Por segurança, não retorna chaves Pix, telefones nem outros dados pessoais; consulte a chave Pix na aba Pessoas.',
     parameters: { type: 'OBJECT', properties: {} },
@@ -413,6 +454,94 @@ export async function executarFerramenta(nomeFuncao, args, userId) {
         categoria: result.categoryLabel,
         valor: result.amount,
         pagador: result.payer,
+      };
+    }
+
+    case 'cadastrarNovoVeiculo': {
+      if (typeof args.modelo !== 'string' || !args.modelo.trim() || args.modelo.trim().length > 80) {
+        throw new Error('Informe o modelo do veículo (até 80 caracteres).');
+      }
+      if (typeof args.placa !== 'string' || !/^[A-Z0-9]{5,8}$/.test(args.placa.toUpperCase().replace(/[\s-]/g, ''))) {
+        throw new Error('Informe uma placa válida.');
+      }
+      if (!Number.isInteger(args.ano) || args.ano < 1900 || args.ano > 2100) {
+        throw new Error('Informe um ano válido entre 1900 e 2100.');
+      }
+      const kind = args.tipo ?? 'car';
+      if (!['car', 'motorcycle', 'utility', 'other'].includes(kind)) {
+        throw new Error('Tipo de veículo inválido.');
+      }
+      const purchaseValue = args.valorCompra ?? 0;
+      if (!Number.isFinite(purchaseValue) || purchaseValue < 0 || purchaseValue > 100_000_000) {
+        throw new Error('O valor de compra deve estar entre R$ 0,00 e R$ 100.000.000,00.');
+      }
+      const vehicle = await vehiclesService.createVehicle(userId, {
+        kind,
+        model: args.modelo.trim(),
+        plate: args.placa,
+        year: args.ano,
+        purchaseValue,
+        status: 'active',
+      });
+      return {
+        sucesso: true,
+        mensagem: `Veículo "${vehicle.model}" cadastrado com sucesso. Placa: ${vehicle.plate}.`,
+        veiculoId: vehicle.id,
+        modelo: vehicle.model,
+        placa: vehicle.plate,
+        ano: vehicle.year,
+      };
+    }
+
+    case 'cadastrarNovaPessoa': {
+      if (typeof args.nome !== 'string' || !args.nome.trim() || args.nome.trim().length > 60) {
+        throw new Error('Informe o nome da pessoa (até 60 caracteres).');
+      }
+      if (args.telefone !== undefined
+        && (typeof args.telefone !== 'string' || args.telefone.trim().length > 30)) {
+        throw new Error('O telefone deve ter até 30 caracteres.');
+      }
+      const person = await Person.create({
+        userId,
+        name: args.nome.trim(),
+        phone: args.telefone?.trim() || null,
+      });
+      return {
+        sucesso: true,
+        mensagem: `Pessoa "${person.name}" cadastrada com sucesso.`,
+        pessoaId: String(person._id),
+        nome: person.name,
+      };
+    }
+
+    case 'cadastrarNovoCartao': {
+      if (typeof args.nome !== 'string' || !args.nome.trim() || args.nome.trim().length > 60) {
+        throw new Error('Informe o nome do cartão (até 60 caracteres).');
+      }
+      if (!Number.isFinite(args.limite) || args.limite < 0 || args.limite > 10_000_000) {
+        throw new Error('O limite deve estar entre R$ 0,00 e R$ 10.000.000,00.');
+      }
+      if (!Number.isInteger(args.diaFechamento) || args.diaFechamento < 1 || args.diaFechamento > 31) {
+        throw new Error('O dia de fechamento deve ser um número entre 1 e 31.');
+      }
+      if (!Number.isInteger(args.diaVencimento) || args.diaVencimento < 1 || args.diaVencimento > 31) {
+        throw new Error('O dia de vencimento deve ser um número entre 1 e 31.');
+      }
+      const card = await Card.create({
+        userId,
+        name: args.nome.trim(),
+        limit: args.limite,
+        closingDay: args.diaFechamento,
+        dueDay: args.diaVencimento,
+      });
+      return {
+        sucesso: true,
+        mensagem: `Cartão "${card.name}" cadastrado com limite de R$ ${card.limit.toFixed(2)}.`,
+        cartaoId: String(card._id),
+        nome: card.name,
+        limite: card.limit,
+        diaFechamento: card.closingDay,
+        diaVencimento: card.dueDay,
       };
     }
 

@@ -10,22 +10,14 @@ const MODEL_CACHE_TTL_MS = 15 * 60 * 1000;
 const FALLBACK_CACHE_TTL_MS = 60 * 1000;
 const MAX_DISCOVERED_MODELS = 12;
 const DEFAULT_MODELS = [
+  'gemini-3.8-flash',
+  'gemini-flash-latest',
   'gemini-3.6-flash',
-  'gemini-3.5-flash',
-  'gemini-2.5-flash',
-  'gemini-2.0-flash',
-  'gemini-1.5-flash-latest',
-  'gemini-1.5-flash',
-  'gemini-1.5-pro',
 ];
 const PREFERRED_MODELS = [
+  'gemini-3.8-flash',
+  'gemini-flash-latest',
   'gemini-3.6-flash',
-  'gemini-3.5-flash',
-  'gemini-2.5-flash',
-  'gemini-2.0-flash',
-  'gemini-1.5-flash-latest',
-  'gemini-1.5-flash',
-  'gemini-1.5-pro',
 ];
 let modelCache = { models: [], expiresAt: 0 };
 let modelInUse = null;
@@ -241,7 +233,7 @@ export async function processUserMessage({ message = '', image: rawImage, histor
 
   const genAI = new GoogleGenerativeAI(apiKey);
   const models = await discoverModels(apiKey);
-  const modelCandidates = [...new Set([modelInUse, ...models].filter(Boolean))];
+  const modelCandidates = [...new Set([...PREFERRED_MODELS, modelInUse, ...models].filter(Boolean))];
   let lastError;
 
   for (const modelName of modelCandidates) {
@@ -280,7 +272,7 @@ export async function generateGeminiContent({ parts, systemInstruction, generati
   }
   const genAI = new GoogleGenerativeAI(apiKey);
   const models = await discoverModels(apiKey);
-  const modelCandidates = [...new Set([modelInUse, ...models].filter(Boolean))];
+  const modelCandidates = [...new Set([...PREFERRED_MODELS, modelInUse, ...models].filter(Boolean))];
   let lastError;
 
   for (const modelName of modelCandidates) {

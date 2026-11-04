@@ -34,6 +34,8 @@ const PDF_IMPORT_COUNT_CARDS = [
   ['Compras parceladas', (data) => data.summaryCounts.installmentPurchasesCount],
   ['Recorrentes', (data) => data.summaryCounts.recurringCount],
   ['À vista', (data) => data.summaryCounts.oneTimeCount],
+  ['Novas compras', (data) => data.deduplication?.newCount ?? data.summaryCounts.purchasesCount],
+  ['Já existentes', (data) => data.deduplication?.existingCount ?? 0],
 ];
 const pdfPeriodLabel = (month, year) => `${MONTHS_SHORT[month - 1]}/${year}`;
 
@@ -155,7 +157,7 @@ export default function SettingsPage() {
       if (!summary) throw new Error('A API não confirmou a importação.');
       setPreviewData(null);
       toast.success(analyzedData.sourceType === 'pdf'
-        ? `Importação concluída: ${summary.peopleUpserted} novas pessoas, ${summary.cardsUpserted} novos cartões, ${summary.categoriesCreated} novas categorias, ${summary.purchasesUpserted} compras e ${summary.installmentsUpserted} parcelas.`
+        ? `Importação concluída: ${summary.peopleUpserted} novas pessoas, ${summary.cardsUpserted} novos cartões, ${summary.categoriesCreated} novas categorias, ${summary.purchasesUpserted} compras e ${summary.installmentsUpserted} parcelas${summary.purchasesIgnored ? `; ${summary.purchasesIgnored} duplicadas ignoradas` : ''}.`
         : `Importação concluída: ${summary.peopleUpserted} pessoas, ${summary.cardsUpserted} cartões, ${summary.purchasesUpserted} compras, ${summary.installmentsUpserted} parcelas e ${summary.budgetsUpserted} linhas.`);
       window.dispatchEvent(new Event('people:refresh'));
       window.dispatchEvent(new Event('cards:refresh'));
@@ -230,7 +232,7 @@ export default function SettingsPage() {
         >
           <Upload className="settings-upload-icon" aria-hidden="true" />
           <h3>Importe uma planilha ou fatura</h3>
-          <p>Compatível com .xlsx, .xls e PDF de compras/faturas. O PDF é analisado pelo Google Gemini e só é gravado depois da sua conferência.</p>
+          <p>Compatível com .xlsx, .xls e PDF de orçamento anual ou extrato de compras. O PDF é analisado pelo Google Gemini e só é gravado depois da sua conferência.</p>
           <Button
             variant="primary"
             className="settings-file-button"
@@ -246,7 +248,7 @@ export default function SettingsPage() {
             accept=".xlsx,.xls,.pdf,application/pdf"
             onChange={handleFileSelected}
             className="settings-file-input"
-            aria-label="Selecionar planilha ou PDF de compras"
+            aria-label="Selecionar planilha ou PDF financeiro"
           />
           <span className="settings-upload-hint">ou arraste o arquivo para esta área · máximo de 14 MB para PDF</span>
         </div>
@@ -383,7 +385,8 @@ export default function SettingsPage() {
 
       <Modal
         open={Boolean(previewData)}
-        title={previewData?.sourceType === 'pdf' ? 'Conferir compras do PDF' : 'Conferir importação'}
+        title={previewData?.documentLabel
+          ?? (previewData?.sourceType === 'pdf' ? 'Conferir compras do PDF' : 'Conferir importação')}
         wide
         footer={(
           <>
@@ -400,6 +403,20 @@ export default function SettingsPage() {
       >
         {previewData && (
           <div className="settings-preview">
+            {previewData.documentLabel && (
+              <section className="settings-pdf-new-entities">
+                <h3>Tipo de documento detectado</h3>
+                <p>{previewData.documentLabel}</p>
+                {previewData.deduplication && (
+                  <p>
+                    Novos: {previewData.deduplication.newCount} · Já existentes (serão atualizados ou ignorados): {previewData.deduplication.existingCount}
+                  </p>
+                )}
+                {previewData.newEntities?.people?.length > 0 && (
+                  <small>Novas pessoas: {previewData.newEntities.people.join(', ')}</small>
+                )}
+              </section>
+            )}
             <p className="muted">
               {previewData.sourceType === 'pdf'
                 ? 'Confira as compras reconhecidas e os vínculos com seus cadastros. O PDF é enviado ao Google Gemini para análise; nenhum dado será gravado até confirmar.'
@@ -463,7 +480,9 @@ export default function SettingsPage() {
                           <li key={`${record.description}-${index}`}>
                             <span className="settings-pdf-record-copy">
                               <strong>{record.description}</strong>
-                              <small>{kind} · {record.participants.map((participant) => `${participant.personName} (${money(participant.allocatedTotal)})`).join(', ')} · {record.cardName}</small>
+                              <small>{kind} · {record.participants.map((participant) => (
+                                `${participant.personName} (${money(participant.allocatedTotal)}${participant.alreadyExists ? ' · já existe' : ''})`
+                              )).join(', ')} · {record.cardName}</small>
                               <small>Categoria: {record.categoryName || '—'}</small>
                               <small>{detail}</small>
                             </span>

@@ -8,6 +8,7 @@ import { Person } from '../../models/Person.js';
 import { Purchase } from '../../models/Purchase.js';
 import { importError } from './import.errors.js';
 import { normalizeText } from './spreadsheet.reader.js';
+import { findExistingPdfPurchaseSignatures, pdfPurchaseSignature } from './pdf.dedup.js';
 
 const MAX_PDF_RECORDS = 300;
 const MAX_GENERATED_INSTALLMENTS = 10_000;
@@ -131,6 +132,7 @@ export async function executePdfPurchaseImport(userId, payload) {
     cardsUpserted: 0,
     categoriesCreated: 0,
     purchasesUpserted: 0,
+    purchasesIgnored: 0,
     installmentsUpserted: 0,
     budgetsUpserted: 0,
     birthdaysUpserted: 0,
@@ -141,6 +143,7 @@ export async function executePdfPurchaseImport(userId, payload) {
       summary.cardsUpserted = 0;
       summary.categoriesCreated = 0;
       summary.purchasesUpserted = 0;
+      summary.purchasesIgnored = 0;
       summary.installmentsUpserted = 0;
       const operations = [];
       const handledPeriods = new Set();
@@ -149,6 +152,7 @@ export async function executePdfPurchaseImport(userId, payload) {
         Card.find({ userId }).select('name').session(session).lean(),
         Category.find({ userId }).select('name').session(session).lean(),
       ]);
+      const existingSignatures = await findExistingPdfPurchaseSignatures(userId, payload.pdfRecords, people, cards, session);
 
       for (const record of payload.pdfRecords) {
         const { entity: card, created: cardCreated } = await getOrCreateEntity(
@@ -194,6 +198,18 @@ export async function executePdfPurchaseImport(userId, payload) {
           if (personCreated) summary.peopleUpserted += 1;
 
           const totalAmount = fromCents(toCents(participant.allocatedTotal));
+          const signature = pdfPurchaseSignature({
+            personId: person._id,
+            cardId: card._id,
+            description: record.description,
+            amount: totalAmount,
+            year: record.startYear,
+            month: record.startMonth,
+          });
+          if (existingSignatures.has(signature)) {
+            summary.purchasesIgnored += 1;
+            continue;
+          }
           const query = {
             userId,
             personId: person._id,
@@ -230,6 +246,7 @@ export async function executePdfPurchaseImport(userId, payload) {
             [purchase] = await Purchase.create([purchaseData], { session });
             summary.purchasesUpserted += 1;
           }
+          existingSignatures.add(signature);
 
           const existing = await Installment.find({
             userId,

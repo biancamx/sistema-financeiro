@@ -3,7 +3,7 @@ import multer from 'multer';
 import { requireAuth } from '../../middleware/auth.js';
 import { analyzeSpreadsheet } from './spreadsheet.reader.js';
 import { executeSpreadsheetImport } from './spreadsheet.writer.js';
-import { analyzePdfPurchases } from './pdf.reader.js';
+import { analyzePdfDocument } from './pdf.reader.js';
 import { executePdfPurchaseImport } from './pdf.writer.js';
 
 const upload = multer({
@@ -37,7 +37,7 @@ export function importRoutes() {
     const extension = req.file.originalname.toLowerCase().split('.').pop();
     let data;
     if (extension === 'pdf') {
-      data = await analyzePdfPurchases(req.file.buffer, String(req.user._id));
+      data = await analyzePdfDocument(req.file.buffer, String(req.user._id));
     } else if (['xlsx', 'xls'].includes(extension)) {
       data = analyzeSpreadsheet(req.file.buffer);
     } else {

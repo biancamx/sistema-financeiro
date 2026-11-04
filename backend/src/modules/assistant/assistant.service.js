@@ -116,11 +116,11 @@ export async function processUserMessage({ message, history = [], userId }) {
       }
 
       toolResults.push(
-        `[Resultado da ferramenta ${call.name}]: ${JSON.stringify(toolResult)}`,
+        `[Sistema - Resultado da consulta de ${call.name}]: ${JSON.stringify(toolResult)}`,
       );
     }
 
-    result = await chat.sendMessage(toolResults.map((text) => ({ text })));
+    result = await chat.sendMessage(toolResults.join('\n'));
   }
 
   throw new Error('Não foi possível concluir a conversa com o assistente.');

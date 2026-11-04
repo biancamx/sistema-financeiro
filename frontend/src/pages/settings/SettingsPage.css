@@ -259,7 +259,7 @@
 .settings-button-danger {
   border-color: var(--neg);
   background: var(--neg);
-  color: #fff;
+  color: var(--neg-ink);
 }
 
 .settings-button-danger:hover:not(:disabled) {

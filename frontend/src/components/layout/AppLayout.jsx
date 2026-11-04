@@ -22,7 +22,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { usePeriod } from '../../context/PeriodContext.jsx';
-import { MONTHS, yearsAround } from '../../lib/format.js';
+import { MONTHS_SHORT, yearsAround } from '../../lib/format.js';
 import { Spinner } from '../ui/ui.jsx';
 import ErrorBoundary from '../ErrorBoundary.jsx';
 import { PATHS } from '../../app/paths.js';
@@ -66,10 +66,10 @@ function PeriodPicker() {
     <div className="period" role="group" aria-label="Período">
       <button className="icon-btn" onClick={() => shift(-1)} aria-label="Mês anterior">‹</button>
       <select className="input input-ghost" value={month} onChange={(e) => setMonth(Number(e.target.value))} aria-label="Mês">
-        {MONTHS.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
+        {MONTHS_SHORT.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
       </select>
       <select className="input input-ghost" value={year} onChange={(e) => setYear(Number(e.target.value))} aria-label="Ano">
-        {yearsAround(new Date().getFullYear()).map((y) => <option key={y}>{y}</option>)}
+        {yearsAround(new Date().getFullYear()).map((y) => <option key={y} value={y}>{String(y).slice(-2)}</option>)}
       </select>
       <button className="icon-btn" onClick={() => shift(1)} aria-label="Próximo mês">›</button>
     </div>

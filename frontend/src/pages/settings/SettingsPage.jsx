@@ -394,9 +394,10 @@ export default function SettingsPage() {
             <Button
               variant="primary"
               onClick={handleConfirmImport}
-              disabled={previewData?.sourceType === 'pdf' && (previewData.pdfIssues.length > 0 || previewData.pdfRecords.length === 0)}
             >
-              Confirmar e importar <ArrowRight aria-hidden="true" />
+              {previewData?.sourceType === 'pdf' && (previewData.pdfRiskWarnings?.length ?? 0) > 0
+                ? 'Confirmar e importar mesmo assim'
+                : 'Confirmar e importar'} <ArrowRight aria-hidden="true" />
             </Button>
           </>
         )}
@@ -432,10 +433,16 @@ export default function SettingsPage() {
             </div>
             {previewData.sourceType === 'pdf' && (
               <>
+                {previewData.pdfRiskWarnings?.length > 0 && (
+                  <section className="settings-pdf-issues" role="alert" style={{ borderColor: '#f59e0b', background: '#fff7ed' }}>
+                    <h3><AlertTriangle aria-hidden="true" /> 🚨 ATENÇÃO: Compras recentes com possível divergência de parcelas a vencer</h3>
+                    <ul>{previewData.pdfRiskWarnings.map((issue, index) => <li key={`${issue}-${index}`}>{issue}</li>)}</ul>
+                  </section>
+                )}
                 {previewData.pdfIssues.length > 0 && (
                   <section className="settings-pdf-issues" role="alert">
                     <h3><AlertTriangle aria-hidden="true" /> Itens que precisam de atenção</h3>
-                    <p>Confira os dados essenciais que não puderam ser identificados com segurança. A importação será liberada quando não houver pendências.</p>
+                    <p>Observações de consistência podem aparecer em compras parceladas; elas são avisos informativos e não bloqueiam a importação.</p>
                     <ul>{previewData.pdfIssues.map((issue, index) => <li key={`${issue}-${index}`}>{issue}</li>)}</ul>
                   </section>
                 )}

@@ -46,6 +46,9 @@ const period = (source, prefix) => ({
 });
 const validPeriod = ({ month, year }) => Number.isInteger(month) && month >= 1 && month <= 12
   && Number.isInteger(year) && year >= 2000 && year <= 2100;
+const isRecentRiskInstallment = (record) => record?.kind === 'installment'
+  && Number.isInteger(record?.startYear)
+  && Number(record.startYear) >= new Date().getFullYear();
 const cents = (value) => Math.round(value * 100);
 const normalizedName = (value) => normalizeText(value).replace(/[^\p{L}\p{N}]/gu, '');
 const validISODate = (value) => {
@@ -213,8 +216,8 @@ function resolveEntityName(rawName, entities, type, recordDescription, errors, m
   return { value: matches.length ? matches[0].name : name };
 }
 
-export function normalizePdfRecord(source, index, accounts, errors, divergences) {
-  const errorOffset = errors.length;
+export function normalizePdfRecord(source, index, accounts, errors, divergences, riskWarnings = []) {
+  const fatalErrors = [];
   const description = String(source?.description ?? '').trim().slice(0, 120);
   const rowLabel = description || `Item ${index + 1}`;
   const kind = source?.kind;
@@ -228,24 +231,24 @@ export function normalizePdfRecord(source, index, accounts, errors, divergences)
     const personMatch = resolveEntityName(participant?.personName, accounts.people, 'pessoa', rowLabel, errors);
     const allocatedTotal = parseMoney(participant?.allocatedTotal);
     if (!(allocatedTotal > 0) || allocatedTotal > 10_000_000) {
-      errors.push(`Valor destinado a cada responsável inválido na compra "${rowLabel}".`);
+      fatalErrors.push(`Valor destinado a cada responsável inválido na compra "${rowLabel}".`);
     }
     return personMatch.value ? { personName: personMatch.value, allocatedTotal } : null;
   }).filter(Boolean);
 
-  if (!description) errors.push(`A descrição do item ${index + 1} está ausente.`);
+  if (!description) fatalErrors.push(`A descrição do item ${index + 1} está ausente.`);
   if (participants.length !== rawParticipants.length || participants.length === 0) {
     if (participants.length === 0 && rawParticipants.length === 0) {
-      errors.push(`Responsável ausente na compra "${rowLabel}".`);
+      fatalErrors.push(`Responsável ausente na compra "${rowLabel}".`);
     }
   }
   if (new Set(participants.map((participant) => normalizedName(participant.personName))).size !== participants.length) {
-    errors.push(`Responsável repetido na compra "${rowLabel}".`);
+    fatalErrors.push(`Responsável repetido na compra "${rowLabel}".`);
   }
 
   const totalAmount = parseMoney(source?.totalAmount ?? source?.monthlyAmount);
   if (!(totalAmount > 0) || totalAmount > 10_000_000) {
-    errors.push(`Valor total inválido na compra "${rowLabel}".`);
+    fatalErrors.push(`Valor total inválido na compra "${rowLabel}".`);
   }
   const record = {
     kind,
@@ -267,15 +270,23 @@ export function normalizePdfRecord(source, index, accounts, errors, divergences)
     const count = Number(source?.totalInstallments);
     const start = period(source, 'start');
     const end = period(source, 'end');
-    if (!Number.isInteger(count) || count < 2 || count > 120 || !validPeriod(start) || !validPeriod(end)
-      || monthIndex(end.year, end.month) - monthIndex(start.year, start.month) + 1 !== count) {
-      errors.push(`Quantidade ou período de parcelas inconsistente na compra "${rowLabel}".`);
+    if (!Number.isInteger(count) || count < 2 || count > 120 || !validPeriod(start) || !validPeriod(end)) {
+      fatalErrors.push(`Quantidade ou período de parcelas inconsistente na compra "${rowLabel}".`);
     } else {
       record.totalInstallments = count;
       record.startMonth = start.month;
       record.startYear = start.year;
       record.endMonth = end.month;
       record.endYear = end.year;
+      if (monthIndex(end.year, end.month) - monthIndex(start.year, start.month) + 1 !== count) {
+        const warning = isRecentRiskInstallment(record)
+          ? `🚨 ATENÇÃO: Compras recentes com possível divergência de parcelas a vencer: ${rowLabel}. Verifique se todas as parcelas futuras foram incluídas para não deixar de pagar faturas.`
+          : `Quantidade ou período de parcelas inconsistente na compra "${rowLabel}".`;
+        if (isRecentRiskInstallment(record)) {
+          riskWarnings.push(warning);
+        }
+        errors.push(warning);
+      }
       if (record.installmentAmount > 0
         && Math.abs(cents(record.installmentAmount * count) - cents(totalAmount)) > Math.max(1, count - 1)) {
         divergences.push({
@@ -294,7 +305,7 @@ export function normalizePdfRecord(source, index, accounts, errors, divergences)
       || (endYear !== null && (!Number.isInteger(endYear) || endYear < 2000 || endYear > 2100))
       || (endMonth === null) !== (endYear === null)
       || (endMonth !== null && monthIndex(endYear, endMonth) < monthIndex(start.year, start.month))) {
-      errors.push(`Período recorrente inválido na compra "${rowLabel}".`);
+      fatalErrors.push(`Período recorrente inválido na compra "${rowLabel}".`);
     } else {
       record.startMonth = start.month;
       record.startYear = start.year;
@@ -304,26 +315,30 @@ export function normalizePdfRecord(source, index, accounts, errors, divergences)
   } else if (kind === 'oneTime') {
     const purchasePeriod = period(source, 'purchase');
     if (!validPeriod(purchasePeriod)) {
-      errors.push(`Mês ou ano inválido na compra à vista "${rowLabel}".`);
+      fatalErrors.push(`Mês ou ano inválido na compra à vista "${rowLabel}".`);
     } else {
       record.startMonth = purchasePeriod.month;
       record.startYear = purchasePeriod.year;
       record.endMonth = purchasePeriod.month;
       record.endYear = purchasePeriod.year;
       const date = String(source?.purchaseDate ?? '').trim();
-      if (date && !validISODate(date)) errors.push(`Data inválida na compra à vista "${rowLabel}".`);
+      if (date && !validISODate(date)) fatalErrors.push(`Data inválida na compra à vista "${rowLabel}".`);
       record.purchaseDate = validISODate(date) ? date : null;
     }
   } else {
-    errors.push(`Tipo de compra não reconhecido em "${rowLabel}".`);
+    fatalErrors.push(`Tipo de compra não reconhecido em "${rowLabel}".`);
   }
 
   if (participants.length && participants.every((participant) => participant.allocatedTotal > 0)
     && Math.abs(cents(participants.reduce((sum, participant) => sum + participant.allocatedTotal, 0)) - cents(totalAmount)) > 1) {
-    errors.push(`O rateio da compra "${rowLabel}" não soma o valor total.`);
+    fatalErrors.push(`O rateio da compra "${rowLabel}" não soma o valor total.`);
   }
-  if (!cardMatch.value || participants.length !== rawParticipants.length || !description || !(totalAmount > 0)
-    || errors.length > errorOffset) return null;
+  if (!cardMatch.value || participants.length !== rawParticipants.length || !description || !(totalAmount > 0) || fatalErrors.length > 0) {
+    if (fatalErrors.length > 0) {
+      errors.push(...fatalErrors);
+    }
+    return null;
+  }
   return record;
 }
 
@@ -381,10 +396,11 @@ Regras:
 
   const errors = [];
   const divergences = [];
+  const riskWarnings = [];
   const accountRecords = { people, cards, categories };
   const documentHash = createHash('sha256').update(buffer).digest('hex');
   const records = parsed.records.map((record, index) => {
-    const normalized = normalizePdfRecord(record, index, accountRecords, errors, divergences);
+    const normalized = normalizePdfRecord(record, index, accountRecords, errors, divergences, riskWarnings);
     if (normalized) {
       normalized.participants = normalized.participants.map((participant) => ({
         ...participant,
@@ -439,6 +455,7 @@ Regras:
     purchasesGrouped: [],
     pdfRecords: records,
     pdfIssues: errors,
+    pdfRiskWarnings: riskWarnings,
     pdfDivergences: divergences,
     newEntities,
     deduplication: { newCount: newPurchaseCount, existingCount: existingPurchaseCount },

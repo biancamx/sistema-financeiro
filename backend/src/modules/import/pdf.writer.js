@@ -67,9 +67,7 @@ function validateRecord(record, index) {
     const count = Number(record.totalInstallments);
     if (!Number.isInteger(count) || count < 2 || count > 120
       || !validPeriod(Number(record.startMonth), Number(record.startYear))
-      || !validPeriod(Number(record.endMonth), Number(record.endYear))
-      || monthIndex(Number(record.endYear), Number(record.endMonth))
-        - monthIndex(Number(record.startYear), Number(record.startMonth)) + 1 !== count) {
+      || !validPeriod(Number(record.endMonth), Number(record.endYear))) {
       throw importError(`Quantidade ou período de parcelas inconsistente na compra "${label}".`);
     }
   }
@@ -111,8 +109,8 @@ export async function executePdfPurchaseImport(userId, payload) {
   if (payload.pdfRecords.length > MAX_PDF_RECORDS) {
     throw importError(`O PDF contém muitos itens. Divida-o em arquivos com até ${MAX_PDF_RECORDS} compras.`);
   }
-  if (!Array.isArray(payload.pdfIssues) || payload.pdfIssues.length > 0) {
-    throw importError('Há compras com dados essenciais ausentes ou inválidos. Analise o PDF novamente antes de confirmar.');
+  if (!Array.isArray(payload.pdfIssues)) {
+    throw importError('A prévia do PDF está incompleta ou inválida.');
   }
   payload.pdfRecords.forEach(validateRecord);
 

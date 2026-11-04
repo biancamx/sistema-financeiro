@@ -594,6 +594,7 @@ img, canvas { max-width: 100%; }
 .sheet .strong td { font-weight: 600; }
 @media (max-width: 767px) {
   .budget-page { padding-bottom: 6rem; }
+  .overview-sheet-card { margin-bottom: 6rem; }
   .budget-month-controls {
     display: grid;
     gap: 12px;
@@ -659,6 +660,15 @@ img, canvas { max-width: 100%; }
     background: var(--surface);
   }
   .budget-month-table.is-hidden { display: none; }
+  .overview-full-year-table {
+    display: none;
+    max-height: none;
+    overflow-x: auto;
+    overflow-y: hidden;
+    overscroll-behavior-x: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+  .overview-full-year-table.is-visible { display: block; }
   .budget-month-view {
     width: 100%;
     min-width: 0;

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { BarChart3 } from 'lucide-react';
 import { useToast } from '../../context/ToastContext.jsx';
 import { useFetch } from '../../hooks/useFetch.js';
 import { useFinanceRefresh } from '../../hooks/useFinanceRefresh.js';
@@ -18,6 +19,8 @@ export default function OverviewPage() {
   const personId = params.personId || people.data?.[0]?.id;
   const year = Number(params.year) || thisYear;
   const [newLabel, setNewLabel] = useState(null);
+  const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
+  const [showFullYearMobile, setShowFullYearMobile] = useState(false);
 
   useEffect(() => {
     if (!params.personId && personId) nav(`${PATHS.overview}/${personId}/${year}`, { replace: true });
@@ -40,6 +43,11 @@ export default function OverviewPage() {
   const saveCell = async (row, month, value) => {
     ov.setData((o) => ({ ...o, fixed: o.fixed.map((r) => (r.id === row.id ? { ...r, values: r.values.map((v, i) => (i === month - 1 ? value : v)) } : r)) }));
     try { await budgetApi.setCell(row.id, month, value); ov.reload(); } catch (e) { toast.error(e); ov.reload(); }
+  };
+  const renameRow = async (row, label) => {
+    const trimmed = label.trim();
+    if (!trimmed || trimmed === row.label) return;
+    try { await budgetApi.updateRow(row.id, { label: trimmed }); ov.reload(); } catch (e) { toast.error(e); }
   };
   const addRow = async (e) => {
     e.preventDefault();
@@ -65,8 +73,114 @@ export default function OverviewPage() {
       {!d && !ov.error && <Spinner />}
       {d && (
         <>
-        <Card className="sheet-card">
-          <div className="table-wrap sheet-scroll">
+        <Card className="sheet-card overview-sheet-card">
+          <div className="budget-month-controls">
+            <div className="budget-month-controls-heading">
+              <span>VISUALIZAÇÃO MENSAL</span>
+              <strong>{year}</strong>
+            </div>
+            <div className="budget-month-picker" role="group" aria-label="Mês da visão geral">
+              <button
+                type="button"
+                className="icon-btn"
+                onClick={() => setSelectedMonth((month) => Math.max(1, month - 1))}
+                disabled={selectedMonth <= 1}
+                aria-label="Mês anterior"
+              >
+                <span aria-hidden="true">‹</span>
+              </button>
+              <Select
+                value={selectedMonth}
+                onChange={(month) => setSelectedMonth(Number(month))}
+                options={MONTHS_SHORT.map((label, index) => ({ value: index + 1, label }))}
+                aria-label="Selecionar mês da visão geral"
+              />
+              <button
+                type="button"
+                className="icon-btn"
+                onClick={() => setSelectedMonth((month) => Math.min(12, month + 1))}
+                disabled={selectedMonth >= 12}
+                aria-label="Próximo mês"
+              >
+                <span aria-hidden="true">›</span>
+              </button>
+            </div>
+            <button
+              type="button"
+              className="btn btn-ghost budget-full-year-toggle"
+              aria-expanded={showFullYearMobile}
+              onClick={() => setShowFullYearMobile((shown) => !shown)}
+            >
+              {!showFullYearMobile && <BarChart3 size={16} aria-hidden="true" />}
+              {showFullYearMobile ? 'Voltar à visualização mensal' : 'Ver todos os 12 meses lado a lado'}
+            </button>
+          </div>
+
+          <div className={`budget-month-table overview-month-table${showFullYearMobile ? ' is-hidden' : ''}`}>
+            <table className="sheet budget-month-view">
+              <thead>
+                <tr><th>Item</th><th className="num">{MONTHS_SHORT[selectedMonth - 1]}</th></tr>
+              </thead>
+              <tbody>
+                <tr className="sec-head"><th colSpan={2}>Cartões de crédito<span className="pill">automático</span></th></tr>
+                {d.cards.length === 0 && <tr><td className="budget-month-label muted">Sem parcelas neste ano</td><td className="num" /> </tr>}
+                {d.cards.map((card) => (
+                  <tr key={card.id}>
+                    <td className="budget-month-label">{card.name}</td>
+                    <td className="num">{card.values[selectedMonth - 1] ? moneyPlain(card.values[selectedMonth - 1]) : ''}</td>
+                  </tr>
+                ))}
+                <tr className="sec-head"><th colSpan={2}>Contas fixas e veículo</th></tr>
+                {d.fixed.map((row) => (
+                  <tr key={row.id}>
+                    <td className="budget-month-label">
+                      <input className="cell cell-label" defaultValue={row.label} onBlur={(e) => {
+                        renameRow(row, e.target.value);
+                      }} aria-label="Nome da conta fixa" />
+                      <span className="budget-month-row-actions">
+                        <button className="icon-btn" onClick={() => removeRow(row)} aria-label={`Remover ${row.label}`}>×</button>
+                      </span>
+                    </td>
+                    <td className="num"><MoneyCell value={row.values[selectedMonth - 1]} onSave={(value) => saveCell(row, selectedMonth, value)} /></td>
+                  </tr>
+                ))}
+                <tr>
+                  <td className="budget-month-label">
+                    {newLabel === null ? <button className="link-btn" onClick={() => setNewLabel('')}>+ conta fixa</button>
+                      : <form onSubmit={addRow}><input className="cell cell-label" autoFocus placeholder="Ex.: Enel, Cagece…" value={newLabel} onChange={(e) => setNewLabel(e.target.value)} onBlur={addRow} /></form>}
+                  </td>
+                  <td />
+                </tr>
+                <tr className="sec-head"><th colSpan={2}>Caixa avulso</th></tr>
+                {[
+                  { key: 'cash-expenses', label: 'Gastos avulsos', values: d.cashFlow.expenses },
+                  { key: 'cash-receipts', label: 'Recebimentos avulsos', values: d.cashFlow.receipts },
+                ].map((row) => (
+                  <tr key={row.key}>
+                    <td className="budget-month-label">{row.label}</td>
+                    <td className="num">{row.values[selectedMonth - 1] ? moneyPlain(row.values[selectedMonth - 1]) : ''}</td>
+                  </tr>
+                ))}
+              </tbody>
+              <tbody className="summary">
+                <tr className="sec-head"><th colSpan={2}>Resumo geral</th></tr>
+                <tr className="sec-total strong">
+                  <td className="budget-month-label">Total do mês</td>
+                  <td className="num">{moneyPlain(d.totals[selectedMonth - 1])}</td>
+                </tr>
+                <tr>
+                  <td>Status</td>
+                  <td className="num">
+                    <button className={`status status-${d.status[selectedMonth - 1]}`} onClick={() => toggle(selectedMonth)} aria-label={`${MONTHS_SHORT[selectedMonth - 1]}: ${d.status[selectedMonth - 1] === 'paid' ? 'pago' : 'pendente'}`}>
+                      {d.status[selectedMonth - 1] === 'paid' ? 'Pago' : 'Pendente'}
+                    </button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p className={`sheet-scroll-hint budget-full-year-hint${showFullYearMobile ? ' is-visible' : ''}`}>Deslize a planilha para os lados para ver todos os meses e valores.</p>
+          <div className={`table-wrap sheet-scroll overview-full-year-table${showFullYearMobile ? ' is-visible' : ''}`}>
             <table className="sheet">
               <thead><tr><th className="sticky-col">{d.person.name} · {year}</th>{MONTHS_SHORT.map((m) => <th key={m} className="num">{m}</th>)}<th className="num">Ano</th><th /></tr></thead>
               <tbody>

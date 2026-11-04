@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Check, Link2, MessageCircle } from 'lucide-react';
+import { Check, Copy, Link2, MessageCircle } from 'lucide-react';
 import { usePeriod } from '../../context/PeriodContext.jsx';
 import { useToast } from '../../context/ToastContext.jsx';
 import { useFetch } from '../../hooks/useFetch.js';
@@ -240,6 +240,14 @@ export default function PeoplePage() {
       toast.error(new Error('Não foi possível copiar o link. Verifique a permissão da área de transferência.'));
     }
   };
+  const copyPixKey = async (person) => {
+    try {
+      await navigator.clipboard.writeText(person.pix_key);
+      toast.success('Chave Pix copiada.');
+    } catch {
+      toast.error(new Error('Não foi possível copiar a chave Pix. Verifique a permissão da área de transferência.'));
+    }
+  };
   const togglePortalContact = async (person) => {
     if (!person.phone) {
       toast.error(new Error('Cadastre um telefone para essa pessoa antes de defini-la como contato do portal.'));
@@ -311,7 +319,21 @@ export default function PeoplePage() {
                 <div className="person-profile-details">
                   {person.email && <span title={person.email}>E-mail: {person.email}</span>}
                   {birthday && <span>Aniversário: {birthday.formatted} ({birthday.age} anos)</span>}
-                  {person.pix_key && <span title={person.pix_key}>Pix: {person.pix_key}</span>}
+                  {person.pix_key && (
+                    <span className="person-pix-key" title={person.pix_key}>
+                      <span>Pix: {person.pix_key}</span>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        aria-label={`Copiar chave Pix de ${person.name}`}
+                        title="Copiar chave Pix"
+                        onClick={() => copyPixKey(person)}
+                      >
+                        <Copy size={14} aria-hidden="true" />
+                        Copiar
+                      </Button>
+                    </span>
+                  )}
                   {person.notes && <span className="person-notes">{person.notes}</span>}
                 </div>
                 <p className="muted small">{person.purchases} compra(s) registrada(s)</p>

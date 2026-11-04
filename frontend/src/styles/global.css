@@ -813,7 +813,7 @@ img, canvas { max-width: 100%; }
 @media (prefers-reduced-motion: reduce) {
   .participant-confetti-layer { display: none; }
 }
-.participant-totals { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-bottom: 30px; }
+.participant-totals { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; width: 100%; margin-bottom: 30px; }
 .participant-total { display: grid; grid-template-columns: 30px 1fr; align-items: center; gap: 1px 10px; min-width: 0; padding: 16px; border: 1px solid #243a3b; border-radius: 14px; background: #142324d9; }
 .participant-total-icon { grid-row: span 2; display: grid; place-items: center; width: 30px; height: 30px; border-radius: 9px; background: #203a32; color: #66c58c; }
 .participant-total-pending .participant-total-icon { background: #3b311d; color: #e0b04f; }

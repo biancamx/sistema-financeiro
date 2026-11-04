@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { CalendarDays, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, CircleHelp, Clock3, Copy, CreditCard, FileText, MessageCircle, ShieldCheck } from 'lucide-react';
+import confetti from 'canvas-confetti';
+import { CalendarDays, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, CircleHelp, Clock3, Copy, CreditCard, FileText, MessageCircle, PartyPopper, ShieldCheck } from 'lucide-react';
 import { useToast } from '../../context/ToastContext.jsx';
 import { portalApi } from '../../services/api.js';
 import { Button, Field, Modal, Spinner } from '../../components/ui/ui.jsx';
@@ -10,6 +11,10 @@ const brl = (value) => Number(value || 0).toLocaleString('pt-BR', { style: 'curr
 function itemMessage(personName, month, item, cardName) {
   const reference = `${month.monthName}/${month.year}`;
   return `Olá! Sou ${personName} e estava conferindo meu demonstrativo de ${reference}.\n\nLançamento: ${item.description}${cardName ? `\nCartão: ${cardName}` : ''}\nValor: ${brl(item.amount)}${item.type === 'installment' && item.totalInstallments > 1 ? `\nParcela: ${item.installmentNumber}/${item.totalInstallments}` : ''}\n\nPoderia me explicar esse valor, por favor?`;
+}
+
+function birthdayGreeting(personName) {
+  return `Feliz aniversário, ${personName}! 🎉 Que seu novo ciclo seja cheio de saúde, alegria e realizações. Um grande abraço!`;
 }
 
 function whatsappUrl(phone, message) {
@@ -38,6 +43,8 @@ export default function PortalPage() {
   const [monthIndex, setMonthIndex] = useState(0);
   const [expandedCards, setExpandedCards] = useState({});
   const [messageDraft, setMessageDraft] = useState(null);
+  const [shareToAnyContact, setShareToAnyContact] = useState(false);
+  const celebratedBirthday = useRef(null);
 
   useEffect(() => {
     let active = true;
@@ -66,6 +73,26 @@ export default function PortalPage() {
 
   const currentMonth = data?.months[monthIndex];
   const adminPhone = data?.admin?.phone;
+  const now = new Date();
+  const todayYear = now.getFullYear();
+  const todayMonth = now.getMonth();
+  const todayDay = now.getDate();
+  const isBirthdayToday = data?.person.birthday?.day === now.getDate()
+    && data?.person.birthday?.month === now.getMonth() + 1;
+
+  useEffect(() => {
+    if (!isBirthdayToday) return;
+    const celebrationKey = `${token}-${todayYear}-${todayMonth}-${todayDay}`;
+    if (celebratedBirthday.current === celebrationKey) return;
+    celebratedBirthday.current = celebrationKey;
+    confetti({
+      particleCount: 110,
+      spread: 78,
+      origin: { y: 0.62 },
+      colors: ['#45b8ae', '#e0b04f', '#73bce3', '#f4faf8'],
+      disableForReducedMotion: true,
+    });
+  }, [isBirthdayToday, token, todayYear, todayMonth, todayDay]);
 
   const copyMessage = async (message) => {
     try {
@@ -77,10 +104,23 @@ export default function PortalPage() {
   };
 
   const currentMessage = currentMonth && `Olá! Gostaria de conversar sobre meu demonstrativo de ${currentMonth.monthName}/${currentMonth.year}.`;
-  const openMessagePreview = (message) => setMessageDraft(message);
+  const openMessagePreview = (message) => {
+    setShareToAnyContact(false);
+    setMessageDraft(message);
+  };
+  const openBirthdayMessage = () => {
+    setShareToAnyContact(true);
+    setMessageDraft(birthdayGreeting(data.person.name));
+  };
   const openWhatsApp = () => {
-    const url = whatsappUrl(adminPhone, messageDraft ?? '');
+    const url = shareToAnyContact
+      ? `https://wa.me/?text=${encodeURIComponent(messageDraft ?? '')}`
+      : whatsappUrl(adminPhone, messageDraft ?? '');
     if (url) window.open(url, '_blank', 'noopener,noreferrer');
+  };
+  const closeMessagePreview = () => {
+    setMessageDraft(null);
+    setShareToAnyContact(false);
   };
   const toggleCard = (cardId) => setExpandedCards((previous) => ({ ...previous, [cardId]: !previous[cardId] }));
 
@@ -117,6 +157,19 @@ export default function PortalPage() {
             <p>Acompanhe seus lançamentos, pagamentos e valores pendentes.</p>
           </div>
         </section>
+
+        {isBirthdayToday && (
+          <section className="participant-birthday-banner" role="status">
+            <span className="participant-birthday-icon"><PartyPopper size={22} aria-hidden="true" /></span>
+            <div>
+              <strong>Hoje é seu dia, {data.person.name}!</strong>
+              <p>Desejamos um aniversário cheio de alegria e um novo ciclo especial.</p>
+            </div>
+            <button type="button" className="btn btn-primary" onClick={openBirthdayMessage}>
+              <MessageCircle size={16} aria-hidden="true" /> Compartilhar felicitação
+            </button>
+          </section>
+        )}
 
         <section className="participant-totals" aria-label="Resumo financeiro">
           <TotalCard icon={CheckCircle2} label="Total pago" value={data.totals.paid} tone="paid" />
@@ -271,9 +324,9 @@ export default function PortalPage() {
         className="participant-message-modal"
         footer={(
           <>
-            <Button variant="ghost" onClick={() => setMessageDraft(null)}>Cancelar</Button>
+            <Button variant="ghost" onClick={closeMessagePreview}>Cancelar</Button>
             <Button onClick={() => copyMessage(messageDraft ?? '')}><Copy size={16} aria-hidden="true" /> Copiar</Button>
-            <Button variant="primary" disabled={!whatsappUrl(adminPhone, messageDraft ?? '')} onClick={openWhatsApp}>
+            <Button variant="primary" disabled={!shareToAnyContact && !whatsappUrl(adminPhone, messageDraft ?? '')} onClick={openWhatsApp}>
               <MessageCircle size={16} aria-hidden="true" /> Abrir no WhatsApp
             </Button>
           </>
@@ -282,7 +335,7 @@ export default function PortalPage() {
         <Field label="Mensagem (você pode editar antes de enviar)">
           {(id) => <textarea id={id} className="input" rows={8} value={messageDraft ?? ''} onChange={(event) => setMessageDraft(event.target.value)} />}
         </Field>
-        {!whatsappUrl(adminPhone, messageDraft ?? '') && (
+        {!shareToAnyContact && !whatsappUrl(adminPhone, messageDraft ?? '') && (
           <p className="field-hint">O WhatsApp do responsável ainda não está configurado. O participante pode copiar a mensagem; configure o contato em Configurações para habilitar a abertura do WhatsApp.</p>
         )}
       </Modal>

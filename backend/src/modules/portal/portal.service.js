@@ -217,8 +217,14 @@ export async function getParticipantPortal(token) {
     })
     .sort((a, b) => a.year - b.year || a.month - b.month);
 
+  const birthDateMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(person.birthDate || '');
+
   return {
-    person: { name: person.name, avatar: person.avatar || null },
+    person: {
+      name: person.name,
+      avatar: person.avatar || null,
+      birthday: birthDateMatch ? { month: Number(birthDateMatch[2]), day: Number(birthDateMatch[3]) } : null,
+    },
     admin: { name: admin?.name ?? '', phone: contact?.phone || null },
     months: sortedMonths,
     totals: {

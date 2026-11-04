@@ -793,6 +793,12 @@ img, canvas { max-width: 100%; }
 .participant-eyebrow { margin: 0 0 4px; color: #77c8b2; font-size: 10px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
 .participant-welcome h1 { margin: 0; color: #f4faf8; font-size: clamp(22px, 5vw, 30px); letter-spacing: -.03em; }
 .participant-welcome p:last-child { margin: 5px 0 0; color: #9db2ae; font-size: 13px; }
+.participant-birthday-banner { display: flex; align-items: center; gap: 14px; margin: -4px 0 24px; padding: 14px 16px; border: 1px solid #45b8ae66; border-radius: 14px; background: linear-gradient(110deg, #17403d, #142324); box-shadow: 0 10px 32px #0002; }
+.participant-birthday-icon { display: grid; flex: 0 0 42px; width: 42px; height: 42px; place-items: center; border-radius: 12px; background: #45b8ae22; color: #77c8b2; }
+.participant-birthday-banner > div { min-width: 0; flex: 1; }
+.participant-birthday-banner strong { color: #f4faf8; }
+.participant-birthday-banner p { margin: 4px 0 0; color: #a7c3bb; font-size: 12px; line-height: 1.45; }
+.participant-birthday-banner .btn { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 7px; }
 .participant-totals { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-bottom: 30px; }
 .participant-total { display: grid; grid-template-columns: 30px 1fr; align-items: center; gap: 1px 10px; min-width: 0; padding: 16px; border: 1px solid #243a3b; border-radius: 14px; background: #142324d9; }
 .participant-total-icon { grid-row: span 2; display: grid; place-items: center; width: 30px; height: 30px; border-radius: 9px; background: #203a32; color: #66c58c; }
@@ -855,6 +861,9 @@ img, canvas { max-width: 100%; }
 @media (max-width: 620px) {
   .participant-portal { padding: 16px 12px 32px; }
   .participant-header { margin-bottom: 25px; }
+  .participant-birthday-banner { align-items: flex-start; flex-wrap: wrap; gap: 10px; padding: 12px; }
+  .participant-birthday-banner > div { flex-basis: calc(100% - 56px); }
+  .participant-birthday-banner .btn { width: 100%; justify-content: center; }
   .participant-totals { grid-template-columns: 1fr; gap: 8px; margin-bottom: 20px; }
   .participant-total { padding: 12px 14px; }
   .participant-total strong { font-size: 15px; }
@@ -887,13 +896,28 @@ img, canvas { max-width: 100%; }
 .overview td, .overview th { white-space: nowrap; }
 
 /* ───────── Aniversários / chips / kv ───────── */
+.birthday-celebration { display: flex; align-items: center; gap: 14px; margin-bottom: 16px; border-color: color-mix(in srgb, var(--primary) 36%, var(--line)); background: linear-gradient(115deg, color-mix(in srgb, var(--primary-soft) 64%, var(--surface)), var(--surface)); animation: birthday-arrive .45s ease-out both; }
+.birthday-celebration-icon { display: grid; flex: 0 0 42px; width: 42px; height: 42px; place-items: center; border-radius: 12px; background: var(--primary-soft); color: var(--primary); }
+.birthday-celebration > div { min-width: 0; }
+.birthday-celebration strong { color: var(--ink); }
+.birthday-celebration p { margin: 3px 0 0; color: var(--muted); font-size: 13px; }
+.birthday-celebration-cake { flex: 0 0 auto; margin-left: auto; color: var(--accent); }
 .months-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 12px; }
 .month-card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; }
 .month-card.now { border-color: var(--primary); box-shadow: 0 0 0 1px var(--primary); }
 .month-card h3 { font-size: 14px; margin-bottom: 8px; }
 .month-card ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
 .month-card li { display: flex; align-items: center; gap: 10px; }
-.month-card li span:nth-child(2) { flex: 1; }
+.month-card li span:nth-child(2) { flex: 1; min-width: 0; }
+.month-card li.birthday-today { margin: 0 -5px; padding: 3px 5px; border-radius: 9px; background: color-mix(in srgb, var(--primary-soft) 55%, transparent); }
+.birthday-today .day { color: var(--primary); }
+.birthday-actions { display: flex; flex: 0 0 auto; gap: 2px; margin-left: auto; }
+.birthday-actions .icon-btn { display: grid; width: 40px; height: 40px; flex: 0 0 40px; place-items: center; }
+.birthday-message-modal .modal-foot { flex-wrap: wrap; }
+@keyframes birthday-arrive { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+@media (prefers-reduced-motion: reduce) {
+  .birthday-celebration { animation: none; }
+}
 .day { font-variant-numeric: tabular-nums; font-weight: 600; color: var(--primary); min-width: 22px; }
 .chip-list { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; max-height: 340px; overflow-y: auto; }
 .chip { display: inline-flex; align-items: center; background: var(--hover); border-radius: 99px; padding: 0 2px 0 12px; }

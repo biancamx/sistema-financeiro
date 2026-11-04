@@ -494,6 +494,7 @@ select option {
 }
 .purchase-toolbar .purchase-filters > .input,
 .purchase-toolbar .purchase-filters select { width: 100%; min-width: 0; }
+.purchase-tab-mobile { display: none; }
 .purchase-bulk-panel { margin-bottom: 12px; border: 1px solid var(--border-color); border-radius: 11px; background: var(--bg-surface); }
 .purchase-bulk-toggle { display: none; }
 .purchase-bulk-content { display: block; padding: 10px 12px 0; }
@@ -607,12 +608,52 @@ select option {
   .purchase-new { min-height: 42px; padding: 8px 12px; white-space: nowrap; }
   .purchase-export { width: 40px; min-width: 40px; height: 40px; justify-content: center; padding: 0; }
   .purchase-export span { display: none; }
-  .purchases-page > .toolbar { display: grid; align-items: stretch; gap: 10px; padding: 0; border: 0; border-radius: 0; background: transparent; }
-  .purchases-page .tabs { width: 100%; }
-  .purchases-page .tabs button { flex: 1 1 50%; min-width: 0; padding: 8px 5px; font-size: 12px; }
+  .purchases-page > .purchase-toolbar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    align-items: stretch;
+    gap: 9px;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+  }
+  .purchases-page .purchase-toolbar > .tabs {
+    display: flex;
+    grid-column: 1;
+    width: 100%;
+    justify-content: stretch;
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    background: var(--bg-surface);
+    overflow: hidden;
+  }
+  .purchases-page .purchase-toolbar .tabs button {
+    flex: 1 1 50%;
+    min-width: 0;
+    margin: 0;
+    padding: 9px 7px;
+    border: 0;
+    border-bottom: 2px solid transparent;
+    font-size: 12px;
+    text-align: center;
+  }
+  .purchases-page .purchase-toolbar .tabs button.on { border-bottom-color: var(--primary); }
+  .purchase-tab-mobile { display: inline; }
+  .purchase-tab-desktop { display: none; }
   .purchases-page .purchase-toolbar .purchase-filters { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; width: 100%; }
-  .purchase-filters .purchase-search { width: 100%; min-width: 0; min-height: 44px; }
-  .purchases-page .purchase-toolbar .purchase-filter-toggle { display: inline-flex; justify-self: start; width: auto; min-height: 36px; justify-content: flex-start; padding: 7px 10px; color: var(--text-secondary); font-size: 13px; }
+  .purchases-page .purchase-filters .purchase-search { grid-column: 1; width: 100%; min-width: 0; min-height: 42px; }
+  .purchases-page .purchase-toolbar .purchase-filter-toggle {
+    display: inline-flex;
+    grid-column: 1;
+    justify-self: start;
+    width: auto;
+    min-height: 34px;
+    justify-content: flex-start;
+    padding: 6px 9px;
+    color: var(--text-secondary);
+    font-size: 12px;
+  }
   .purchase-filter-toggle span { flex: 0 0 auto; text-align: left; }
   .purchase-filter-toggle svg:last-child, .purchase-bulk-toggle svg:last-child { transition: transform .18s ease; }
   .purchase-filter-toggle[aria-expanded="true"] svg:last-child,
@@ -648,19 +689,27 @@ select option {
   .purchase-mobile-amounts { padding: 3px 0; }
   .purchase-mobile-card .mobile-record-details { gap: 7px 10px; }
   .purchase-mobile-card .mobile-record-details > span { overflow-wrap: anywhere; }
-  .purchase-mobile-card .mobile-record-actions { gap: 7px; }
-  .purchase-mobile-card .mobile-record-actions > .btn { min-height: 40px; border-radius: 9px; }
-  .purchase-mobile-card .mobile-record-check { min-height: 40px; }
-  .purchase-mobile-card .purchase-icon-actions { display: flex; flex: 0 0 auto; gap: 6px; margin-left: auto; }
+  .purchase-mobile-card .purchase-mobile-actions {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
+    align-items: center;
+  }
+  .purchase-mobile-card .purchase-mobile-actions .mobile-record-check { min-height: 40px; }
+  .purchase-mobile-card .purchase-mobile-actions .purchase-pay-action { grid-column: 1 / -1; width: 100%; min-height: 42px; border-radius: 9px; }
+  .purchase-mobile-card .purchase-icon-actions { display: flex; flex: 0 0 auto; gap: 5px; margin-left: 0; }
   .purchase-mobile-card .purchase-icon-action.btn {
     display: inline-flex;
-    flex: 0 0 40px;
-    width: 40px;
-    min-width: 40px;
-    height: 40px;
+    flex: 0 0 38px;
+    width: 38px;
+    min-width: 38px;
+    height: 38px;
     align-items: center;
     justify-content: center;
     padding: 0;
+    border: 1px solid var(--border-color);
+    border-radius: 9px;
+    background: var(--bg-surface);
     color: var(--text-secondary);
   }
   .purchase-mobile-card .purchase-icon-action.is-destructive { color: var(--neg); }

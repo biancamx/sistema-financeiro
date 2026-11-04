@@ -130,8 +130,14 @@ export default function PurchasesPage() {
 
       <div className="toolbar purchase-toolbar">
         <div className="tabs" role="tablist">
-          <button role="tab" aria-selected={tab === 'month'} className={tab === 'month' ? 'on' : ''} onClick={() => setTab('month')}>Parcelas de {monthLabel(period.month, period.year)}</button>
-          <button role="tab" aria-selected={tab === 'all'} className={tab === 'all' ? 'on' : ''} onClick={() => setTab('all')}>Todas as compras</button>
+          <button role="tab" aria-selected={tab === 'month'} className={tab === 'month' ? 'on' : ''} onClick={() => setTab('month')}>
+            <span className="purchase-tab-desktop">Parcelas de {monthLabel(period.month, period.year)}</span>
+            <span className="purchase-tab-mobile">Parcelas</span>
+          </button>
+          <button role="tab" aria-selected={tab === 'all'} className={tab === 'all' ? 'on' : ''} onClick={() => setTab('all')}>
+            <span className="purchase-tab-desktop">Todas as compras</span>
+            <span className="purchase-tab-mobile">Todas</span>
+          </button>
         </div>
         <div className="filters purchase-filters">
           <input className="input purchase-search" type="search" placeholder="Buscar descrição…" value={filters.search} onChange={setF('search')} aria-label="Buscar descrição" />
@@ -274,12 +280,12 @@ export default function PurchasesPage() {
                       <span>Compra em {r.purchaseDate ? r.purchaseDate.split('-').reverse().join('/') : monthLabel(period.month, period.year)}</span>
                       {r.sharedWith && <span>Dividida com {r.sharedWith}</span>}
                     </div>
-                    <div className="mobile-record-actions">
+                    <div className="mobile-record-actions purchase-mobile-actions">
                       <label className="mobile-record-check">
                         <input type="checkbox" checked={selectedInstallments.includes(r.id)} onChange={() => toggleSelected(r.id)} aria-label={`Selecionar parcela de ${r.description}`} />
                         Selecionar
                       </label>
-                      <Button variant={r.paid ? 'ghost' : 'primary'} onClick={() => togglePaid(r)}>
+                      <Button className="purchase-pay-action" variant={r.paid ? 'ghost' : 'primary'} onClick={() => togglePaid(r)}>
                         {r.paid ? 'Desmarcar paga' : 'Marcar como paga'}
                       </Button>
                       <div className="purchase-icon-actions">

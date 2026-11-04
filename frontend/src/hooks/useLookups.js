@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { useFetch } from './useFetch.js';
 import { cardsApi, categoriesApi, peopleApi } from '../services/api.js';
 
@@ -6,6 +7,13 @@ export function useLookups() {
   const people = useFetch(() => peopleApi.list(), []);
   const cards = useFetch(() => cardsApi.list(), []);
   const categories = useFetch(() => categoriesApi.list(), []);
+
+  useEffect(() => {
+    const refreshCategories = () => categories.reload();
+    window.addEventListener('categories:refresh', refreshCategories);
+    return () => window.removeEventListener('categories:refresh', refreshCategories);
+  }, []);
+
   return {
     people: people.data || [],
     cards: cards.data || [],

@@ -1,10 +1,13 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   AlertTriangle,
   ArrowRight,
   CheckCircle2,
   FileSpreadsheet,
+  Pencil,
+  Plus,
   ShieldCheck,
+  Tag,
   Trash2,
   Upload,
   X,
@@ -12,7 +15,7 @@ import {
 import { Button, Card, Modal, PageHeader } from '../../components/ui/ui.jsx';
 import { useAppBusy } from '../../context/BusyContext.jsx';
 import { useToast } from '../../context/ToastContext.jsx';
-import { importApi, systemApi } from '../../services/api.js';
+import { categoriesApi, importApi, systemApi } from '../../services/api.js';
 import './SettingsPage.css';
 
 const IMPORT_COUNT_CARDS = [
@@ -27,9 +30,74 @@ export default function SettingsPage() {
   const [previewData, setPreviewData] = useState(null);
   const [confirmation, setConfirmation] = useState(null);
   const [resetPhrase, setResetPhrase] = useState('');
+  const [categories, setCategories] = useState([]);
+  const [categoriesLoading, setCategoriesLoading] = useState(true);
+  const [categoryForm, setCategoryForm] = useState(null);
+  const [categoryToDelete, setCategoryToDelete] = useState(null);
   const fileInput = useRef(null);
   const { begin, end } = useAppBusy();
   const toast = useToast();
+
+  async function loadCategories() {
+    setCategoriesLoading(true);
+    try {
+      setCategories(await categoriesApi.list());
+    } catch (error) {
+      toast.error(error);
+    } finally {
+      setCategoriesLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadCategories();
+  }, []);
+
+  function openCategoryForm(category = null) {
+    setCategoryForm(category
+      ? { id: category.id, name: category.name, type: category.type, color: category.color, icon: category.icon }
+      : { id: '', name: '', type: 'both', color: '#10b981', icon: 'Tag' });
+  }
+
+  async function saveCategory(event) {
+    event.preventDefault();
+    if (!categoryForm) return;
+    const payload = {
+      name: categoryForm.name.trim(),
+      type: categoryForm.type,
+      color: categoryForm.color,
+      icon: categoryForm.icon.trim() || 'Tag',
+    };
+    begin(categoryForm.id ? 'Salvando categoria' : 'Criando categoria');
+    try {
+      if (categoryForm.id) await categoriesApi.update(categoryForm.id, payload);
+      else await categoriesApi.create(payload);
+      setCategoryForm(null);
+      await loadCategories();
+      window.dispatchEvent(new Event('categories:refresh'));
+      toast.success(categoryForm.id ? 'Categoria atualizada.' : 'Categoria criada.');
+    } catch (error) {
+      toast.error(error);
+    } finally {
+      end();
+    }
+  }
+
+  async function deleteCategory() {
+    if (!categoryToDelete) return;
+    begin('Excluindo categoria');
+    try {
+      await categoriesApi.remove(categoryToDelete.id);
+      setCategoryToDelete(null);
+      await loadCategories();
+      window.dispatchEvent(new Event('categories:refresh'));
+      toast.success('Categoria excluída.');
+    } catch (error) {
+      toast.error(error);
+    } finally {
+      end();
+    }
+  }
 
   async function handleFileSelected(event) {
     const file = event.target.files?.[0];
@@ -104,6 +172,45 @@ export default function SettingsPage() {
 
       <Card className="settings-card">
         <header className="settings-card-head">
+          <div className="settings-icon"><Tag aria-hidden="true" /></div>
+          <div className="settings-card-copy">
+            <h2>Categorias</h2>
+            <p>Organize as categorias disponíveis nos lançamentos e filtros do sistema.</p>
+          </div>
+          <Button variant="primary" onClick={() => openCategoryForm()}>
+            <Plus aria-hidden="true" /> Nova categoria
+          </Button>
+        </header>
+
+        {categoriesLoading ? (
+          <p className="settings-loading">Carregando categorias...</p>
+        ) : categories.length ? (
+          <div className="settings-category-grid">
+            {categories.map((category) => (
+              <article className="settings-category" key={category.id}>
+                <span className="settings-category-color" style={{ backgroundColor: category.color }} />
+                <div className="settings-category-copy">
+                  <strong>{category.name}</strong>
+                  <span>{category.type === 'expense' ? 'Despesa' : category.type === 'income' ? 'Receita' : 'Despesa e receita'}</span>
+                </div>
+                <div className="settings-category-actions">
+                  <button type="button" onClick={() => openCategoryForm(category)} aria-label={`Editar ${category.name}`} title="Editar">
+                    <Pencil aria-hidden="true" />
+                  </button>
+                  <button type="button" onClick={() => setCategoryToDelete(category)} aria-label={`Excluir ${category.name}`} title="Excluir">
+                    <Trash2 aria-hidden="true" />
+                  </button>
+                </div>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <p className="settings-loading">Nenhuma categoria cadastrada.</p>
+        )}
+      </Card>
+
+      <Card className="settings-card">
+        <header className="settings-card-head">
           <div className="settings-icon"><FileSpreadsheet aria-hidden="true" /></div>
           <div className="settings-card-copy">
             <h2>Importador de planilhas</h2>
@@ -175,6 +282,58 @@ export default function SettingsPage() {
           </section>
         </div>
       </Card>
+
+      <Modal
+        open={Boolean(categoryForm)}
+        title={categoryForm?.id ? 'Editar categoria' : 'Nova categoria'}
+        footer={(
+          <>
+            <Button onClick={() => setCategoryForm(null)}><X aria-hidden="true" /> Cancelar</Button>
+            <Button variant="primary" type="submit" form="settings-category-form">
+              <CheckCircle2 aria-hidden="true" /> Salvar categoria
+            </Button>
+          </>
+        )}
+      >
+        {categoryForm && (
+          <form id="settings-category-form" className="settings-category-form" onSubmit={saveCategory}>
+            <label className="field">
+              <span className="field-label">Nome</span>
+              <input className="input" value={categoryForm.name} maxLength={80} required onChange={(event) => setCategoryForm({ ...categoryForm, name: event.target.value })} />
+            </label>
+            <label className="field">
+              <span className="field-label">Tipo</span>
+              <select className="input" value={categoryForm.type} onChange={(event) => setCategoryForm({ ...categoryForm, type: event.target.value })}>
+                <option value="expense">Despesa</option>
+                <option value="income">Receita</option>
+                <option value="both">Despesa e receita</option>
+              </select>
+            </label>
+            <label className="field">
+              <span className="field-label">Cor</span>
+              <span className="settings-category-color-picker">
+                <input type="color" value={categoryForm.color} onChange={(event) => setCategoryForm({ ...categoryForm, color: event.target.value })} />
+                <span>{categoryForm.color}</span>
+              </span>
+            </label>
+          </form>
+        )}
+      </Modal>
+
+      <Modal
+        open={Boolean(categoryToDelete)}
+        title="Excluir categoria"
+        footer={(
+          <>
+            <Button onClick={() => setCategoryToDelete(null)}>Cancelar</Button>
+            <Button variant="primary" className="settings-button-danger" onClick={deleteCategory}>
+              <Trash2 aria-hidden="true" /> Excluir categoria
+            </Button>
+          </>
+        )}
+      >
+        <p>Deseja excluir a categoria <strong>{categoryToDelete?.name}</strong>? Categorias vinculadas a lançamentos não podem ser excluídas.</p>
+      </Modal>
 
       <Modal
         open={Boolean(previewData)}

@@ -117,7 +117,9 @@ export default function PurchaseForm({ value, onClose, onSubmit, lookups }) {
     } finally { setBusy(false); }
   };
 
-  const opt = (list) => list.map((x) => ({ value: x.id, label: x.name }));
+  const opt = (list) => list
+    .filter((category) => category.type !== 'income')
+    .map((x) => ({ value: x.id, label: x.name }));
   return (
     <Modal open title={editing ? (f.shared ? 'Editar compra compartilhada' : 'Editar compra') : 'Nova compra'} wide
       footer={<><Button variant="ghost" onClick={onClose}>Cancelar</Button><Button variant="primary" disabled={busy} onClick={submit}>{editing ? 'Salvar alterações' : 'Registrar compra'}</Button></>}>

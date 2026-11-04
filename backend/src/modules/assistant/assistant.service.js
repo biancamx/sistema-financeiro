@@ -4,6 +4,8 @@ import { executarFerramenta, toolsDeclaration } from './assistant.tools.js';
 
 const MAX_TOOL_ROUNDS = 4;
 const MAX_HISTORY_MESSAGES = 40;
+const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
+const DEFAULT_IMAGE_PROMPT = 'Analise este comprovante e registre o gasto.';
 const MODEL_CACHE_TTL_MS = 15 * 60 * 1000;
 const FALLBACK_CACHE_TTL_MS = 60 * 1000;
 const MAX_DISCOVERED_MODELS = 12;
@@ -31,6 +33,9 @@ const SYSTEM_INSTRUCTION = `
 Você é o assistente financeiro oficial do "Caderno de Contas", uma aplicação web para organizar as finanças de pessoas e grupos familiares.
 Ajude a entender as funções do sistema, esclarecer dúvidas financeiras sobre os dados consultáveis e registrar operações quando o usuário pedir. Seja cordial, objetivo, empático e claro.
 
+ANÁLISE DE IMAGENS
+Quando receber uma foto de comprovante, recibo ou cupom fiscal, identifique o estabelecimento, valor total, data e forma de pagamento. Se for compra no cartão, use a ferramenta de compra no cartão; se for Pix, dinheiro, débito ou transferência, use o lançamento avulso. Antes de registrar, confirme os campos obrigatórios e pergunte o que faltar, especialmente o cartão ou a pessoa responsável. Não invente dados ilegíveis.
+
 MAPA DAS ÁREAS DO SISTEMA
 - Painel: resumo por mês e ano, com faturas, valores em aberto, limites de cartões, dados por pessoa e indicadores do Caixa Avulso.
 - Lançamentos: compras no cartão com descrição, valor, data, categoria, responsável e parcelas. Compras compartilhadas podem ser rateadas por partes iguais, porcentagem ou valor, com ajuste dos centavos. Há exportação CSV e controle de parcelas pagas.
@@ -41,6 +46,7 @@ MAPA DAS ÁREAS DO SISTEMA
 - Gestão de Veículos: cadastro de veículos e histórico de despesas como combustível, manutenção, seguro e impostos. Gastos podem identificar pagador e participantes do rateio.
 - Pessoas: cadastro de participantes e informações de contato, aniversário e chave Pix. A tela permite copiar a chave Pix.
 - Aniversários: acompanhamento de datas de aniversário cadastradas.
+- Configurações > Categorias: gerenciamento das categorias financeiras usadas nos lançamentos.
 - Portal do participante: página acessada por link individual com token para consultar demonstrativos; não dá acesso às áreas privadas de administração.
 - Calculadora de rescisão: ferramenta do sistema para estimar verbas rescisórias com os dados de admissão, demissão, salário, motivo, aviso prévio e saldo do FGTS.
 - Acessos e configurações: administração de contas e preferências disponíveis conforme o perfil do usuário.
@@ -164,10 +170,27 @@ function normalizeHistory(history) {
   });
 }
 
-async function sendWithModel(genAI, modelName, { message, history, userId }, onToolCall) {
+function normalizeImage(image) {
+  if (!image) return null;
+  if (!['image/jpeg', 'image/png', 'image/webp'].includes(image.mimeType)) {
+    throw new Error('Formato de imagem não suportado. Envie JPEG, PNG ou WebP.');
+  }
+  if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(image.base64)) {
+    throw new Error('A imagem enviada não está em um formato válido.');
+  }
+  const bytes = Buffer.from(image.base64, 'base64');
+  if (bytes.length === 0 || bytes.length > MAX_IMAGE_BYTES) {
+    throw new Error('A imagem deve ter no máximo 8 MB.');
+  }
+  return { base64: image.base64, mimeType: image.mimeType };
+}
+
+async function sendWithModel(genAI, modelName, { message, image, history, userId }, onToolCall) {
   const model = createModel(genAI, modelName);
   const chat = model.startChat({ history: normalizeHistory(history) });
-  let result = await chat.sendMessage(message.trim());
+  const parts = [{ text: message.trim() || DEFAULT_IMAGE_PROMPT }];
+  if (image) parts.push({ inlineData: { data: image.base64, mimeType: image.mimeType } });
+  let result = await chat.sendMessage(parts);
 
   for (let round = 0; round <= MAX_TOOL_ROUNDS; round += 1) {
     const response = result.response;
@@ -202,14 +225,15 @@ async function sendWithModel(genAI, modelName, { message, history, userId }, onT
   throw new Error('Não foi possível concluir a conversa com o assistente.');
 }
 
-export async function processUserMessage({ message, history = [], userId }) {
-  if (typeof message !== 'string' || !message.trim()) {
-    throw new Error('A mensagem não pode estar vazia.');
+export async function processUserMessage({ message = '', image: rawImage, history = [], userId }) {
+  if (typeof message !== 'string' || (!message.trim() && !rawImage)) {
+    throw new Error('Informe uma mensagem ou envie uma imagem.');
   }
   if (typeof userId !== 'string' || !userId) {
     throw new Error('É necessário informar o usuário autenticado.');
   }
 
+  const image = normalizeImage(rawImage);
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     throw new Error('A IA não está configurada no servidor (falta a GEMINI_API_KEY).');
@@ -226,7 +250,7 @@ export async function processUserMessage({ message, history = [], userId }) {
       const reply = await sendWithModel(
         genAI,
         modelName,
-        { message, history, userId },
+        { message, image, history, userId },
         () => { toolWasCalled = true; },
       );
       modelInUse = modelName;

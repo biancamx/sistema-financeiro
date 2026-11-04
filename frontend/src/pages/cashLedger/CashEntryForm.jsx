@@ -95,7 +95,12 @@ export default function CashEntryForm({ value, onClose, onSubmit, lookups }) {
   };
 
   const personOptions = lookups.people.map((person) => ({ value: person.id, label: person.name }));
-  const categoryOptions = lookups.categories.map((category) => ({ value: category.id, label: category.name }));
+  const categoryOptions = lookups.categories
+    .filter((category) => category.type === 'both'
+      || (form.kind === 'expense' && category.type === 'expense')
+      || (['sale', 'loan'].includes(form.kind) && category.type === 'income')
+      || form.kind === 'refund')
+    .map((category) => ({ value: category.id, label: category.name }));
   const vehicleOptions = lookups.vehicles.map((vehicle) => ({ value: vehicle.id, label: `${vehicle.model} · ${vehicle.plate}` }));
   const title = form.kind === 'expense' ? 'Compra avulsa' : form.kind === 'sale' ? 'Venda' : form.kind === 'loan' ? 'Empréstimo' : 'Reembolso / estorno';
   const kindOptions = [
@@ -117,10 +122,8 @@ export default function CashEntryForm({ value, onClose, onSubmit, lookups }) {
         <Field label={form.kind === 'expense' ? 'Data' : form.kind === 'sale' ? 'Data da venda' : form.kind === 'loan' ? 'Data do empréstimo' : 'Data do pagamento indevido'}>
           {(id) => <input id={id} className="input" type="date" value={form.entryDate} onChange={set('entryDate')} />}
         </Field>
-        {form.kind === 'expense' && <>
-          <Field label="Forma de pagamento">{(id) => <Select id={id} value={form.paymentMethod} onChange={set('paymentMethod')} options={METHODS} />}</Field>
-          <Field label="Categoria">{(id) => <Select id={id} value={form.categoryId} onChange={set('categoryId')} placeholder="Sem categoria" options={categoryOptions} />}</Field>
-        </>}
+        {form.kind === 'expense' && <Field label="Forma de pagamento">{(id) => <Select id={id} value={form.paymentMethod} onChange={set('paymentMethod')} options={METHODS} />}</Field>}
+        <Field label="Categoria">{(id) => <Select id={id} value={form.categoryId} onChange={set('categoryId')} placeholder="Sem categoria" options={categoryOptions} />}</Field>
         {personRequired && <Field label={form.kind === 'sale' ? 'Comprador' : 'Quem pegou'}>{(id) => <Select id={id} value={form.personId} onChange={set('personId')} placeholder="Selecione uma pessoa" options={personOptions} />}</Field>}
         {['sale', 'loan'].includes(form.kind) && <>
           <Field label={form.kind === 'sale' ? 'Forma de recebimento' : 'Como entreguei'}>{(id) => <Select id={id} value={form.paymentMethod} onChange={set('paymentMethod')} options={METHODS} />}</Field>

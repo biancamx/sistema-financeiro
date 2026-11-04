@@ -103,6 +103,7 @@ export function systemRoutes() {
           { _id: req.user._id },
           { $set: {
             portalContactPersonId: null,
+            categoriesInitialized: false,
             reminderSettings: { enabled: true, triggerDay: 5, triggerHour: 9, autoSend: false },
           } },
           { session },

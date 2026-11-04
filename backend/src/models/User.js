@@ -11,6 +11,7 @@ const userSchema = new mongoose.Schema(
     avatar: { type: String, default: null },
     picture: { type: String, default: null },
     provider: { type: String, enum: ['password', 'google', 'local'], default: 'password' },
+    categoriesInitialized: { type: Boolean, default: false },
     portalContactPersonId: { type: mongoose.Schema.Types.ObjectId, ref: 'Person', default: null },
     reminderSettings: {
       enabled: { type: Boolean, default: true },

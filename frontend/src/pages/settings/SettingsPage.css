@@ -409,6 +409,106 @@
   filter: brightness(1.08);
 }
 
+.settings-category-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr));
+  gap: 10px;
+}
+
+.settings-category {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--bg);
+}
+
+.settings-category-color {
+  width: 12px;
+  height: 12px;
+  flex: 0 0 12px;
+  border: 1px solid rgb(0 0 0 / .12);
+  border-radius: 50%;
+}
+
+.settings-category-copy {
+  display: grid;
+  min-width: 0;
+  flex: 1;
+  gap: 3px;
+}
+
+.settings-category-copy strong {
+  overflow: hidden;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-category-copy > span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.settings-category-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 4px;
+}
+
+.settings-category-actions button {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.settings-category-actions button:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.settings-category-actions button:last-child:hover {
+  border-color: var(--neg);
+  color: var(--neg);
+}
+
+.settings-category-actions svg {
+  width: 15px;
+  height: 15px;
+}
+
+.settings-category-form {
+  display: grid;
+  gap: 14px;
+}
+
+.settings-category-color-picker {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.settings-category-color-picker input {
+  width: 48px;
+  height: 38px;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface);
+  cursor: pointer;
+}
+
 @media (max-width: 700px) {
   .settings-card {
     padding: 16px;

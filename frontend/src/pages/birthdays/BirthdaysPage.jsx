@@ -140,7 +140,11 @@ export default function BirthdaysPage() {
                   {list.map((b) => (
                     <li key={b.id} className={b.day === today.getDate() && i + 1 === currentMonth ? 'birthday-today' : ''}>
                       <span className="day">{String(b.day).padStart(2, '0')}</span>
-                      <span className="birthday-person"><Cake size={14} aria-hidden="true" />{b.name}{b.personId && <small className="birthday-source">Pessoa</small>}</span>
+                      <span className="birthday-person">
+                        <Cake size={14} aria-hidden="true" />
+                        <span className="birthday-person-name" title={b.name}>{b.name}</span>
+                        {b.personId && <small className="birthday-source">Pessoa</small>}
+                      </span>
                       <span className="birthday-actions">
                         <a className="icon-btn birthday-whatsapp" href={whatsappShareUrl(birthdayGreeting(b.name))} target="_blank" rel="noreferrer" aria-label={`Enviar parabéns para ${b.name} no WhatsApp`} title="Enviar parabéns pelo WhatsApp">
                           <MessageCircle size={15} aria-hidden="true" />

@@ -443,14 +443,19 @@ img, canvas { max-width: 100%; }
 .monthly-purchases { min-width: 1000px; }
 .monthly-observation { min-width: 190px; max-width: 280px; }
 .sheet-card { padding: 0; overflow: hidden; }
-.sheet-scroll { max-height: calc(100vh - 250px); overflow: auto; }
+.sheet-scroll { max-height: calc(100vh - 250px); overflow: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
 .sheet { border-collapse: separate; border-spacing: 0; width: max-content; font-size: 13px; }
-.sheet-fluid { width: 100%; min-width: 1100px; table-layout: fixed; }
+.sheet-fluid { width: max-content; min-width: 100%; table-layout: auto; }
+.sheet-label-column { width: clamp(220px, 22vw, 300px); }
+.sheet-month-column { width: 104px; }
+.sheet-total-column { width: 132px; }
+.sheet-actions-column { width: 76px; }
 .sheet th, .sheet td { padding: 2px 6px; border-bottom: 1px solid var(--line); height: 32px; }
 .sheet thead th { position: sticky; top: 0; z-index: 3; background: var(--surface); color: var(--muted); font-weight: 500; text-align: left; }
-.sheet .sticky-col { position: sticky; left: 0; z-index: 2; background: var(--surface); min-width: 210px; max-width: 210px; border-right: 1px solid var(--line); text-align: left; }
+.sheet .sticky-col { position: sticky; left: 0; z-index: 2; box-sizing: border-box; width: clamp(220px, 22vw, 300px); min-width: clamp(220px, 22vw, 300px); max-width: clamp(220px, 22vw, 300px); background: var(--surface); border-right: 1px solid var(--line); text-align: left; }
 .sheet thead .sticky-col { z-index: 4; }
-.sheet td.num { min-width: 82px; }
+.sheet th.num, .sheet td.num { box-sizing: border-box; min-width: 104px; padding-right: 10px; padding-left: 10px; }
+.sheet td.num { overflow: visible; }
 .sheet .sec-head th { background: var(--primary-soft); color: var(--ink); font-weight: 600; text-align: left; }
 .sheet .sec-head .sticky-col { background: var(--primary-soft); }
 .sheet .sec-total td { font-weight: 600; background: var(--hover); }
@@ -558,7 +563,7 @@ img, canvas { max-width: 100%; }
 .cell:hover { border-color: var(--line); }
 .cell:focus { outline: none; border-color: var(--primary); background: var(--surface); box-shadow: 0 0 0 2px var(--primary-soft); }
 .cell.neg { color: var(--neg); }
-.cell-label { text-align: left; }
+.cell-label { min-width: 0; text-align: left; }
 .add-row { margin: 0; }
 .status { font: inherit; font-size: 12px; border: 1px solid var(--line); border-radius: 99px; padding: 2px 10px; cursor: pointer; background: var(--surface); }
 .status-paid { background: var(--primary-soft); color: var(--primary); border-color: transparent; font-weight: 500; }

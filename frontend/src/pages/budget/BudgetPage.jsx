@@ -198,6 +198,14 @@ export default function BudgetPage() {
           <Card className="sheet-card">
             <div className="table-wrap sheet-scroll">
               <table className="sheet sheet-fluid">
+                <colgroup>
+                  <col className="sheet-label-column" />
+                  {MONTHS_SHORT.map((month) => <col key={month} className="sheet-month-column" />)}
+                  <col className="sheet-total-column" />
+                  <col className="sheet-total-column" />
+                  <col className="sheet-total-column" />
+                  <col className="sheet-actions-column" />
+                </colgroup>
                 <thead>
                   <tr><th className="sticky-col">Categoria</th>{MONTHS_SHORT.map((m) => <th key={m} className="num">{m}</th>)}<th className="num">Total</th><th className="num">Mín.</th><th className="num">Máx.</th><th /></tr>
                 </thead>
@@ -207,7 +215,7 @@ export default function BudgetPage() {
                     {sec.rows.map((r) => (
                       <tr key={r.id}>
                         <td className="sticky-col">
-                          {sec.computed ? r.label : <input className="cell cell-label" defaultValue={r.label} onBlur={(e) => rename(r, e.target.value)} aria-label="Nome da linha" />}
+                          {sec.computed ? r.label : <input className="cell cell-label" defaultValue={r.label} title={r.label} onBlur={(e) => rename(r, e.target.value)} aria-label="Nome da linha" />}
                         </td>
                         {r.values.map((v, i) => (
                           <td key={i} className="num">{sec.computed ? (v ? moneyPlain(v) : '') : <MoneyCell value={v} onSave={(n) => saveCell(r, i + 1, n)} />}</td>

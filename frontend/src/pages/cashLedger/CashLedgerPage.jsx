@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import { ChevronDown, Download, Pencil, Plus, SlidersHorizontal, Trash2 } from 'lucide-react';
 import { usePeriod } from '../../context/PeriodContext.jsx';
 import { useToast } from '../../context/ToastContext.jsx';
 import { useFetch } from '../../hooks/useFetch.js';
@@ -24,6 +25,7 @@ export default function CashLedgerPage() {
   const lookups = useLookups();
   const vehicles = useFetch(() => vehiclesApi.list(), []);
   const [tab, setTab] = useState(() => searchParams.size ? 'all' : 'month');
+  const [extraFiltersOpen, setExtraFiltersOpen] = useState(false);
   const [filters, setFilters] = useState(() => ({
     search: searchParams.get('search') || '',
     personId: searchParams.get('personId') || '',
@@ -185,6 +187,7 @@ export default function CashLedgerPage() {
   const selectedRows = rows.filter((row) => selected.includes(row.installmentId));
   const allSelectable = rows.filter((row) => row.installmentId && row.outstanding > 0);
   const allSelected = allSelectable.length > 0 && allSelectable.every((row) => selected.includes(row.installmentId));
+  const extraFilterCount = [filters.status, filters.paymentMethod, filters.categoryId].filter(Boolean).length;
 
   const toggleAll = () => setSelected((current) => {
     if (allSelected) return current.filter((id) => !allSelectable.some((row) => row.installmentId === id));
@@ -195,13 +198,17 @@ export default function CashLedgerPage() {
   if (lookups.error) return <ErrorState error={lookups.error} onRetry={lookups.reload} />;
 
   return (
-    <>
+    <div className="cash-page">
       <PageHeader
         title="Avulsos"
-        subtitle="Entradas e saídas fora dos cartões de crédito"
+        subtitle={<span className="cash-page-subtitle">Entradas e saídas fora dos cartões de crédito</span>}
         actions={<>
-          <a className="btn btn-ghost" href={cashLedgerApi.exportUrl()}>Exportar CSV</a>
-          <Button variant="primary" onClick={() => setForm(emptyCashEntry())}>Novo registro</Button>
+          <a className="btn btn-ghost cash-export" href={cashLedgerApi.exportUrl()} aria-label="Exportar CSV">
+            <Download size={16} aria-hidden="true" /><span>Exportar CSV</span>
+          </a>
+          <Button className="cash-new" variant="primary" onClick={() => setForm(emptyCashEntry())}>
+            <Plus size={17} aria-hidden="true" /> Novo registro
+          </Button>
         </>}
       />
 
@@ -227,11 +234,24 @@ export default function CashLedgerPage() {
           <input className="input" type="search" placeholder="Buscar descrição ou pessoa…" value={filters.search} onChange={(event) => setFilter('search')(event.target.value)} aria-label="Buscar" />
           <Select value={filters.personId} onChange={setFilter('personId')} placeholder="Todas as pessoas" options={lookups.people.map((person) => ({ value: person.id, label: person.name }))} aria-label="Pessoa" />
           <Select value={filters.kind} onChange={setFilter('kind')} placeholder="Todos os tipos" options={Object.entries(kindLabels).map(([value, label]) => ({ value, label }))} aria-label="Tipo" />
-          <Select value={filters.status} onChange={setFilter('status')} placeholder="Todos os status" options={[
-            { value: 'pendente', label: 'Pendente / parcial' }, { value: 'atrasada', label: 'Atrasada' }, { value: 'recebida', label: 'Recebida' }, { value: 'quitado', label: 'Quitado' },
-          ]} aria-label="Status" />
-          <Select value={filters.paymentMethod} onChange={setFilter('paymentMethod')} placeholder="Todas as formas" options={Object.entries(methodLabels).map(([value, label]) => ({ value, label }))} aria-label="Forma de pagamento" />
-          <Select value={filters.categoryId} onChange={setFilter('categoryId')} placeholder="Todas as categorias" options={lookups.categories.map((category) => ({ value: category.id, label: category.name }))} aria-label="Categoria" />
+          <button
+            type="button"
+            className="cash-filter-toggle"
+            aria-expanded={extraFiltersOpen}
+            aria-controls="cash-extra-filters"
+            onClick={() => setExtraFiltersOpen((open) => !open)}
+          >
+            <SlidersHorizontal size={15} aria-hidden="true" />
+            <span>Mais filtros{extraFilterCount ? ` (${extraFilterCount})` : ''}</span>
+            <ChevronDown size={15} aria-hidden="true" />
+          </button>
+          <div id="cash-extra-filters" className={`cash-extra-filters${extraFiltersOpen ? ' is-open' : ''}`}>
+            <Select value={filters.status} onChange={setFilter('status')} placeholder="Todos os status" options={[
+              { value: 'pendente', label: 'Pendente / parcial' }, { value: 'atrasada', label: 'Atrasada' }, { value: 'recebida', label: 'Recebida' }, { value: 'quitado', label: 'Quitado' },
+            ]} aria-label="Status" />
+            <Select value={filters.paymentMethod} onChange={setFilter('paymentMethod')} placeholder="Todas as formas" options={Object.entries(methodLabels).map(([value, label]) => ({ value, label }))} aria-label="Forma de pagamento" />
+            <Select value={filters.categoryId} onChange={setFilter('categoryId')} placeholder="Todas as categorias" options={lookups.categories.map((category) => ({ value: category.id, label: category.name }))} aria-label="Categoria" />
+          </div>
         </div>
       </div>
 
@@ -282,9 +302,15 @@ export default function CashLedgerPage() {
                       <td className="num"><Money value={row.amount} /></td>
                       <td><span className={`cash-status cash-status-${row.status}`}>{row.kind === 'refund' ? refundLabels[row.refundStatus] || statusLabels[row.status] : statusLabels[row.status]}</span></td>
                       <td className="cash-row-actions">
-                        <Button size="sm" onClick={() => openEdit(row.id)}>Editar</Button>
+                        <div className="cash-action-group">
+                          <Button className="cash-icon-action" variant="ghost" title="Editar" aria-label={`Editar ${row.description}`} onClick={() => openEdit(row.id)}>
+                            <Pencil size={16} aria-hidden="true" />
+                          </Button>
+                          <Button className="cash-icon-action is-destructive" variant="ghost" title="Excluir" aria-label={`Excluir ${row.description}`} onClick={() => removeEntry(row)}>
+                            <Trash2 size={16} aria-hidden="true" />
+                          </Button>
+                        </div>
                         {selectable && <Button size="sm" variant="primary" onClick={() => openReceive(row)}>Receber</Button>}
-                        <Button size="sm" variant="ghost" onClick={() => removeEntry(row)}>Excluir</Button>
                       </td>
                     </tr>
                   );
@@ -325,9 +351,15 @@ export default function CashLedgerPage() {
                         Selecionar
                       </label>
                     )}
-                    <Button size="sm" onClick={() => openEdit(row.id)}>Editar</Button>
                     {selectable && <Button size="sm" variant="primary" onClick={() => openReceive(row)}>Receber</Button>}
-                    <Button size="sm" variant="ghost" onClick={() => removeEntry(row)}>Excluir</Button>
+                    <div className="cash-action-group">
+                      <Button className="cash-icon-action" variant="ghost" title="Editar" aria-label={`Editar ${row.description}`} onClick={() => openEdit(row.id)}>
+                        <Pencil size={16} aria-hidden="true" />
+                      </Button>
+                      <Button className="cash-icon-action is-destructive" variant="ghost" title="Excluir" aria-label={`Excluir ${row.description}`} onClick={() => removeEntry(row)}>
+                        <Trash2 size={16} aria-hidden="true" />
+                      </Button>
+                    </div>
                   </div>
                 </article>
               );
@@ -397,6 +429,6 @@ export default function CashLedgerPage() {
           </>}
         </Modal>
       )}
-    </>
+    </div>
   );
 }

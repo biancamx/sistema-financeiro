@@ -128,7 +128,7 @@ export default function PurchasesPage() {
         </>}
       />
 
-      <div className="toolbar">
+      <div className="toolbar purchase-toolbar">
         <div className="tabs" role="tablist">
           <button role="tab" aria-selected={tab === 'month'} className={tab === 'month' ? 'on' : ''} onClick={() => setTab('month')}>Parcelas de {monthLabel(period.month, period.year)}</button>
           <button role="tab" aria-selected={tab === 'all'} className={tab === 'all' ? 'on' : ''} onClick={() => setTab('all')}>Todas as compras</button>
@@ -236,7 +236,16 @@ export default function PurchasesPage() {
                       <td>{r.card}</td>
                       <td>{r.number}/{r.count}</td>
                       <td className="num"><Money value={r.amount} /></td>
-                      <td className="row-actions"><Button variant="ghost" size="sm" disabled={Boolean(r.vehicleExpenseId)} onClick={() => openEdit(r.purchaseId, r.sharedGroup)}>Editar</Button></td>
+                      <td className="row-actions">
+                        <div className="purchase-icon-actions">
+                          <Button className="purchase-icon-action" variant="ghost" title="Editar" aria-label={`Editar ${r.description}`} disabled={Boolean(r.vehicleExpenseId)} onClick={() => openEdit(r.purchaseId, r.sharedGroup)}>
+                            <Pencil size={16} aria-hidden="true" />
+                          </Button>
+                          <Button className="purchase-icon-action is-destructive" variant="ghost" title="Excluir" aria-label={`Excluir ${r.description}`} disabled={Boolean(r.vehicleExpenseId)} onClick={() => remove({ id: r.purchaseId, description: r.description, sharedGroup: r.sharedGroup })}>
+                            <Trash2 size={16} aria-hidden="true" />
+                          </Button>
+                        </div>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -310,7 +319,16 @@ export default function PurchasesPage() {
                         <td className="num"><Money value={p.total} /></td>
                         <td>{p.count}x <span className="muted">de</span> <Money value={p.perInstallment} /></td>
                         <td className="muted">{p.first ? `${MONTHS_SHORT[p.first.month - 1]}/${p.first.year} → ${MONTHS_SHORT[p.last.month - 1]}/${p.last.year}` : '—'}</td>
-                        <td className="row-actions"><Button variant="ghost" size="sm" disabled={Boolean(p.vehicleExpenseId)} onClick={() => openEdit(p.id, p.sharedGroup)}>Editar</Button><Button variant="ghost" size="sm" disabled={Boolean(p.vehicleExpenseId)} onClick={() => remove(p)}>Excluir</Button></td>
+                        <td className="row-actions">
+                          <div className="purchase-icon-actions">
+                            <Button className="purchase-icon-action" variant="ghost" title="Editar" aria-label={`Editar ${p.description}`} disabled={Boolean(p.vehicleExpenseId)} onClick={() => openEdit(p.id, p.sharedGroup)}>
+                              <Pencil size={16} aria-hidden="true" />
+                            </Button>
+                            <Button className="purchase-icon-action is-destructive" variant="ghost" title="Excluir" aria-label={`Excluir ${p.description}`} disabled={Boolean(p.vehicleExpenseId)} onClick={() => remove(p)}>
+                              <Trash2 size={16} aria-hidden="true" />
+                            </Button>
+                          </div>
+                        </td>
                       </tr>
                     ))}
                   </tbody>

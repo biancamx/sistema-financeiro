@@ -277,7 +277,10 @@ export default function AppLayout() {
             >
               <Menu aria-hidden="true" />
             </button>
-            <span className="mobile-brand">Caderno de Contas</span>
+            <span className="mobile-brand">
+              <span className="mobile-brand-mark" aria-hidden="true">C</span>
+              <span className="mobile-brand-text">Caderno de Contas</span>
+            </span>
           </div>
           <div className="topbar-actions">
             <SystemClock />
@@ -365,7 +368,7 @@ export default function AppLayout() {
                   </div>
                 )}
 
-                <div className="truncate min-w-0">
+                <div className="user-profile-details truncate min-w-0">
                   <div className="text-xs font-semibold text-slate-200 truncate">{user?.name}</div>
                   <div className="text-[10px] text-slate-400 truncate">{user?.email}</div>
                 </div>
@@ -447,7 +450,12 @@ export default function AppLayout() {
               className={({ isActive }) => `mobile-bottom-link ${isActive ? 'active' : ''}`}
             >
               <item.icon className="mobile-bottom-symbol" aria-hidden="true" />
-              <span>{item.label}</span>
+              <span>
+                {item.to === PATHS.vehicles ? 'Veículos'
+                  : item.to === PATHS.rescission ? 'Rescisão'
+                    : item.to === PATHS.overview ? 'Visão Geral'
+                      : item.label}
+              </span>
             </NavLink>
           ))}
         </div>

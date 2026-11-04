@@ -141,19 +141,18 @@ export default function PurchasesPage() {
         {tab === 'month' && month.data && (
           month.data.data.length === 0 ? <EmptyState title="Nenhuma parcela neste mês">Registre uma compra ou mude o mês no topo.</EmptyState> : (
             <>
-              <div className="toolbar">
-                <div className="small">
-                  <label>
+              <div className="toolbar purchase-bulk-toolbar">
+                <div className="small purchase-bulk-selection">
+                  <label className="purchase-bulk-checkbox">
                     <input type="checkbox" checked={allUnpaidSelected} onChange={toggleAllUnpaid} disabled={unpaidRows.length === 0} />
                     {' '}Selecionar pendentes ({unpaidRows.length})
                   </label>
-                  {' · '}
-                  <label>
+                  <label className="purchase-bulk-checkbox">
                     <input type="checkbox" checked={allPaidSelected} onChange={toggleAllPaid} disabled={paidRows.length === 0} />
                     {' '}Selecionar pagas ({paidRows.length})
                   </label>
                 </div>
-                <div className="row-actions">
+                <div className="purchase-bulk-actions">
                   <Button
                     variant="primary"
                     onClick={() => setInstallmentsPaid(selectedUnpaidRows, true)}

@@ -16,6 +16,7 @@ export default function BudgetPage() {
   const people = useFetch(() => peopleApi.list(), []);
   const thisYear = new Date().getFullYear();
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
+  const [showFullYearMobile, setShowFullYearMobile] = useState(false);
   const personId = params.personId || people.data?.[0]?.id;
   const year = Number(params.year) || thisYear;
 
@@ -196,8 +197,100 @@ export default function BudgetPage() {
           </section>
 
           <Card className="sheet-card">
-            <p className="sheet-scroll-hint">Deslize a planilha para os lados para ver todos os meses e valores.</p>
-            <div className="table-wrap sheet-scroll">
+            <div className="budget-month-controls">
+              <div className="budget-month-picker" role="group" aria-label="Mês da planilha">
+                <button
+                  type="button"
+                  className="icon-btn"
+                  onClick={() => setSelectedMonth((month) => Math.max(1, month - 1))}
+                  disabled={selectedMonth <= 1}
+                  aria-label="Mês anterior"
+                >
+                  ‹
+                </button>
+                <Select
+                  value={selectedMonth}
+                  onChange={(month) => setSelectedMonth(Number(month))}
+                  options={MONTHS.map((label, index) => ({ value: index + 1, label }))}
+                  aria-label="Selecionar mês da planilha"
+                />
+                <button
+                  type="button"
+                  className="icon-btn"
+                  onClick={() => setSelectedMonth((month) => Math.min(12, month + 1))}
+                  disabled={selectedMonth >= 12}
+                  aria-label="Próximo mês"
+                >
+                  ›
+                </button>
+              </div>
+              <button
+                type="button"
+                className="btn btn-ghost budget-full-year-toggle"
+                aria-expanded={showFullYearMobile}
+                onClick={() => setShowFullYearMobile((shown) => !shown)}
+              >
+                {showFullYearMobile ? 'Voltar à visualização mensal' : '📊 Ver todos os 12 meses lado a lado'}
+              </button>
+            </div>
+
+            <div className={`budget-month-table${showFullYearMobile ? ' is-hidden' : ''}`}>
+              <table className="sheet budget-month-view">
+                <thead>
+                  <tr><th>Categoria</th><th className="num">{MONTHS_SHORT[selectedMonth - 1]}</th></tr>
+                </thead>
+                {d.sections.map((sec) => (
+                  <tbody key={sec.key}>
+                    <tr className="sec-head"><th colSpan={2}>{sec.label}{sec.computed && <span className="pill">automático</span>}</th></tr>
+                    {sec.rows.map((r) => (
+                      <tr key={r.id}>
+                        <td className="budget-month-label">
+                          {sec.computed
+                            ? r.label
+                            : <input className="cell cell-label" defaultValue={r.label} title={r.label} onBlur={(e) => rename(r, e.target.value)} aria-label="Nome da linha" />}
+                          {!sec.computed && (
+                            <span className="budget-month-row-actions">
+                              <button className="icon-btn" disabled={!lastEdit[r.id]} onClick={() => fill(r)} title="Repetir o último valor digitado até dezembro" aria-label="Repetir até dezembro">⇥</button>
+                              <button className="icon-btn" onClick={() => removeRow(r)} title="Remover linha" aria-label="Remover linha">×</button>
+                            </span>
+                          )}
+                        </td>
+                        <td className={`num ${r.values[selectedMonth - 1] < 0 ? 'neg' : ''}`}>
+                          {sec.computed
+                            ? (r.values[selectedMonth - 1] ? moneyPlain(r.values[selectedMonth - 1]) : '')
+                            : <MoneyCell value={r.values[selectedMonth - 1]} onSave={(value) => saveCell(r, selectedMonth, value)} />}
+                        </td>
+                      </tr>
+                    ))}
+                    <tr className="sec-total">
+                      <td className="budget-month-label">
+                        {!sec.computed && (adding?.section === sec.key ? (
+                          <form onSubmit={addRow} className="add-row"><input className="cell cell-label" autoFocus placeholder="Nome da linha" value={adding.label} onChange={(e) => setAdding({ ...adding, label: e.target.value })} onBlur={() => !adding.label && setAdding(null)} /></form>
+                        ) : (
+                          <button className="link-btn" onClick={() => setAdding({ section: sec.key, label: '' })}>+ linha</button>
+                        ))}
+                        {sec.computed && 'Total'}
+                      </td>
+                      <td className="num total">{moneyPlain(sec.totals[selectedMonth - 1])}</td>
+                    </tr>
+                  </tbody>
+                ))}
+                <tbody className="summary">
+                  <tr className="sec-head"><th colSpan={2}>Resumo geral</th></tr>
+                  {d.summary.lines.map((line) => (
+                    <tr key={line.key} className={['spent', 'balance'].includes(line.key) ? `strong line-${line.key}` : ''}>
+                      <td>{line.key === 'balance' ? 'Saldo final' : line.key === 'spent' ? 'Gasto final' : line.label}</td>
+                      <td className={`num ${line.key === 'balance' && line.values[selectedMonth - 1] < 0 ? 'neg' : ''} ${line.key === 'balance' && line.values[selectedMonth - 1] > 0 ? 'pos' : ''}`}>
+                        {moneyPlain(line.values[selectedMonth - 1])}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <p className={`sheet-scroll-hint budget-full-year-hint${showFullYearMobile ? ' is-visible' : ''}`}>Deslize a planilha para os lados para ver todos os meses e valores.</p>
+            <div className={`table-wrap sheet-scroll budget-full-year-table${showFullYearMobile ? ' is-visible' : ''}`}>
               <table className="sheet sheet-fluid">
                 <colgroup>
                   <col className="sheet-label-column" />

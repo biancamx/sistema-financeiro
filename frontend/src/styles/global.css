@@ -572,6 +572,8 @@ img, canvas { max-width: 100%; }
 .sheet-card { padding: 0; overflow: hidden; }
 .sheet-scroll-hint { margin: 0; padding: 10px 14px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 12px; }
 .sheet-scroll { width: 100%; max-width: 100%; min-width: 0; max-height: calc(100vh - 250px); overflow: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
+.budget-month-controls, .budget-month-table { display: none; }
+.budget-full-year-toggle { justify-content: flex-start; }
 .sheet { border-collapse: separate; border-spacing: 0; width: max-content; font-size: 13px; }
 .sheet-fluid { width: max(100%, 2076px); min-width: 2076px; table-layout: fixed; }
 .sheet-label-column { width: 260px; }
@@ -591,6 +593,51 @@ img, canvas { max-width: 100%; }
 .sheet .total { font-weight: 600; }
 .sheet .strong td { font-weight: 600; }
 @media (max-width: 767px) {
+  .budget-page { padding-bottom: 6rem; }
+  .budget-month-controls { display: grid; gap: 6px; padding: 12px; border-bottom: 1px solid var(--line); }
+  .budget-month-picker { display: grid; grid-template-columns: 44px minmax(0, 1fr) 44px; align-items: center; gap: 8px; }
+  .budget-month-picker > .icon-btn { width: 44px; height: 44px; font-size: 24px; }
+  .budget-month-picker > .input { min-width: 0; text-align: center; }
+  .budget-full-year-toggle { min-height: 36px; padding: 6px 2px; white-space: normal; text-align: left; }
+  .budget-month-table {
+    display: block;
+    width: 100%;
+    min-width: 0;
+    overflow: visible;
+    overscroll-behavior: auto;
+  }
+  .budget-month-table.is-hidden { display: none; }
+  .budget-month-view {
+    width: 100%;
+    min-width: 0;
+    table-layout: fixed;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+  .budget-month-view th, .budget-month-view td {
+    height: auto;
+    min-width: 0;
+    padding: 9px 10px;
+    overflow-wrap: anywhere;
+    white-space: normal;
+  }
+  .budget-month-view thead th {
+    position: static;
+    background: var(--surface);
+  }
+  .budget-month-view thead th:first-child { width: 62%; }
+  .budget-month-view thead th:last-child { width: 38%; }
+  .budget-month-view .sec-head th { position: static; }
+  .budget-month-label { overflow-wrap: anywhere; }
+  .budget-month-label .cell-label { display: block; min-height: 36px; padding: 4px 2px; text-align: left; white-space: normal; }
+  .budget-month-row-actions { display: flex; gap: 4px; margin-top: 3px; }
+  .budget-month-view td.num { text-align: right; white-space: normal; }
+  .budget-month-view td.num .cell { min-width: 0; padding: 4px 0; font-size: 12px; }
+  .budget-full-year-hint { display: none; }
+  .budget-full-year-hint.is-visible { display: block; }
+  .budget-full-year-table { display: none; max-height: none; overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; -webkit-overflow-scrolling: touch; }
+  .budget-full-year-table.is-visible { display: block; }
+  .budget-full-year-table .sheet-fluid { width: max(100%, 2076px); min-width: 2076px; }
   .sheet-label-column { width: 136px; }
   .sheet-month-column { width: 94px; }
   .sheet .sticky-col {

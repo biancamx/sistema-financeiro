@@ -793,12 +793,26 @@ img, canvas { max-width: 100%; }
 .participant-eyebrow { margin: 0 0 4px; color: #77c8b2; font-size: 10px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
 .participant-welcome h1 { margin: 0; color: #f4faf8; font-size: clamp(22px, 5vw, 30px); letter-spacing: -.03em; }
 .participant-welcome p:last-child { margin: 5px 0 0; color: #9db2ae; font-size: 13px; }
-.participant-birthday-banner { display: flex; align-items: center; gap: 14px; margin: -4px 0 24px; padding: 14px 16px; border: 1px solid #45b8ae66; border-radius: 14px; background: linear-gradient(110deg, #17403d, #142324); box-shadow: 0 10px 32px #0002; }
+.participant-birthday-banner { position: relative; z-index: 31; display: flex; align-items: center; gap: 14px; margin: -4px 0 24px; padding: 14px 16px; border: 1px solid #45b8ae66; border-radius: 14px; background: linear-gradient(110deg, #17403d, #142324); box-shadow: 0 10px 32px #0002; }
 .participant-birthday-icon { display: grid; flex: 0 0 42px; width: 42px; height: 42px; place-items: center; border-radius: 12px; background: #45b8ae22; color: #77c8b2; }
 .participant-birthday-banner > div { min-width: 0; flex: 1; }
 .participant-birthday-banner strong { color: #f4faf8; }
 .participant-birthday-banner p { margin: 4px 0 0; color: #a7c3bb; font-size: 12px; line-height: 1.45; }
 .participant-birthday-banner .btn { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 7px; }
+.participant-celebrate-button { min-height: 44px; }
+.participant-confetti-layer { position: fixed; z-index: 30; inset: 0; overflow: hidden; perspective: 700px; perspective-origin: center top; pointer-events: none; }
+.participant-confetti-piece { position: absolute; top: -12vh; display: block; width: var(--confetti-width); height: var(--confetti-height); border-radius: 2px; background: linear-gradient(145deg, #ffffffaa, var(--confetti-color) 45%, color-mix(in srgb, var(--confetti-color) 60%, #142324)); box-shadow: 0 2px 6px #0005, inset -2px -1px 2px #0003; opacity: 0; transform-style: preserve-3d; animation: participant-confetti-fall var(--confetti-duration) cubic-bezier(.18,.58,.34,.99) var(--confetti-delay) both; }
+.participant-confetti-shape-1 { border-radius: 50%; }
+.participant-confetti-shape-2 { width: calc(var(--confetti-width) * .7); border-radius: 1px; }
+@keyframes participant-confetti-fall {
+  0% { opacity: 0; transform: translate3d(0, -4vh, 0) rotateX(0) rotateY(0) rotateZ(0); }
+  8% { opacity: .95; }
+  50% { transform: translate3d(calc(var(--confetti-drift) * .35), 52vh, var(--confetti-depth)) rotateX(560deg) rotateY(420deg) rotateZ(280deg); }
+  100% { opacity: 0; transform: translate3d(var(--confetti-drift), 112vh, 0) rotateX(1120deg) rotateY(900deg) rotateZ(760deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .participant-confetti-layer { display: none; }
+}
 .participant-totals { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-bottom: 30px; }
 .participant-total { display: grid; grid-template-columns: 30px 1fr; align-items: center; gap: 1px 10px; min-width: 0; padding: 16px; border: 1px solid #243a3b; border-radius: 14px; background: #142324d9; }
 .participant-total-icon { grid-row: span 2; display: grid; place-items: center; width: 30px; height: 30px; border-radius: 9px; background: #203a32; color: #66c58c; }
@@ -863,7 +877,7 @@ img, canvas { max-width: 100%; }
   .participant-header { margin-bottom: 25px; }
   .participant-birthday-banner { align-items: flex-start; flex-wrap: wrap; gap: 10px; padding: 12px; }
   .participant-birthday-banner > div { flex-basis: calc(100% - 56px); }
-  .participant-birthday-banner .btn { width: 100%; justify-content: center; }
+  .participant-birthday-banner .participant-celebrate-button { width: 100%; justify-content: center; }
   .participant-totals { grid-template-columns: 1fr; gap: 8px; margin-bottom: 20px; }
   .participant-total { padding: 12px 14px; }
   .participant-total strong { font-size: 15px; }

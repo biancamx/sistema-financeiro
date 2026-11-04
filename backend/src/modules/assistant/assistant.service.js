@@ -272,3 +272,32 @@ export async function processUserMessage({ message = '', image: rawImage, histor
     `Nenhum modelo Gemini disponível conseguiu responder. Último erro: ${lastError?.message ?? 'serviço indisponível.'}`,
   );
 }
+
+export async function generateGeminiContent({ parts, systemInstruction, generationConfig }) {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    throw new Error('A IA não está configurada no servidor (falta a GEMINI_API_KEY).');
+  }
+  const genAI = new GoogleGenerativeAI(apiKey);
+  const models = await discoverModels(apiKey);
+  const modelCandidates = [...new Set([modelInUse, ...models].filter(Boolean))];
+  let lastError;
+
+  for (const modelName of modelCandidates) {
+    try {
+      const model = genAI.getGenerativeModel({ model: modelName, systemInstruction, generationConfig });
+      const result = await model.generateContent(parts);
+      modelInUse = modelName;
+      return result.response.text();
+    } catch (error) {
+      modelInUse = null;
+      lastError = error;
+      if (error.status === 401 || error.status === 403) throw error;
+      console.warn(`O modelo Gemini ${modelName} falhou durante a análise do documento; tentando o próximo modelo disponível:`, error.message);
+    }
+  }
+
+  throw new Error(
+    `Nenhum modelo Gemini disponível conseguiu analisar o documento. Último erro: ${lastError?.message ?? 'serviço indisponível.'}`,
+  );
+}

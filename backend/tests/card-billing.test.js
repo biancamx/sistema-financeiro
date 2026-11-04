@@ -60,3 +60,13 @@ test('assinaturas canceladas permanecem na fatura do mês do cancelamento e para
   assert.equal(subscriptionActiveInPeriod({ ...purchase, subscriptionStatus: 'active' }, 2030, 1), true);
   assert.equal(subscriptionActiveInPeriod({ ...purchase, isSubscription: false }, 2026, 11), false);
 });
+
+test('assinaturas importadas respeitam o mês final informado no PDF', () => {
+  const purchase = {
+    isSubscription: true,
+    subscriptionStatus: 'active',
+    subscriptionEndAt: new Date('2026-12-31T12:00:00Z'),
+  };
+  assert.equal(subscriptionActiveInPeriod(purchase, 2026, 12), true);
+  assert.equal(subscriptionActiveInPeriod(purchase, 2027, 1), false);
+});

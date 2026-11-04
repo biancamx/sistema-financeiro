@@ -28,7 +28,7 @@ export function createDashboardService() {
           .populate('ownerId', 'name').sort({ name: 1 }).lean(),
         cashLedger.summary(userId, month, year),
         Person.find({ userId }).select('name').sort({ name: 1 }).lean(),
-        Purchase.find({ userId }).select('_id personId cardId categoryId isSubscription subscriptionStatus canceledAt').lean(),
+        Purchase.find({ userId }).select('_id personId cardId categoryId isSubscription subscriptionStatus canceledAt subscriptionEndAt').lean(),
         Installment.find({ userId }).select('purchaseId year month amount paidAmount paid').lean(),
       ]);
       const purchaseMap = new Map(purchases.map((purchase) => [String(purchase._id), purchase]));

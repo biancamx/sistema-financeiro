@@ -10,11 +10,16 @@ const fromCents = (value) => value / 100;
 
 export function subscriptionActiveInPeriod(purchase, year, month) {
   if (!purchase.isSubscription) return false;
+  if (purchase.subscriptionEndAt) {
+    const endAt = new Date(purchase.subscriptionEndAt);
+    if (!Number.isNaN(endAt.getTime())
+      && monthIndex(year, month) > monthIndex(endAt.getUTCFullYear(), endAt.getUTCMonth() + 1)) return false;
+  }
   if (purchase.subscriptionStatus !== 'canceled') return true;
   if (!purchase.canceledAt) return false;
   const canceledAt = new Date(purchase.canceledAt);
   if (Number.isNaN(canceledAt.getTime())) return false;
-  return monthIndex(year, month) <= monthIndex(canceledAt.getFullYear(), canceledAt.getMonth() + 1);
+  return monthIndex(year, month) <= monthIndex(canceledAt.getUTCFullYear(), canceledAt.getUTCMonth() + 1);
 }
 
 export async function ensureSubscriptionInstallments(userId, month, year, filter = {}) {
@@ -165,7 +170,7 @@ export function createCardBilling() {
     });
     const purchases = await Purchase.find({
       userId, cardId, ...(personId === null ? {} : { personId }),
-    }).select('_id isSubscription subscriptionStatus canceledAt').lean();
+    }).select('_id isSubscription subscriptionStatus canceledAt subscriptionEndAt').lean();
     const installments = purchases.length ? await Installment.find({
       userId, purchaseId: { $in: purchases.map((purchase) => purchase._id) }, year, month,
     }).lean() : [];
@@ -191,7 +196,7 @@ export function createCardBilling() {
 
   async function calculatePersonInvoice(userId, personId, month, year) {
     await ensureSubscriptionInstallments(userId, month, year, { personId });
-    const purchases = await Purchase.find({ userId, personId }).select('_id isSubscription subscriptionStatus canceledAt').lean();
+    const purchases = await Purchase.find({ userId, personId }).select('_id isSubscription subscriptionStatus canceledAt subscriptionEndAt').lean();
     const installments = purchases.length ? await Installment.find({
       userId, purchaseId: { $in: purchases.map((purchase) => purchase._id) }, year, month,
     }).lean() : [];
@@ -209,7 +214,7 @@ export function createCardBilling() {
       await ensureSubscriptionInstallments(userId, month, year, { personId });
     }
     const purchases = await Purchase.find({ userId, personId })
-      .select('isSubscription subscriptionStatus canceledAt')
+      .select('isSubscription subscriptionStatus canceledAt subscriptionEndAt')
       .populate('cardId', 'name').lean();
     const installments = purchases.length ? await Installment.find({
       userId, purchaseId: { $in: purchases.map((purchase) => purchase._id) }, year,
@@ -234,7 +239,7 @@ export function createCardBilling() {
     const idx = monthIndex(referenceDate.getFullYear(), referenceDate.getMonth() + 1);
     await ensureSubscriptionInstallments(userId, referenceDate.getMonth() + 1, referenceDate.getFullYear(), { cardId });
     const purchases = await Purchase.find({ userId, cardId })
-      .select('_id isSubscription subscriptionStatus canceledAt').lean();
+      .select('_id isSubscription subscriptionStatus canceledAt subscriptionEndAt').lean();
     const installments = purchases.length ? await Installment.find({
       userId, purchaseId: { $in: purchases.map((purchase) => purchase._id) },
     }).lean() : [];
@@ -318,7 +323,7 @@ export function createCardBilling() {
     const card = await ownedCard(userId, cardId);
     await ensureSubscriptionInstallments(userId, month, year, { cardId });
     const purchases = await Purchase.find({ userId, cardId })
-      .select('_id isSubscription subscriptionStatus canceledAt').lean();
+      .select('_id isSubscription subscriptionStatus canceledAt subscriptionEndAt').lean();
     const installments = purchases.length ? await Installment.find({
       userId, purchaseId: { $in: purchases.map((purchase) => purchase._id) }, year, month,
       paid: false,

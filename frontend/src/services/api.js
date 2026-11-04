@@ -107,10 +107,28 @@ export const cardsApi = {
   ...crud('/cards'),
   payInvoice: (id, b) => post(`/cards/${id}/payments`, b).then((r) => r.data),
 };
-export const categoriesApi = crud('/categories');
+export const categoriesApi = {
+  list: (q) => get('/categories', q).then((r) => r.data),
+  async create(body) {
+    const result = await post('/categories', body).then((r) => r.data);
+    window.dispatchEvent(new Event('categories:refresh'));
+    return result;
+  },
+  async update(id, body) {
+    const result = await put(`/categories/${id}`, body).then((r) => r.data);
+    window.dispatchEvent(new Event('categories:refresh'));
+    return result;
+  },
+  async remove(id) {
+    const result = await del(`/categories/${id}`);
+    window.dispatchEvent(new Event('categories:refresh'));
+    return result;
+  },
+};
 export const birthdaysApi = crud('/birthdays');
 
 export const importApi = {
+  previewDocument: (formData) => postFormData('/import/preview', formData),
   previewSpreadsheet: (formData) => postFormData('/import/preview', formData),
   executeSpreadsheet: (analyzedData) => post('/import/execute', { analyzedData }),
 };

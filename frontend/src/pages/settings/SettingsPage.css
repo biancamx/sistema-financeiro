@@ -81,6 +81,12 @@
   text-align: center;
 }
 
+.settings-upload.is-dragging {
+  border-color: var(--primary);
+  background: color-mix(in srgb, var(--primary-soft) 65%, var(--surface));
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--primary) 25%, transparent);
+}
+
 .settings-upload-icon {
   width: 30px;
   height: 30px;
@@ -386,6 +392,115 @@
   text-align: right;
 }
 
+.settings-pdf-issues,
+.settings-pdf-records,
+.settings-pdf-new-entities {
+  display: grid;
+  gap: 10px;
+}
+
+.settings-pdf-new-entities {
+  padding: 14px;
+  border: 1px solid color-mix(in srgb, var(--primary) 30%, var(--line));
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--primary-soft) 45%, var(--surface));
+}
+
+.settings-pdf-new-entities h3 {
+  font-size: 13px;
+}
+
+.settings-pdf-new-entities p,
+.settings-pdf-new-entities small {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.settings-pdf-empty {
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.settings-pdf-issues {
+  padding: 14px;
+  border: 1px solid color-mix(in srgb, var(--neg) 35%, var(--line));
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--neg) 7%, var(--surface));
+}
+
+.settings-pdf-issues h3,
+.settings-pdf-records h3 {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+}
+
+.settings-pdf-issues h3 {
+  color: var(--neg);
+}
+
+.settings-pdf-issues h3 svg {
+  width: 16px;
+  height: 16px;
+}
+
+.settings-pdf-issues ul,
+.settings-pdf-records ul {
+  display: grid;
+  gap: 8px;
+  max-height: 280px;
+  overflow: auto;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.settings-pdf-issues li,
+.settings-pdf-records li {
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  font-size: 12px;
+}
+
+.settings-pdf-issues li {
+  color: var(--neg);
+}
+
+.settings-pdf-records li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.settings-pdf-record-copy {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.settings-pdf-record-copy strong {
+  overflow-wrap: anywhere;
+}
+
+.settings-pdf-record-copy small {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.settings-pdf-records li > strong {
+  flex: 0 0 auto;
+}
+
 .settings-confirm-copy {
   display: grid;
   gap: 16px;
@@ -413,6 +528,20 @@
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr));
   gap: 10px;
+}
+
+.settings-category-manager-modal .modal-content {
+  max-height: min(70vh, 620px);
+}
+
+.settings-category-count {
+  flex: 0 0 auto;
+  padding: 5px 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
 }
 
 .settings-category {
@@ -521,6 +650,10 @@
   .settings-card-head > .btn {
     margin-left: 54px;
   }
+
+  .settings-category-count {
+    margin-left: 54px;
+  }
 }
 
 @media (max-width: 560px) {
@@ -536,6 +669,10 @@
   .settings-card-head > .btn {
     width: 100%;
     margin-left: 0;
+  }
+
+  .settings-category-count {
+    margin-left: 54px;
   }
 
   .settings-upload {

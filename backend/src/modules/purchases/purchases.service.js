@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import mongoose from 'mongoose';
 import { badRequest, conflict, notFound } from '../../lib/errors.js';
-import { round2 } from '../../lib/months.js';
+import { monthIndex, round2 } from '../../lib/months.js';
 import { buildSharedInstallments, createCardBilling, ensureSubscriptionInstallments, generateCardInstallments, generateInstallments, getFirstStatementPeriod, splitWeighted, subscriptionActiveInPeriod } from '../../lib/cardBilling.js';
 import { Card } from '../../models/Card.js';
 import { Category } from '../../models/Category.js';
@@ -62,6 +62,7 @@ export function createPurchasesService() {
       isSubscription: Boolean(purchase.isSubscription),
       subscriptionStatus: purchase.subscriptionStatus ?? 'active',
       canceledAt: purchase.canceledAt ?? null,
+      subscriptionEndAt: purchase.subscriptionEndAt ?? null,
       personId: purchase.personId?._id ? String(purchase.personId._id) : String(purchase.personId),
       person: purchase.personId?.name ?? '',
       cardId: purchase.cardId?._id ? String(purchase.cardId._id) : String(purchase.cardId),
@@ -188,20 +189,33 @@ export function createPurchasesService() {
     },
     async listSubscriptions(userId, query = {}) {
       const all = await populatePurchases({ userId, isSubscription: true });
-      const active = all.filter((purchase) => purchase.subscriptionStatus !== 'canceled');
-      const filter = listFor(userId, query);
-      filter.isSubscription = true;
-      if (query.status) filter.subscriptionStatus = query.status;
-      const data = await populatePurchases(filter).then((rows) => rows.map((purchase) => ({
+      const currentMonth = new Date().getMonth() + 1;
+      const currentYear = new Date().getFullYear();
+      const active = all.filter((purchase) => purchase.subscriptionStatus !== 'canceled'
+        && (!purchase.subscriptionEndAt
+          || monthIndex(currentYear, currentMonth) <= monthIndex(
+            new Date(purchase.subscriptionEndAt).getUTCFullYear(),
+            new Date(purchase.subscriptionEndAt).getUTCMonth() + 1,
+          )));
+      const activeIds = new Set(active.map((purchase) => String(purchase._id)));
+      const filtered = all.filter((purchase) => {
+        const isActive = activeIds.has(String(purchase._id));
+        return (!query.status || query.status === (isActive ? 'active' : 'canceled'))
+          && (!query.personId || String(purchase.personId?._id) === String(query.personId))
+          && (!query.cardId || String(purchase.cardId?._id) === String(query.cardId))
+          && (!query.categoryId || String(purchase.categoryId?._id) === String(query.categoryId))
+          && (!query.search || purchase.description.toLocaleLowerCase().includes(query.search.toLocaleLowerCase()));
+      });
+      const data = filtered.map((purchase) => ({
         id: String(purchase._id),
         description: purchase.description,
         amount: purchase.totalAmount,
         person: purchase.personId?.name ?? '',
         card: purchase.cardId?.name ?? '',
-        subscriptionStatus: purchase.subscriptionStatus ?? 'active',
-        canceledAt: purchase.canceledAt ?? null,
+        subscriptionStatus: activeIds.has(String(purchase._id)) ? 'active' : 'canceled',
+        canceledAt: purchase.canceledAt ?? purchase.subscriptionEndAt ?? null,
         createdAt: purchase.createdAt ?? null,
-      })));
+      }));
       return {
         data,
         activeCount: active.length,
@@ -274,6 +288,7 @@ export function createPurchasesService() {
                 ? (current.isSubscription ? current.subscriptionStatus : 'active')
                 : 'active',
               canceledAt: data.isSubscription && current.isSubscription ? current.canceledAt : null,
+              subscriptionEndAt: data.isSubscription && current.isSubscription ? current.subscriptionEndAt : null,
             },
           }, { session });
           if (scheduleChanged) {
@@ -310,6 +325,7 @@ export function createPurchasesService() {
       } else if (status === 'active') {
         purchase.subscriptionStatus = 'active';
         purchase.canceledAt = null;
+        purchase.subscriptionEndAt = null;
         await purchase.save();
       }
       return {

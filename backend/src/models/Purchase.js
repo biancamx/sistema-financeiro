@@ -14,6 +14,8 @@ const purchaseSchema = new mongoose.Schema(
     isSubscription: { type: Boolean, default: false },
     subscriptionStatus: { type: String, enum: ['active', 'canceled'], default: 'active' },
     canceledAt: { type: Date, default: null },
+    subscriptionEndAt: { type: Date, default: null },
+    importSourceKey: { type: String, default: undefined },
     splitGroupId: { type: String, default: null, index: true },
     observation: { type: String, default: '' },
   },
@@ -23,5 +25,9 @@ const purchaseSchema = new mongoose.Schema(
 purchaseSchema.index({ userId: 1, personId: 1, cardId: 1 });
 purchaseSchema.index({ userId: 1, splitGroupId: 1 });
 purchaseSchema.index({ userId: 1, vehicleExpenseId: 1 }, { sparse: true });
+purchaseSchema.index(
+  { userId: 1, importSourceKey: 1 },
+  { unique: true, partialFilterExpression: { importSourceKey: { $type: 'string' } } },
+);
 
 export const Purchase = mongoose.model('Purchase', purchaseSchema);

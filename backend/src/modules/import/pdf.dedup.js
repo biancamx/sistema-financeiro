@@ -16,7 +16,7 @@ export function pdfPurchaseSignature({ personId, cardId, description, amount, ye
   ].join(':');
 }
 
-export async function findExistingPdfPurchaseSignatures(userId, records, people, cards, session) {
+export async function findExistingPdfPurchaseSignatures(userId, records, people, cards) {
   const peopleByName = new Map(people.map((person) => [normalizedName(person.name), person]));
   const cardsByName = new Map(cards.map((card) => [normalizedName(card.name), card]));
   const expected = [];
@@ -46,7 +46,6 @@ export async function findExistingPdfPurchaseSignatures(userId, records, people,
     cardId: { $in: cardIds },
     totalAmount: { $in: amounts },
   }).select('_id personId cardId description totalAmount');
-  if (session) purchaseQuery = purchaseQuery.session(session);
   const purchases = await purchaseQuery.lean();
   if (!purchases.length) return new Set();
 
@@ -59,7 +58,6 @@ export async function findExistingPdfPurchaseSignatures(userId, records, people,
     purchaseId: { $in: purchases.map(({ _id }) => _id) },
     $or: expectedPeriods.map(({ year, month }) => ({ year, month })),
   }).select('purchaseId year month');
-  if (session) installmentQuery = installmentQuery.session(session);
   const installments = await installmentQuery.lean();
   const purchaseById = new Map(purchases.map((purchase) => [String(purchase._id), purchase]));
   const expectedKeys = new Set(expected.map((item) => pdfPurchaseSignature(item)));

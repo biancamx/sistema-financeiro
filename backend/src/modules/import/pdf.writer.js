@@ -1,5 +1,4 @@
 import { randomUUID } from 'node:crypto';
-import mongoose from 'mongoose';
 import { generateInstallments } from '../../lib/cardBilling.js';
 import { Card } from '../../models/Card.js';
 import { Category } from '../../models/Category.js';
@@ -20,7 +19,7 @@ const fromCents = (value) => value / 100;
 const validPeriod = (month, year) => Number.isInteger(month) && month >= 1 && month <= 12
   && Number.isInteger(year) && year >= 2000 && year <= 2100;
 
-async function getOrCreateEntity(Model, entities, userId, name, label, session, defaults = {}) {
+async function getOrCreateEntity(Model, entities, userId, name, label, defaults = {}) {
   const normalized = normalizedName(name);
   if (!normalized || typeof name !== 'string' || name.trim().length > 100) {
     throw importError(`Nome de ${label} inválido.`);
@@ -31,7 +30,7 @@ async function getOrCreateEntity(Model, entities, userId, name, label, session, 
   }
   if (matches.length === 1) return { entity: matches[0], created: false };
 
-  const [entity] = await Model.create([{ userId, name: name.trim(), ...defaults }], { session });
+  const entity = await Model.create({ userId, name: name.trim(), ...defaults });
   entities.push(entity);
   return { entity, created: true };
 }
@@ -126,7 +125,6 @@ export async function executePdfPurchaseImport(userId, payload) {
     }
   }
 
-  const session = await mongoose.startSession();
   const summary = {
     peopleUpserted: 0,
     cardsUpserted: 0,
@@ -137,176 +135,169 @@ export async function executePdfPurchaseImport(userId, payload) {
     budgetsUpserted: 0,
     birthdaysUpserted: 0,
   };
-  try {
-    await session.withTransaction(async () => {
-      summary.peopleUpserted = 0;
-      summary.cardsUpserted = 0;
-      summary.categoriesCreated = 0;
-      summary.purchasesUpserted = 0;
-      summary.purchasesIgnored = 0;
-      summary.installmentsUpserted = 0;
-      const operations = [];
-      const handledPeriods = new Set();
-      const [people, cards, categories] = await Promise.all([
-        Person.find({ userId }).select('name').session(session).lean(),
-        Card.find({ userId }).select('name').session(session).lean(),
-        Category.find({ userId }).select('name').session(session).lean(),
-      ]);
-      const existingSignatures = await findExistingPdfPurchaseSignatures(userId, payload.pdfRecords, people, cards, session);
+  const operations = [];
+  const handledPeriods = new Set();
+  const [people, cards, categories] = await Promise.all([
+    Person.find({ userId }).select('name').lean(),
+    Card.find({ userId }).select('name').lean(),
+    Category.find({ userId }).select('name').lean(),
+  ]);
+  const existingSignatures = await findExistingPdfPurchaseSignatures(userId, payload.pdfRecords, people, cards);
 
-      for (const record of payload.pdfRecords) {
-        const { entity: card, created: cardCreated } = await getOrCreateEntity(
-          Card, cards, userId, record.cardName, 'cartão', session, {
-            limit: 0,
-            bank: 'outro',
-            issuer: 'Outro',
-            brand: 'outro',
-            dueDay: 10,
-            closingDay: 3,
-            closingDayEqual: 'next',
+  try {
+    for (const record of payload.pdfRecords) {
+      const { entity: card, created: cardCreated } = await getOrCreateEntity(
+        Card, cards, userId, record.cardName, 'cartão', {
+          limit: 0,
+          bank: 'outro',
+          issuer: 'Outro',
+          brand: 'outro',
+          dueDay: 10,
+          closingDay: 3,
+          closingDayEqual: 'next',
+        },
+      );
+      if (cardCreated) summary.cardsUpserted += 1;
+
+      let category = null;
+      if (record.categoryName) {
+        const result = await getOrCreateEntity(
+          Category, categories, userId, record.categoryName, 'categoria', {
+            type: 'expense',
+            color: '#10b981',
+            icon: 'Tag',
           },
         );
-        if (cardCreated) summary.cardsUpserted += 1;
+        category = result.entity;
+        if (result.created) summary.categoriesCreated += 1;
+      }
 
-        let category = null;
-        if (record.categoryName) {
-          const result = await getOrCreateEntity(
-            Category, categories, userId, record.categoryName, 'categoria', session, {
-              type: 'expense',
-              color: '#10b981',
-              icon: 'Tag',
-            },
-          );
-          category = result.entity;
-          if (result.created) summary.categoriesCreated += 1;
+      const groupId = record.participants.length > 1 ? randomUUID() : null;
+      const count = record.kind === 'installment' ? Number(record.totalInstallments) : 1;
+      const purchaseDate = dateForRecord(record);
+      const endAt = subscriptionEndDate(record);
+      const endHasPassed = endAt
+        && monthIndex(endAt.getUTCFullYear(), endAt.getUTCMonth() + 1)
+          < monthIndex(new Date().getFullYear(), new Date().getMonth() + 1);
+      const subscriptionStatus = endHasPassed ? 'canceled' : 'active';
+      const canceledAt = endHasPassed ? endAt : null;
+
+      for (const participant of record.participants) {
+        const { entity: person, created: personCreated } = await getOrCreateEntity(
+          Person, people, userId, participant.personName, 'pessoa',
+        );
+        if (personCreated) summary.peopleUpserted += 1;
+
+        const totalAmount = fromCents(toCents(participant.allocatedTotal));
+        const signature = pdfPurchaseSignature({
+          personId: person._id,
+          cardId: card._id,
+          description: record.description,
+          amount: totalAmount,
+          year: record.startYear,
+          month: record.startMonth,
+        });
+        if (existingSignatures.has(signature)) {
+          summary.purchasesIgnored += 1;
+          continue;
         }
-
-        const groupId = record.participants.length > 1 ? randomUUID() : null;
-        const count = record.kind === 'installment' ? Number(record.totalInstallments) : 1;
-        const purchaseDate = dateForRecord(record);
-        const endAt = subscriptionEndDate(record);
-        const endHasPassed = endAt
-          && monthIndex(endAt.getUTCFullYear(), endAt.getUTCMonth() + 1)
-            < monthIndex(new Date().getFullYear(), new Date().getMonth() + 1);
-        const subscriptionStatus = endHasPassed ? 'canceled' : 'active';
-        const canceledAt = endHasPassed ? endAt : null;
-
-        for (const participant of record.participants) {
-          const { entity: person, created: personCreated } = await getOrCreateEntity(
-            Person, people, userId, participant.personName, 'pessoa', session,
-          );
-          if (personCreated) summary.peopleUpserted += 1;
-
-          const totalAmount = fromCents(toCents(participant.allocatedTotal));
-          const signature = pdfPurchaseSignature({
-            personId: person._id,
-            cardId: card._id,
-            description: record.description,
-            amount: totalAmount,
-            year: record.startYear,
-            month: record.startMonth,
+        const query = {
+          userId,
+          personId: person._id,
+          cardId: card._id,
+          categoryId: category?._id ?? null,
+          description: record.description,
+          totalAmount,
+          totalInstallments: count,
+          purchaseDate,
+          isSubscription: record.kind === 'recurring',
+          importSourceKey: participant.importSourceKey,
+        };
+        const schedule = record.kind === 'recurring'
+          ? [{ number: 1, month: Number(record.startMonth), year: Number(record.startYear), amount: totalAmount }]
+          : generateInstallments({
+            total: totalAmount,
+            count,
+            startYear: Number(record.startYear),
+            startMonth: Number(record.startMonth),
           });
-          if (existingSignatures.has(signature)) {
-            summary.purchasesIgnored += 1;
-            continue;
-          }
-          const query = {
-            userId,
-            personId: person._id,
-            cardId: card._id,
-            categoryId: category?._id ?? null,
-            description: record.description,
-            totalAmount,
-            totalInstallments: count,
-            purchaseDate,
-            isSubscription: record.kind === 'recurring',
-            importSourceKey: participant.importSourceKey,
-          };
-          const schedule = record.kind === 'recurring'
-            ? [{ number: 1, month: Number(record.startMonth), year: Number(record.startYear), amount: totalAmount }]
-            : generateInstallments({
-              total: totalAmount,
-              count,
-              startYear: Number(record.startYear),
-              startMonth: Number(record.startMonth),
-            });
-          const purchaseData = {
-            ...query,
-            splitGroupId: groupId,
-            subscriptionStatus,
-            canceledAt,
-            subscriptionEndAt: endAt,
-            observation: 'Importado de PDF',
-          };
+        const purchaseData = {
+          ...query,
+          splitGroupId: groupId,
+          subscriptionStatus,
+          canceledAt,
+          subscriptionEndAt: endAt,
+          observation: 'Importado de PDF',
+        };
 
-          let purchase = participant.importSourceKey
-            ? await Purchase.findOne({ userId, importSourceKey: participant.importSourceKey }).session(session)
-            : await Purchase.findOne(query).session(session);
-          if (!purchase) {
-            [purchase] = await Purchase.create([purchaseData], { session });
-            summary.purchasesUpserted += 1;
-          }
-          existingSignatures.add(signature);
+        let purchase = participant.importSourceKey
+          ? await Purchase.findOne({ userId, importSourceKey: participant.importSourceKey })
+          : await Purchase.findOne(query);
+        if (!purchase) {
+          purchase = await Purchase.create(purchaseData);
+          summary.purchasesUpserted += 1;
+        }
+        existingSignatures.add(signature);
 
-          const existing = await Installment.find({
-            userId,
-            purchaseId: purchase._id,
-            $or: schedule.map(({ month, year }) => ({ month, year })),
-          }).session(session).select('_id year month paidAmount').lean();
-          const byPeriod = new Map(existing.map((installment) => [`${installment.year}:${installment.month}`, installment]));
-          for (const installment of schedule) {
-            const periodKey = `${purchase._id}:${installment.year}:${installment.month}`;
-            if (handledPeriods.has(periodKey)) continue;
-            handledPeriods.add(periodKey);
-            const current = byPeriod.get(`${installment.year}:${installment.month}`);
-            const subscriptionPeriod = record.kind === 'recurring'
-              ? `${purchase._id}:${installment.year}-${String(installment.month).padStart(2, '0')}`
-              : undefined;
-            if (current) {
-              if (current.paidAmount === 0) {
-                operations.push({
-                  updateOne: {
-                    filter: { _id: current._id, userId, paidAmount: 0 },
-                    update: { $set: { number: installment.number, amount: installment.amount, subscriptionPeriod } },
-                  },
-                });
-              }
-            } else {
+        const existing = await Installment.find({
+          userId,
+          purchaseId: purchase._id,
+          $or: schedule.map(({ month, year }) => ({ month, year })),
+        }).select('_id year month paidAmount').lean();
+        const byPeriod = new Map(existing.map((installment) => [`${installment.year}:${installment.month}`, installment]));
+        for (const installment of schedule) {
+          const periodKey = `${purchase._id}:${installment.year}:${installment.month}`;
+          if (handledPeriods.has(periodKey)) continue;
+          handledPeriods.add(periodKey);
+          const current = byPeriod.get(`${installment.year}:${installment.month}`);
+          const subscriptionPeriod = record.kind === 'recurring'
+            ? `${purchase._id}:${installment.year}-${String(installment.month).padStart(2, '0')}`
+            : undefined;
+          if (current) {
+            if (current.paidAmount === 0) {
               operations.push({
                 updateOne: {
-                  filter: {
-                    userId,
-                    purchaseId: purchase._id,
-                    year: installment.year,
-                    month: installment.month,
-                  },
-                  update: {
-                    $setOnInsert: {
-                      userId,
-                      purchaseId: purchase._id,
-                      number: installment.number,
-                      year: installment.year,
-                      month: installment.month,
-                      amount: installment.amount,
-                      paid: false,
-                      paidAmount: 0,
-                      subscriptionPeriod,
-                    },
-                  },
-                  upsert: true,
+                  filter: { _id: current._id, userId, paidAmount: 0 },
+                  update: { $set: { number: installment.number, amount: installment.amount, subscriptionPeriod } },
                 },
               });
             }
+          } else {
+            operations.push({
+              updateOne: {
+                filter: {
+                  userId,
+                  purchaseId: purchase._id,
+                  year: installment.year,
+                  month: installment.month,
+                },
+                update: {
+                  $setOnInsert: {
+                    userId,
+                    purchaseId: purchase._id,
+                    number: installment.number,
+                    year: installment.year,
+                    month: installment.month,
+                    amount: installment.amount,
+                    paid: false,
+                    paidAmount: 0,
+                    subscriptionPeriod,
+                  },
+                },
+                upsert: true,
+              },
+            });
           }
         }
       }
-      for (let offset = 0; offset < operations.length; offset += WRITE_BATCH_SIZE) {
-        const result = await Installment.bulkWrite(operations.slice(offset, offset + WRITE_BATCH_SIZE), { ordered: false, session });
-        summary.installmentsUpserted += result.upsertedCount;
-      }
-    });
-  } finally {
-    await session.endSession();
+    }
+    for (let offset = 0; offset < operations.length; offset += WRITE_BATCH_SIZE) {
+      const result = await Installment.bulkWrite(operations.slice(offset, offset + WRITE_BATCH_SIZE), { ordered: false });
+      summary.installmentsUpserted += result.upsertedCount;
+    }
+  } catch (error) {
+    console.error('[PDF IMPORT WRITE ERROR]', error instanceof Error ? error.message : String(error));
+    throw error;
   }
   return summary;
 }

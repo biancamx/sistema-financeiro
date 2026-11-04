@@ -34,7 +34,7 @@ export const toolsDeclaration = [
   },
   {
     name: 'cadastrarCompraCartao',
-    description: 'Registra uma compra no cartão do usuário atual. A pessoa responsável e o cartão devem corresponder a cadastros existentes.',
+    description: 'Registra uma compra no cartão do usuário atual. Descrição, valor, parcelas, cartão, pessoa responsável e categoria cadastrada são obrigatórios.',
     parameters: {
       type: 'OBJECT',
       properties: {
@@ -43,15 +43,15 @@ export const toolsDeclaration = [
         totalParcelas: { type: 'NUMBER', description: 'Quantidade de parcelas (de 1 a 120)' },
         nomeCartao: { type: 'STRING', description: 'Nome do cartão cadastrado' },
         nomePessoa: { type: 'STRING', description: 'Nome da pessoa responsável pela compra' },
-        categoria: { type: 'STRING', description: 'Nome de uma categoria cadastrada, se aplicável' },
+        categoria: { type: 'STRING', description: 'Nome exato de uma categoria cadastrada' },
         dataCompra: { type: 'STRING', description: 'Data da compra no formato AAAA-MM-DD; se omitida, usa a data atual' },
       },
-      required: ['descricao', 'valorTotal', 'totalParcelas', 'nomeCartao', 'nomePessoa'],
+      required: ['descricao', 'valorTotal', 'totalParcelas', 'nomeCartao', 'nomePessoa', 'categoria'],
     },
   },
   {
     name: 'cadastrarLancamentoAvulso',
-    description: 'Registra um lançamento no Caixa Avulso. Os tipos aceitos são expense (despesa), income (venda/valor a receber), loan (empréstimo) e reimbursement (reembolso).',
+    description: 'Registra um lançamento no Caixa Avulso. Tipo, descrição, valor, forma de pagamento, categoria cadastrada e pessoa envolvida são obrigatórios. Para reembolso, informe a pessoa ou contraparte.',
     parameters: {
       type: 'OBJECT',
       properties: {
@@ -61,11 +61,11 @@ export const toolsDeclaration = [
         formaPagamento: { type: 'STRING', enum: ['pix', 'dinheiro', 'debito', 'transferencia'] },
         nomePessoa: { type: 'STRING', description: 'Nome exato da pessoa cadastrada, quando aplicável' },
         contraparte: { type: 'STRING', description: 'Pessoa ou empresa devedora, para reembolso sem pessoa cadastrada' },
-        categoria: { type: 'STRING', description: 'Nome exato de uma categoria cadastrada, quando aplicável' },
+        categoria: { type: 'STRING', description: 'Nome exato de uma categoria cadastrada' },
         parcelas: { type: 'NUMBER', description: 'Quantidade de parcelas para venda ou empréstimo (de 1 a 240)' },
         pago: { type: 'BOOLEAN', description: 'Se a venda ou empréstimo já foi recebido integralmente' },
       },
-      required: ['tipo', 'descricao', 'valor'],
+      required: ['tipo', 'descricao', 'valor', 'formaPagamento', 'categoria'],
     },
   },
   {
@@ -146,6 +146,9 @@ function validatePurchaseArgs(args) {
   }
   if (typeof args.nomePessoa !== 'string' || !args.nomePessoa.trim()) {
     throw new Error('Informe a pessoa responsável pela compra.');
+  }
+  if (typeof args.categoria !== 'string' || !args.categoria.trim()) {
+    throw new Error('Informe uma categoria cadastrada para a compra.');
   }
   if (args.dataCompra !== undefined) {
     if (typeof args.dataCompra !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(args.dataCompra)) {
@@ -257,6 +260,12 @@ export async function executarFerramenta(nomeFuncao, args, userId) {
       };
       const kind = kindByType[args.tipo];
       if (!kind) throw new Error('Tipo inválido. Use expense, income, loan ou reimbursement.');
+      if (typeof args.formaPagamento !== 'string' || !args.formaPagamento.trim()) {
+        throw new Error('Informe a forma de pagamento do lançamento.');
+      }
+      if (typeof args.categoria !== 'string' || !args.categoria.trim()) {
+        throw new Error('Informe uma categoria cadastrada para o lançamento.');
+      }
       if (typeof args.descricao !== 'string' || !args.descricao.trim() || args.descricao.trim().length > 160) {
         throw new Error('A descrição deve ter entre 1 e 160 caracteres.');
       }
@@ -274,14 +283,9 @@ export async function executarFerramenta(nomeFuncao, args, userId) {
         debito: 'debit',
         transferencia: 'transfer',
       };
-      const paymentMethod = args.formaPagamento
-        ? paymentMethodByName[normalizeText(args.formaPagamento)]
-        : kind === 'expense' ? 'pix' : null;
-      if (args.formaPagamento && !paymentMethod) {
+      const paymentMethod = paymentMethodByName[normalizeText(args.formaPagamento)];
+      if (!paymentMethod) {
         throw new Error('Forma de pagamento inválida. Use pix, dinheiro, debito ou transferencia.');
-      }
-      if (kind === 'expense' && !paymentMethod) {
-        throw new Error('Informe a forma de pagamento da despesa.');
       }
       if (kind === 'refund' && args.pago === true) {
         throw new Error('Para registrar um reembolso já recebido, use a tela Avulsos e informe o recebimento.');
@@ -299,12 +303,15 @@ export async function executarFerramenta(nomeFuncao, args, userId) {
 
       const [people, categories] = await Promise.all([
         Person.find({ userId }).select('_id name').lean(),
-        args.categoria ? Category.find({ userId }).select('_id name').lean() : [],
+        Category.find({ userId }).select('_id name').lean(),
       ]);
       const person = args.nomePessoa ? matchByName(people, args.nomePessoa, 'Pessoa') : null;
       const category = optionalCategory(categories, args.categoria);
-      if (['sale', 'loan'].includes(kind) && !person) {
-        throw new Error('Informe o nome exato da pessoa envolvida para venda ou empréstimo.');
+      if (!category) {
+        throw new Error('A categoria informada não corresponde a uma categoria cadastrada.');
+      }
+      if (kind !== 'refund' && !person) {
+        throw new Error('Informe o nome exato da pessoa envolvida no lançamento.');
       }
       if (kind === 'refund' && !person && !args.contraparte?.trim()) {
         throw new Error('Informe uma pessoa cadastrada ou o nome da empresa/pessoa devedora do reembolso.');

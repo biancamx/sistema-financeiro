@@ -47,7 +47,8 @@ export default function ExpensesTab({ vehicleId, year, people, categories, onEdi
         {error ? <ErrorState error={error} onRetry={reload} /> : !data ? <Spinner /> : data.data.length === 0 ? (
           <EmptyState title="Nenhum gasto encontrado">Ajuste os filtros ou registre um novo gasto.</EmptyState>
         ) : (
-          <div className="table-wrap">
+          <>
+          <div className="table-wrap responsive-desktop-table">
             <table className="table">
               <thead><tr><th>Data</th>{!vehicleId && <th>Veículo</th>}<th>Categoria</th><th>Descrição</th><th className="num">KM</th><th>Pagou</th><th>Pagamento</th><th>Rateio</th><th className="num">Valor</th><th /></tr></thead>
               <tbody>
@@ -76,6 +77,34 @@ export default function ExpensesTab({ vehicleId, year, people, categories, onEdi
               <tfoot><tr><td colSpan={vehicleId ? 7 : 8}>Total dos {data.total} lançamento(s) filtrados</td><td className="num">{money(data.sum)}</td><td /></tr></tfoot>
             </table>
           </div>
+          <div className="mobile-card-list">
+            {data.data.map((e) => (
+              <article key={e.id} className="mobile-record-card vehicle-expense-mobile-card">
+                <div className="mobile-record-heading">
+                  <div className="mobile-record-title">
+                    <strong>{e.vehicleModel}{e.vehiclePlate ? ` · ${e.vehiclePlate}` : ''}</strong>
+                    <span className="tag tag-flush">{e.categoryLabel}</span>
+                  </div>
+                  <div className="mobile-record-total">
+                    <span className="muted small">Valor</span>
+                    <Money value={e.amount} strong />
+                  </div>
+                </div>
+                {e.description && <p>{e.description}</p>}
+                <p className="muted small">{showDate(e.date)}{e.km != null ? ` · ${showKm(e.km)}` : ''}</p>
+                <div className="mobile-record-details">
+                  <span>Pagou: {e.payer}</span>
+                  <span>{e.paymentMethod === 'card' ? `Cartão · ${e.card || 'registrado'}` : 'Dinheiro / outro'}</span>
+                  {e.shared && <span>Compartilhado: {e.shares.map((share) => share.person).join(', ')}</span>}
+                </div>
+                <div className="mobile-record-actions">
+                  <Button variant="ghost" onClick={() => onEdit(e.id)}>Editar</Button>
+                  <Button variant="ghost" onClick={() => remove(e)}>Excluir</Button>
+                </div>
+              </article>
+            ))}
+          </div>
+          </>
         )}
         {data && pages > 1 && (
           <div className="pager">

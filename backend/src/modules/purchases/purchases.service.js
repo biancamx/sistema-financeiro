@@ -161,6 +161,10 @@ export function createPurchasesService() {
         return {
           id: String(item._id), purchaseId: String(p._id), number: item.number, count: p.totalInstallments,
           purchaseCreatedAt: p.createdAt ?? null, updatedAt: item.updatedAt ?? null,
+          purchaseDate: p.purchaseDate,
+          purchaseTotal: p.splitGroupId
+            ? round2(purchases.filter((other) => other.splitGroupId === p.splitGroupId).reduce((sum, other) => sum + other.totalAmount, 0))
+            : p.totalAmount,
           amount: item.amount, paidAmount: item.paidAmount, paid: item.paid, description: p.description,
           person: p.personId?.name ?? '', card: p.cardId?.name ?? '', category: p.categoryId?.name ?? null,
           sharedGroup: p.splitGroupId, vehicleExpenseId: p.vehicleExpenseId ? String(p.vehicleExpenseId) : null,

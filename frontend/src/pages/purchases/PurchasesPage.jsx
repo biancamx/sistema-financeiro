@@ -183,7 +183,7 @@ export default function PurchasesPage() {
                 </div>
               </div>
               <p className="muted small">As ações consideram o mês e os filtros selecionados.</p>
-              <div className="table-wrap">
+              <div className="table-wrap responsive-desktop-table">
                 <table className="table">
                   <thead><tr><th>Selecionar</th><th>Pago</th><th>Descrição</th><th>Categoria</th><th>Pessoa</th><th>Cartão</th><th>Parcela</th><th className="num">Valor</th><th /></tr></thead>
                 <tbody>
@@ -209,6 +209,45 @@ export default function PurchasesPage() {
                   <tfoot><tr><td colSpan={7}>Total do mês ({month.data.data.length} parcelas)</td><td className="num"><Money value={month.data.total} strong /></td><td /></tr></tfoot>
                 </table>
               </div>
+              <div className="mobile-card-list">
+                {month.data.data.map((r) => (
+                  <article key={r.id} className={`mobile-record-card purchase-mobile-card${r.paid ? ' is-paid' : ''}`}>
+                    <div className="mobile-record-heading">
+                      <div className="mobile-record-title">
+                        <strong>{r.description}</strong>
+                        <span className={r.paid ? 'tag tag-flush' : 'cash-status cash-status-pending'}>{r.paid ? 'Paga' : 'Pendente'}</span>
+                        {r.sharedGroup && <span className="tag tag-flush">Compartilhada</span>}
+                        {r.vehicleExpenseId && <span className="tag tag-flush">Veículo</span>}
+                      </div>
+                      <div className="mobile-record-total">
+                        <span className="muted small">Total</span>
+                        <Money value={r.purchaseTotal} strong />
+                      </div>
+                    </div>
+                    <p className="muted small">
+                      Parcela {r.number}/{r.count}: <Money value={r.amount} />
+                      {' · '}Compra em {r.purchaseDate ? r.purchaseDate.split('-').reverse().join('/') : monthLabel(period.month, period.year)}
+                    </p>
+                    <div className="mobile-record-details">
+                      <span className="tag tag-flush">{r.category || 'Sem categoria'}</span>
+                      <span>{r.person}</span>
+                      <span>{r.card}</span>
+                      {r.sharedWith && <span>Dividida com {r.sharedWith}</span>}
+                    </div>
+                    <div className="mobile-record-actions">
+                      <label className="mobile-record-check">
+                        <input type="checkbox" checked={selectedInstallments.includes(r.id)} onChange={() => toggleSelected(r.id)} aria-label={`Selecionar parcela de ${r.description}`} />
+                        Selecionar
+                      </label>
+                      <Button variant={r.paid ? 'ghost' : 'primary'} onClick={() => togglePaid(r)}>
+                        {r.paid ? 'Desmarcar paga' : 'Marcar como paga'}
+                      </Button>
+                      <Button variant="ghost" onClick={() => openEdit(r.purchaseId, r.sharedGroup)} disabled={Boolean(r.vehicleExpenseId)}>Editar</Button>
+                      <Button variant="ghost" onClick={() => remove({ id: r.purchaseId, description: r.description, sharedGroup: r.sharedGroup })} disabled={Boolean(r.vehicleExpenseId)}>Excluir</Button>
+                    </div>
+                  </article>
+                ))}
+              </div>
             </>
           )
         )}
@@ -216,7 +255,7 @@ export default function PurchasesPage() {
         {tab === 'all' && all.data && (
           all.data.data.length === 0 ? <EmptyState title="Nenhuma compra encontrada" /> : (
             <>
-              <div className="table-wrap">
+              <div className="table-wrap responsive-desktop-table">
                 <table className="table">
                   <thead><tr><th>Descrição</th><th>Pessoa</th><th>Cartão</th><th className="num">Total</th><th>Parcelas</th><th>Período</th><th /></tr></thead>
                   <tbody>
@@ -239,6 +278,37 @@ export default function PurchasesPage() {
                     ))}
                   </tbody>
                 </table>
+              </div>
+              <div className="mobile-card-list">
+                {all.data.data.map((p) => (
+                  <article key={p.id} className="mobile-record-card purchase-mobile-card">
+                    <div className="mobile-record-heading">
+                      <div className="mobile-record-title">
+                        <strong>{p.description}</strong>
+                        {p.shared && <span className="tag tag-flush">Compartilhada</span>}
+                        {p.vehicleExpenseId && <span className="tag tag-flush">Veículo</span>}
+                      </div>
+                      <div className="mobile-record-total">
+                        <span className="muted small">Total</span>
+                        <Money value={p.total} strong />
+                      </div>
+                    </div>
+                    <p className="muted small">
+                      {p.count}x de <Money value={p.perInstallment} />
+                      {p.first && <> · {MONTHS_SHORT[p.first.month - 1]}/{p.first.year} – {MONTHS_SHORT[p.last.month - 1]}/{p.last.year}</>}
+                    </p>
+                    <div className="mobile-record-details">
+                      {p.category && <span>{p.category}</span>}
+                      <span>{p.person}</span>
+                      <span>{p.card}</span>
+                      {p.shared && filters.personId && <span>Parte de {p.person}</span>}
+                    </div>
+                    <div className="mobile-record-actions">
+                      <Button variant="ghost" onClick={() => openEdit(p.id, p.sharedGroup)} disabled={Boolean(p.vehicleExpenseId)}>Editar</Button>
+                      <Button variant="ghost" onClick={() => remove(p)} disabled={Boolean(p.vehicleExpenseId)}>Excluir</Button>
+                    </div>
+                  </article>
+                ))}
               </div>
               <div className="pager">
                 <span className="muted">{all.data.total} compras</span>

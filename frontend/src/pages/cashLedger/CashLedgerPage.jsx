@@ -259,7 +259,8 @@ export default function CashLedgerPage() {
         {!list.data && !list.error && <Spinner />}
         {list.data && rows.length === 0 && <EmptyState title="Nenhum registro neste período">Cadastre uma compra avulsa, venda, empréstimo ou reembolso.</EmptyState>}
         {rows.length > 0 && (
-          <div className="table-responsive">
+          <>
+          <div className="table-responsive responsive-desktop-table">
             <table className="table cash-table">
               <thead><tr>
                 <th><input type="checkbox" checked={allSelected} onChange={toggleAll} aria-label="Selecionar parcelas recebíveis" /></th>
@@ -291,6 +292,48 @@ export default function CashLedgerPage() {
               </tbody>
             </table>
           </div>
+          <div className="mobile-card-list">
+            {rows.map((row, index) => {
+              const selectable = Boolean(row.installmentId && row.outstanding > 0);
+              const person = row.person || row.counterparty;
+              const status = row.kind === 'refund' ? refundLabels[row.refundStatus] || statusLabels[row.status] : statusLabels[row.status];
+              const incoming = row.kind !== 'expense';
+              return (
+                <article key={`${row.id}-${row.installmentId ?? 'expense'}-${index}`} className={`mobile-record-card cash-mobile-card cash-mobile-card-${row.status}`}>
+                  <div className="mobile-record-heading">
+                    <div className="mobile-record-title">
+                      <span className={`cash-kind-badge cash-kind-${row.kind}`}>{kindLabels[row.kind]}</span>
+                      <span className="cash-kind-badge">{methodLabels[row.paymentMethod] || 'Forma não informada'}</span>
+                    </div>
+                    <span className={`cash-status cash-status-${row.status}`}>{status}</span>
+                  </div>
+                  <button className="link-btn cash-description" onClick={() => openDetails(row.id)}>{row.description}</button>
+                  {row.category && <span className="tag tag-flush">{row.category}</span>}
+                  <p className="muted small">
+                    Data: {dateLabel(row.entryDate)}
+                    {row.dueDate && row.dueDate !== row.entryDate && <> · Vencimento: {dateLabel(row.dueDate)}</>}
+                    {row.number && <> · Parcela {row.number}/{row.count}</>}
+                  </p>
+                  <div className="cash-mobile-summary">
+                    <strong className={incoming ? 'cash-mobile-amount-incoming' : 'cash-mobile-amount-outgoing'}><Money value={row.amount} /></strong>
+                    <span>{person || 'Pessoa não informada'}</span>
+                  </div>
+                  <div className="mobile-record-actions">
+                    {selectable && (
+                      <label className="mobile-record-check">
+                        <input type="checkbox" checked={selected.includes(row.installmentId)} onChange={() => toggleOne(row.installmentId)} aria-label={`Selecionar ${row.description} ${row.number}/${row.count}`} />
+                        Selecionar
+                      </label>
+                    )}
+                    <Button size="sm" onClick={() => openEdit(row.id)}>Editar</Button>
+                    {selectable && <Button size="sm" variant="primary" onClick={() => openReceive(row)}>Receber</Button>}
+                    <Button size="sm" variant="ghost" onClick={() => removeEntry(row)}>Excluir</Button>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+          </>
         )}
       </Card>
 

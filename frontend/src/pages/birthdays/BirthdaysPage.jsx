@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import confetti from 'canvas-confetti';
-import { Cake, MessageCircle, PartyPopper } from 'lucide-react';
+import { Cake, MessageCircle, PartyPopper, Pencil, Plus } from 'lucide-react';
 import { useToast } from '../../context/ToastContext.jsx';
 import { useFetch } from '../../hooks/useFetch.js';
 import { birthdaysApi } from '../../services/api.js';
@@ -12,7 +12,7 @@ function birthdayGreeting(name) {
 }
 
 function whatsappShareUrl(message) {
-  return `https://wa.me/?text=${encodeURIComponent(message)}`;
+  return `https://api.whatsapp.com/send?text=${encodeURIComponent(message)}`;
 }
 
 export default function BirthdaysPage() {
@@ -20,10 +20,16 @@ export default function BirthdaysPage() {
   const { data, error, reload } = useFetch(() => birthdaysApi.list(), []);
   const [f, setF] = useState({ name: '', day: '', month: new Date().getMonth() + 1 });
   const [messageDraft, setMessageDraft] = useState(null);
+  const [addFormOpen, setAddFormOpen] = useState(false);
   const celebratedToday = useRef(false);
   const today = new Date();
   const currentMonth = today.getMonth() + 1;
   const todayBirthdays = data?.filter((birthday) => birthday.month === currentMonth && birthday.day === today.getDate()) || [];
+  const upcomingBirthdays = data?.filter((birthday) => birthday.month === currentMonth && birthday.day >= today.getDate())
+    .sort((a, b) => a.day - b.day) || [];
+  const todayGreeting = todayBirthdays.length === 1
+    ? birthdayGreeting(todayBirthdays[0].name)
+    : `Feliz aniversário, ${todayBirthdays.map((birthday) => birthday.name).join(' e ')}! 🎉 Que este novo ciclo seja cheio de saúde, alegria e realizações!`;
 
   useEffect(() => {
     if (todayBirthdays.length === 0 || celebratedToday.current) return;
@@ -45,6 +51,7 @@ export default function BirthdaysPage() {
     try {
       await birthdaysApi.create({ name: f.name.trim(), day: Number(f.day), month: Number(f.month) });
       setF({ ...f, name: '', day: '' });
+      setAddFormOpen(false);
       toast.success('Aniversário adicionado');
       reload();
     } catch (err) { toast.error(err); }
@@ -60,10 +67,18 @@ export default function BirthdaysPage() {
       toast.error(new Error('Não foi possível copiar a mensagem. Verifique a permissão da área de transferência.'));
     }
   };
+  const copyTodayGreeting = async () => {
+    try {
+      await navigator.clipboard.writeText(todayGreeting);
+      toast.success('Mensagem copiada.');
+    } catch {
+      toast.error(new Error('Não foi possível copiar a mensagem. Verifique a permissão da área de transferência.'));
+    }
+  };
   const openWhatsApp = () => window.open(whatsappShareUrl(messageDraft), '_blank', 'noopener,noreferrer');
 
   return (
-    <>
+    <div className="birthdays-page">
       <PageHeader title="Aniversários" subtitle="Para lembrar de presentes antes do mês chegar" />
       {todayBirthdays.length > 0 && (
         <Card className="birthday-celebration" role="status">
@@ -72,32 +87,66 @@ export default function BirthdaysPage() {
             <strong>Hoje é dia de comemorar!</strong>
             <p>{todayBirthdays.map((birthday) => birthday.name).join(', ')} {todayBirthdays.length === 1 ? 'faz aniversário hoje.' : 'fazem aniversário hoje.'}</p>
           </div>
-          <Cake className="birthday-celebration-cake" size={24} aria-hidden="true" />
+          <div className="birthday-celebration-actions">
+            <a className="btn btn-primary" href={whatsappShareUrl(todayGreeting)} target="_blank" rel="noreferrer">
+              <MessageCircle size={16} aria-hidden="true" /> Enviar parabéns
+            </a>
+            <Button variant="ghost" onClick={copyTodayGreeting}>Copiar mensagem</Button>
+          </div>
         </Card>
       )}
-      <Card className="mb">
-        <form className="form-row" onSubmit={add}>
+      {upcomingBirthdays.length > 0 && (
+        <section className="birthday-upcoming" aria-label="Próximos aniversários deste mês">
+          <div className="birthday-upcoming-heading">
+            <div><h2>Próximos aniversários</h2><span className="muted small">{MONTHS[currentMonth - 1]}</span></div>
+            <Cake size={19} aria-hidden="true" />
+          </div>
+          <div className="birthday-upcoming-list">
+            {upcomingBirthdays.map((birthday) => (
+              <article className="birthday-upcoming-card" key={birthday.id}>
+                <span className="birthday-upcoming-day">{String(birthday.day).padStart(2, '0')}</span>
+                <div>
+                  <strong>{birthday.name}</strong>
+                  <span>{birthday.personId ? 'Pessoa cadastrada' : 'Aniversariante'}</span>
+                </div>
+                <small>{birthday.day === today.getDate() ? 'Hoje!' : `Em ${birthday.day - today.getDate()} dias`}</small>
+              </article>
+            ))}
+          </div>
+        </section>
+      )}
+      <Card className="birthday-form-card">
+        <form id="birthday-add-form" className="form-row birthday-add-form" onSubmit={add}>
           <Field label="Nome">{(id) => <input id={id} className="input" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} required />}</Field>
           <Field label="Dia">{(id) => <input id={id} className="input" type="number" min="1" max="31" value={f.day} onChange={(e) => setF({ ...f, day: e.target.value })} required />}</Field>
           <Field label="Mês">{(id) => <Select id={id} value={f.month} onChange={(v) => setF({ ...f, month: Number(v) })} options={MONTHS.map((m, i) => ({ value: i + 1, label: m }))} />}</Field>
-          <Button type="submit" variant="primary">Adicionar</Button>
+          <Button type="submit" variant="primary"><Plus size={16} aria-hidden="true" /> Adicionar</Button>
         </form>
       </Card>
+      <div className="birthday-mobile-add">
+        <Button variant="primary" onClick={() => setAddFormOpen(true)}><Plus size={17} aria-hidden="true" /> Adicionar aniversário</Button>
+      </div>
       <div className="months-grid">
         {MONTHS.map((m, i) => {
           const list = data.filter((b) => b.month === i + 1);
           return (
-            <section key={m} className={`month-card ${i + 1 === currentMonth ? 'now' : ''}`}>
-              <h3>{m}</h3>
-              {list.length === 0 ? <p className="muted small">—</p> : (
+            <section key={m} className={`month-card${i + 1 === currentMonth ? ' now' : ''}${list.length ? ' has-birthdays' : ' is-empty'}`}>
+              <header className="month-card-header">
+                <h3>{m}</h3>
+                {i + 1 === currentMonth && <span className="month-current-badge">Mês atual</span>}
+              </header>
+              {list.length === 0 ? <p className="month-empty">Nenhum aniversariante</p> : (
                 <ul>
                   {list.map((b) => (
                     <li key={b.id} className={b.day === today.getDate() && i + 1 === currentMonth ? 'birthday-today' : ''}>
                       <span className="day">{String(b.day).padStart(2, '0')}</span>
-                      <span>{b.name}{b.personId && <small className="birthday-source">Pessoa</small>}</span>
+                      <span className="birthday-person"><Cake size={14} aria-hidden="true" />{b.name}{b.personId && <small className="birthday-source">Pessoa</small>}</span>
                       <span className="birthday-actions">
-                        <button className="icon-btn" onClick={() => setMessageDraft(birthdayGreeting(b.name))} aria-label={`Preparar felicitação para ${b.name}`} title="Enviar felicitação">
-                          <MessageCircle size={16} aria-hidden="true" />
+                        <a className="icon-btn birthday-whatsapp" href={whatsappShareUrl(birthdayGreeting(b.name))} target="_blank" rel="noreferrer" aria-label={`Enviar parabéns para ${b.name} no WhatsApp`} title="Enviar parabéns pelo WhatsApp">
+                          <MessageCircle size={15} aria-hidden="true" />
+                        </a>
+                        <button className="icon-btn birthday-edit-message" onClick={() => setMessageDraft(birthdayGreeting(b.name))} aria-label={`Editar felicitação para ${b.name}`} title="Editar mensagem">
+                          <Pencil size={15} aria-hidden="true" />
                         </button>
                         <button className="icon-btn" onClick={() => remove(b)} aria-label={`Remover ${b.name}`}>×</button>
                       </span>
@@ -109,6 +158,18 @@ export default function BirthdaysPage() {
           );
         })}
       </div>
+      <Modal
+        open={addFormOpen}
+        title="Adicionar aniversário"
+        className="birthday-add-modal"
+        footer={<><Button variant="ghost" onClick={() => setAddFormOpen(false)}>Cancelar</Button><Button form="birthday-add-form-mobile" type="submit" variant="primary"><Plus size={16} aria-hidden="true" /> Salvar</Button></>}
+      >
+        <form id="birthday-add-form-mobile" className="birthday-mobile-form" onSubmit={add}>
+          <Field label="Nome">{(id) => <input id={id} className="input" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} required />}</Field>
+          <Field label="Dia">{(id) => <input id={id} className="input" type="number" min="1" max="31" value={f.day} onChange={(e) => setF({ ...f, day: e.target.value })} required />}</Field>
+          <Field label="Mês">{(id) => <Select id={id} value={f.month} onChange={(v) => setF({ ...f, month: Number(v) })} options={MONTHS.map((m, i) => ({ value: i + 1, label: m }))} />}</Field>
+        </form>
+      </Modal>
       <Modal
         open={messageDraft !== null}
         title="Felicitação de aniversário"
@@ -125,6 +186,6 @@ export default function BirthdaysPage() {
           {(id) => <textarea id={id} className="input" rows={5} value={messageDraft ?? ''} onChange={(event) => setMessageDraft(event.target.value)} />}
         </Field>
       </Modal>
-    </>
+    </div>
   );
 }

@@ -21,13 +21,34 @@ export default function AssistantWidget() {
   const [messages, setMessages] = useState([INITIAL_MESSAGE]);
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
+  const launcherRef = useRef(null);
+  const restoreFocus = useRef(false);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
   }, [messages, isLoading]);
 
   useEffect(() => {
-    if (isOpen) inputRef.current?.focus();
+    if (isOpen && window.matchMedia('(min-width: 768px)').matches) inputRef.current?.focus();
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) return undefined;
+    const closeOnEscape = (event) => {
+      if (event.key === 'Escape') {
+        restoreFocus.current = true;
+        setIsOpen(false);
+      }
+    };
+    window.addEventListener('keydown', closeOnEscape);
+    return () => window.removeEventListener('keydown', closeOnEscape);
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen && restoreFocus.current) {
+      launcherRef.current?.focus();
+      restoreFocus.current = false;
+    }
   }, [isOpen]);
 
   const handleSend = async (textToSend = inputMessage) => {
@@ -69,7 +90,10 @@ export default function AssistantWidget() {
             <button
               className="assistant-icon-button"
               type="button"
-              onClick={() => setIsOpen(false)}
+              onClick={() => {
+                restoreFocus.current = true;
+                setIsOpen(false);
+              }}
               aria-label="Fechar assistente"
               title="Fechar"
             >
@@ -122,6 +146,7 @@ export default function AssistantWidget() {
           >
             <input
               ref={inputRef}
+              className="assistant-message-input"
               type="text"
               maxLength={4000}
               value={inputMessage}
@@ -143,6 +168,7 @@ export default function AssistantWidget() {
         </section>
       ) : (
         <button
+          ref={launcherRef}
           className="assistant-launcher"
           type="button"
           onClick={() => setIsOpen(true)}

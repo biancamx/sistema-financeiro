@@ -50,7 +50,7 @@ function resolveEntityName(rawName, entities, type, recordDescription, errors, m
   return { value: matches.length ? matches[0].name : name };
 }
 
-function normalizeRecord(source, index, accounts, errors, divergences) {
+export function normalizePdfRecord(source, index, accounts, errors, divergences) {
   const errorOffset = errors.length;
   const description = String(source?.description ?? '').trim().slice(0, 120);
   const rowLabel = description || `Item ${index + 1}`;
@@ -132,8 +132,6 @@ function normalizeRecord(source, index, accounts, errors, divergences) {
       || (endMonth === null) !== (endYear === null)
       || (endMonth !== null && monthIndex(endYear, endMonth) < monthIndex(start.year, start.month))) {
       errors.push(`Período recorrente inválido na compra "${rowLabel}".`);
-    } else if (participants.length !== 1) {
-      errors.push(`A cobrança recorrente "${rowLabel}" precisa ter exatamente um responsável cadastrado.`);
     } else {
       record.startMonth = start.month;
       record.startYear = start.year;
@@ -205,7 +203,7 @@ Regras:
 - Inclua compras parceladas, cobranças mensais recorrentes e compras únicas à vista em todas as páginas/tabelas.
 - Para rateios de compras parceladas, liste cada responsável em participants com allocatedTotal individual; a soma deve ser igual ao totalAmount. Para compra sem rateio, use uma pessoa com allocatedTotal igual ao total.
 - Em compras parceladas, totalAmount é o valor integral da compra, installmentAmount é o valor da parcela, e os períodos inicial e final são inclusivos. totalInstallments deve corresponder a esse intervalo.
-- Em recorrências ativas sem término visível, endMonth e endYear são null. monthlyAmount e allocatedTotal representam o valor mensal.
+- Em recorrências ativas sem término visível, endMonth e endYear são null. monthlyAmount é o total mensal; allocatedTotal representa a parte mensal de cada responsável. Se houver rateio, liste todos os responsáveis e os valores individuais, cuja soma deve ser igual a monthlyAmount.
 - Em compra à vista, extraia o cartão, mês e ano da compra.
 - Extraia pessoa, cartão e categoria quando estiverem informados. Se não houver categoria, use null. Se o nome de pessoa ou cartão estiver ilegível/ausente, use null; não escolha um cadastro aproximado.
 - Valores devem ser números decimais em reais. Para datas incompletas, não invente ano/mês; use null.
@@ -231,7 +229,7 @@ Regras:
   const accountRecords = { people, cards, categories };
   const documentHash = createHash('sha256').update(buffer).digest('hex');
   const records = parsed.records.map((record, index) => {
-    const normalized = normalizeRecord(record, index, accountRecords, errors, divergences);
+    const normalized = normalizePdfRecord(record, index, accountRecords, errors, divergences);
     if (normalized) {
       normalized.participants = normalized.participants.map((participant) => ({
         ...participant,

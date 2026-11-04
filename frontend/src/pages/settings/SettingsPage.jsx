@@ -15,6 +15,7 @@ import {
 import { Button, Card, Modal, PageHeader } from '../../components/ui/ui.jsx';
 import { useAppBusy } from '../../context/BusyContext.jsx';
 import { useToast } from '../../context/ToastContext.jsx';
+import { notifyFinanceChanged } from '../../hooks/useFinanceRefresh.js';
 import { MONTHS_SHORT, money } from '../../lib/format.js';
 import { categoriesApi, importApi, systemApi } from '../../services/api.js';
 import './SettingsPage.css';
@@ -156,7 +157,10 @@ export default function SettingsPage() {
       toast.success(analyzedData.sourceType === 'pdf'
         ? `Importação concluída: ${summary.peopleUpserted} novas pessoas, ${summary.cardsUpserted} novos cartões, ${summary.categoriesCreated} novas categorias, ${summary.purchasesUpserted} compras e ${summary.installmentsUpserted} parcelas.`
         : `Importação concluída: ${summary.peopleUpserted} pessoas, ${summary.cardsUpserted} cartões, ${summary.purchasesUpserted} compras, ${summary.installmentsUpserted} parcelas e ${summary.budgetsUpserted} linhas.`);
+      window.dispatchEvent(new Event('people:refresh'));
+      window.dispatchEvent(new Event('cards:refresh'));
       window.dispatchEvent(new Event('categories:refresh'));
+      notifyFinanceChanged();
       window.dispatchEvent(new Event('reminders:refresh'));
     } catch (error) {
       setPreviewData(analyzedData);

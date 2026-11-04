@@ -57,9 +57,6 @@ function validateRecord(record, index) {
     || !participant.personName.trim() || participant.personName.length > 100)) {
     throw importError(`Nome de responsável inválido na compra "${label}".`);
   }
-  if (record.kind === 'recurring' && record.participants.length !== 1) {
-    throw importError(`A assinatura "${label}" precisa ter um único responsável.`);
-  }
   const totalCents = toCents(record.totalAmount);
   const participantCents = record.participants.map((participant) => toCents(participant.allocatedTotal));
   if (participantCents.some((amount) => !Number.isInteger(amount) || amount <= 0)
@@ -180,7 +177,7 @@ export async function executePdfPurchaseImport(userId, payload) {
           if (result.created) summary.categoriesCreated += 1;
         }
 
-        const groupId = record.kind === 'installment' && record.participants.length > 1 ? randomUUID() : null;
+        const groupId = record.participants.length > 1 ? randomUUID() : null;
         const count = record.kind === 'installment' ? Number(record.totalInstallments) : 1;
         const purchaseDate = dateForRecord(record);
         const endAt = subscriptionEndDate(record);

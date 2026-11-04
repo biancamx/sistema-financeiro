@@ -9,9 +9,17 @@ export function useLookups() {
   const categories = useFetch(() => categoriesApi.list(), []);
 
   useEffect(() => {
+    const refreshPeople = () => people.reload();
+    const refreshCards = () => cards.reload();
     const refreshCategories = () => categories.reload();
+    window.addEventListener('people:refresh', refreshPeople);
+    window.addEventListener('cards:refresh', refreshCards);
     window.addEventListener('categories:refresh', refreshCategories);
-    return () => window.removeEventListener('categories:refresh', refreshCategories);
+    return () => {
+      window.removeEventListener('people:refresh', refreshPeople);
+      window.removeEventListener('cards:refresh', refreshCards);
+      window.removeEventListener('categories:refresh', refreshCategories);
+    };
   }, []);
 
   return {

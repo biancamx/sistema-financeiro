@@ -28,7 +28,7 @@ export function Select({ value, onChange, options, placeholder, id, ...rest }) {
   );
 }
 
-export function Modal({ open, title, children, footer, wide, className = '' }) {
+export function Modal({ open, title, children, footer, wide, className = '', onClose }) {
   const ref = useRef(null);
   useEffect(() => {
     const d = ref.current;
@@ -47,6 +47,11 @@ export function Modal({ open, title, children, footer, wide, className = '' }) {
         <div className="modal-body">
           <header className="modal-head">
             <h2>{title}</h2>
+            {onClose && (
+              <button type="button" className="modal-close" aria-label="Fechar modal" onClick={onClose}>
+                ×
+              </button>
+            )}
           </header>
           <div className="modal-content">{children}</div>
           {footer && <footer className="modal-foot">{footer}</footer>}

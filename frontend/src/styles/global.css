@@ -320,7 +320,11 @@ select option {
 .form-row { display: grid; grid-template-columns: 2fr 90px 1.2fr auto; gap: 12px; align-items: end; }
 .inline { display: flex; gap: 8px; }
 .inline-form { display: flex; gap: 8px; margin-bottom: 14px; max-width: 460px; }
-@media (max-width: 640px) { .form-grid, .form-row { grid-template-columns: 1fr; } }
+@media (max-width: 640px) {
+  .form-grid, .form-row { grid-template-columns: 1fr; }
+  .share-toggle { align-items: flex-start; }
+  .share-toggle span { line-height: 1.5; }
+}
 .share-toggle { display: flex; align-items: center; gap: 10px; margin-top: 16px; padding: 10px 12px; border: 1px dashed var(--line); border-radius: 8px; cursor: pointer; }
 .share-toggle input { width: 16px; height: 16px; accent-color: var(--primary); }
 .reminder-settings-form { display: grid; gap: 16px; }
@@ -352,6 +356,13 @@ select option {
 .split-sum { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 6px; font-size: 13px; }
 .split-sum .ok { color: var(--pos); }
 .split-sum .bad { color: var(--neg); }
+@media (max-width: 640px) {
+  .split-list li { grid-template-columns: 1fr; gap: 8px; }
+  .split-input { justify-content: space-between; width: 100%; }
+  .split-input .input { width: auto; flex: 1; }
+  .people-pick-list { gap: 6px; }
+  .pick { width: 100%; justify-content: flex-start; }
+}
 .tag { display: inline-block; margin-left: 8px; padding: 0 8px; font-size: 11px; font-weight: 500; line-height: 18px; border-radius: 99px; background: var(--primary-soft); color: var(--primary); vertical-align: middle; }
 .preview { margin-top: 14px; padding: 10px 12px; background: var(--primary-soft); border-radius: 8px; }
 .rescission-total { margin: 18px 0 12px; padding: 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--hover); }
@@ -879,12 +890,82 @@ select option {
 .app-busy-spinner { width: 42px; height: 42px; border: 4px solid var(--primary-soft); border-top-color: var(--primary); border-radius: 50%; animation: spin .8s linear infinite; }
 
 /* ───────── Modal ───────── */
-.modal { border: 0; padding: 0; border-radius: 14px; width: min(460px, calc(100vw - 24px)); background: var(--surface); color: var(--ink); box-shadow: 0 20px 60px rgb(0 0 0 / .3); touch-action: pan-y; }
-.modal-wide { width: min(640px, calc(100vw - 24px)); }
-.modal::backdrop { background: rgb(8 24 24 / .5); backdrop-filter: blur(2px); }
-.modal-head { display: flex; justify-content: space-between; align-items: center; padding: 16px 20px; border-bottom: 1px solid var(--line); }
-.modal-content { padding: 20px; max-height: 70vh; overflow-y: auto; touch-action: pan-y; }
-.modal-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 14px 20px; border-top: 1px solid var(--line); }
+.modal {
+  display: block;
+  margin: auto;
+  border: 0;
+  padding: 0;
+  border-radius: 16px;
+  width: min(460px, calc(100vw - 24px));
+  max-width: calc(100vw - 24px);
+  max-height: min(90vh, 820px);
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: 0 24px 70px rgb(0 0 0 / .28);
+  overflow: hidden;
+  touch-action: pan-y;
+}
+.modal-wide { width: min(700px, calc(100vw - 24px)); }
+.modal::backdrop { background: rgb(8 24 24 / .52); backdrop-filter: blur(2px); }
+.modal-body {
+  display: flex;
+  flex-direction: column;
+  max-height: min(90vh, 820px);
+  min-height: 0;
+}
+.modal-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--line);
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  backdrop-filter: blur(8px);
+}
+.modal-head h2 { margin: 0; font-size: 18px; }
+.modal-close {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+}
+.modal-close:hover { border-color: var(--primary); color: var(--primary); }
+.modal-content {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 20px;
+  max-height: 70vh;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+}
+.modal-foot {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 20px;
+  border-top: 1px solid var(--line);
+  background: color-mix(in srgb, var(--surface) 95%, transparent);
+  backdrop-filter: blur(8px);
+}
+.modal-foot > * { flex: 0 0 auto; }
 .tour-trigger { display: grid; flex: 0 0 auto; place-items: center; }
 .tour-trigger svg { width: 18px; height: 18px; }
 .driver-popover.app-tour-popover { max-width: min(360px, calc(100vw - 24px)); border: 1px solid var(--line); border-radius: 12px; background: var(--surface); color: var(--ink); box-shadow: 0 16px 48px rgb(0 0 0 / .32); }
@@ -1371,11 +1452,29 @@ img, canvas { max-width: 100%; }
 .billing-message { max-height: min(52vh, 520px); overflow: auto; margin: 0; padding: 16px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--ink); font: inherit; white-space: pre-wrap; overflow-wrap: anywhere; }
 @media (max-width: 640px) {
   .system-clock { display: none; }
-  .modal, .modal-wide { width: 95vw; max-height: 90vh; margin: auto; }
-  .modal-content { max-height: calc(90vh - 125px); padding: 16px; }
-  .monthly-summary-modal .modal-content { max-height: calc(90vh - 125px); }
+  .modal, .modal-wide {
+    width: min(calc(100vw - 12px), 100%);
+    max-height: 85vh;
+    margin: auto;
+    border-radius: 18px;
+  }
+  .modal-body { max-height: 85vh; }
+  .modal-content { max-height: calc(85vh - 124px); padding: 16px; }
+  .monthly-summary-modal .modal-content { max-height: calc(85vh - 124px); }
   .modal-head { padding: 14px 16px; }
-  .modal-foot { flex-wrap: wrap; padding: 12px 16px; }
+  .modal-head h2 { font-size: 16px; }
+  .modal-foot {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 8px;
+    padding: 12px 16px;
+  }
+  .modal-foot > * { width: 100%; }
+  .modal-close { width: 30px; height: 30px; }
+  .btn, .input, select, textarea, .icon-btn, .action-btn {
+    min-height: 44px;
+    font-size: 16px;
+  }
   .mobile-bottom-link { font-size: 9px; }
 }
 @media (max-width: 420px) {

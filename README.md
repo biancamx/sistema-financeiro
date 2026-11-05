@@ -1,36 +1,54 @@
-# Caderno de Contas — gestão financeira (React + API separada)
+# Caderno de Contas
 
-Sistema que funciona como a planilha `Financeiro_2026.xlsx`: compras parceladas por cartão e pessoa,
-quanto cada um deve, limite dos cartões, planilha mensal (receitas, descontos, despesas, saldo),
-visão geral por pessoa, aniversários e calculadora de rescisão.
+Sistema financeiro pensado para funcionar como a planilha `Financeiro_2026.xlsx`, com foco em controle de:
 
-## Ver rodando (sem configurar nada)
+- compras parceladas por cartão e pessoa;
+- quanto cada pessoa deve;
+- limites dos cartões;
+- planilha mensal com receitas, descontos, despesas e saldo;
+- visão geral por pessoa;
+- aniversários;
+- calculadora de rescisão.
 
-Precisa de **Node 20+**.
+## Visão geral
+
+O sistema centraliza o controle financeiro em uma interface moderna e estruturada, mantendo a lógica da planilha em formato digital: organização por pessoa, cartão, período e fluxo financeiro.
+
+## Como rodar
+
+Requisitos: **Node.js 20+**.
 
 ```bash
-npm run setup     # instala backend, frontend e a raiz (uma vez)
-npm run dev       # sobe API (http://localhost:4000) + front (http://localhost:5173)
+npm run setup
+npm run dev
 ```
 
-Abra **http://localhost:5173** e clique em **“Entrar em modo local”**: entra com os dados da sua planilha já carregados.
-O login com Google aparece desativado (veja “Ativar o Google”).
+Após iniciar, acesse:
 
-Outros comandos: `npm test` (testes da API) · `npm run seed` (recria os dados de exemplo) · `npm run build`.
+- Frontend: http://localhost:5173
+- API: http://localhost:4000
 
-Para publicar frontend e API no mesmo servidor Node, configure `backend/.env` com base em
-`backend/.env.example`, execute `npm run build` e depois `npm start`. Defina `ADMIN_EMAIL` com o
-e-mail que será o administrador inicial; essa conta recebe acesso ativo automaticamente.
+No frontend, use a opção **Entrar em modo local** para carregar os dados da planilha já prontos no ambiente local.
 
-Para o deploy unificado em Docker, copie `.env.example` para `.env`, informe `MONGODB_URI`,
-`JWT_SECRET` e `ADMIN_EMAIL`, e execute `docker compose up --build`. O container compila o frontend,
-empacota `frontend/dist` com a API e publica ambos em `http://localhost:8080`.
+## Scripts úteis
 
-Novos cadastros ficam aguardando aprovação. O administrador pode liberar ou bloquear contas na área
-**Acessos**. Usuários pendentes ou bloqueados não conseguem acessar os dados da API.
-Para limitar cadastros e logins Google/e-mail a domínios ou endereços específicos, configure
-`ALLOWED_DOMAINS` como uma lista separada por vírgulas (por exemplo, `gmail.com,contato@empresa.com`).
-Uma lista vazia não restringe e-mails; o endereço de `ADMIN_EMAIL` continua autorizado.
+```bash
+npm test
+npm run seed
+npm run build
+```
+
+- `npm test`: executa os testes da API.
+- `npm run seed`: recria os dados de exemplo.
+- `npm run build`: gera a build do sistema.
+
+## Deploy
+
+Para publicar a aplicação em ambiente de produção, configure as variáveis conforme o exemplo do projeto e execute a build do sistema. A estrutura é pensada para funcionar em um ambiente Node com frontend e API em conjunto, além de suporte a containerização com Docker.
+
+## Manutenção e acessos
+
+O sistema oferece controle de acesso e permissões por usuário, com usuários pendentes e bloqueados impedidos de acessar os dados. A administração pode liberar ou bloquear contas pela área de acessos.
 
 ## Instalar como aplicativo (PWA)
 

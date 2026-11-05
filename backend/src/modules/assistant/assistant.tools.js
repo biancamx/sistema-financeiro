@@ -531,6 +531,7 @@ export async function executarFerramenta(nomeFuncao, args, userId) {
         userId,
         name: args.nome.trim(),
         limit: args.limite,
+        brand: 'Outro',
         closingDay: args.diaFechamento,
         dueDay: args.diaVencimento,
       });

@@ -74,7 +74,7 @@ export async function executeSpreadsheetImport(userId, analyzedData, userDecisio
       const safeName = asUniqueName(name);
       let card = await Card.findOne({ userId, name: new RegExp(`^${safeName}$`, 'i') });
       if (!card) {
-        card = await Card.create({ userId, name, limit, issuer: 'Outro', brand: 'outro' });
+        card = await Card.create({ userId, name, limit, issuer: 'Outro', brand: 'Outro' });
         summary.cardsUpserted += 1;
       } else if (limit > 0 && card.limit !== limit) {
         card.limit = limit;

@@ -149,7 +149,7 @@ export async function executePdfPurchaseImport(userId, payload) {
           limit: 0,
           bank: 'outro',
           issuer: 'Outro',
-          brand: 'outro',
+          brand: 'Outro',
           dueDay: 10,
           closingDay: 3,
           closingDayEqual: 'next',

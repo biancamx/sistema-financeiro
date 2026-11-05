@@ -1,5 +1,18 @@
 import mongoose from 'mongoose';
 
+const cardBrands = new Map([
+  ['visa', 'Visa'],
+  ['mastercard', 'Mastercard'],
+  ['elo', 'Elo'],
+  ['american express', 'American Express'],
+  ['amex', 'American Express'],
+]);
+
+export function normalizeCardBrand(value) {
+  if (typeof value !== 'string' || !value.trim()) return 'Outro';
+  return cardBrands.get(value.trim().toLowerCase()) ?? 'Outro';
+}
+
 const cardSchema = new mongoose.Schema(
   {
     userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
@@ -8,7 +21,7 @@ const cardSchema = new mongoose.Schema(
     color: { type: String, default: '#0f6b66' },
     bank: { type: String, default: 'outro' },
     issuer: { type: String, default: 'Outro' },
-    brand: { type: String, default: 'outro' },
+    brand: { type: String, default: 'Outro', set: normalizeCardBrand },
     lastDigits: { type: String, default: null, maxlength: 4 },
     holderPersonId: { type: mongoose.Schema.Types.ObjectId, ref: 'Person', default: null },
     ownerId: { type: mongoose.Schema.Types.ObjectId, ref: 'Person', default: null },

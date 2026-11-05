@@ -4,16 +4,20 @@ import mongoose from 'mongoose';
 import { asyncHandler, badRequest, conflict, notFound } from '../../lib/errors.js';
 import { validate } from '../../middleware/validate.js';
 import { createCardBilling } from '../../lib/cardBilling.js';
-import { Card } from '../../models/Card.js';
+import { Card, normalizeCardBrand } from '../../models/Card.js';
 import { Person } from '../../models/Person.js';
 import { Purchase } from '../../models/Purchase.js';
 import { Installment } from '../../models/Installment.js';
 
+export const cardBrandSchema = z.preprocess(
+  normalizeCardBrand,
+  z.enum(['Visa', 'Mastercard', 'Elo', 'American Express', 'Outro']),
+);
 const body = z.object({
   name: z.string().trim().min(1).max(60),
   limit: z.coerce.number().min(0).max(10_000_000),
   issuer: z.enum(['Nubank', 'Inter', 'C6 Bank', 'Santander', 'Itaú', 'Bradesco', 'Banco do Brasil', 'Outro']).default('Outro'),
-  brand: z.enum(['Visa', 'Mastercard', 'Elo', 'American Express', 'Outro']).default('Outro'),
+  brand: cardBrandSchema,
   lastFour: z.string().regex(/^\d{4}$/).nullable().optional(),
   color: z.string().regex(/^#[\da-fA-F]{6}$/).default('#0f6b66'),
   imageData: z.string().max(80_000).regex(/^data:image\/(?:jpeg|png|webp);base64,[A-Za-z\d+/]+=*$/).nullable().optional(),

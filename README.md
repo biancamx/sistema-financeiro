@@ -15,24 +15,67 @@ Aplicação de gestão financeira para acompanhar despesas, receitas e compromis
 
 ## Hospede sua própria instalação
 
-O Caderno de Contas pode ser publicado em um servidor e acessado pela internet pelo endereço do provedor ou por um domínio próprio. Docker não é necessário para o desenvolvimento local; o repositório também inclui uma configuração Docker Compose como opção para publicação.
+Você pode publicar sua própria instalação em um provedor de aplicações Node.js e acessá-la pela internet. O sistema precisa de um banco MongoDB acessível pelo servidor. Docker é **opcional**: use-o somente se preferir esse formato e sua hospedagem oferecer Docker Compose.
 
-### Publicação com Docker Compose
+### 1. Prepare o projeto e a hospedagem
 
-Para usar essa opção, o ambiente de hospedagem precisa oferecer Docker com Docker Compose. Também é necessário configurar um banco de dados MongoDB acessível pela aplicação.
+Envie o código-fonte para o servidor ou carregue o ZIP e extraia os arquivos. Não inclua arquivos `.env`, credenciais, backups ou dados pessoais no ZIP. Escolha um provedor que aceite Node.js 20 ou superior. Para Docker, o provedor também precisa aceitar Docker Compose.
 
-### Configuração
+Crie um banco MongoDB para essa instalação, por exemplo, no MongoDB Atlas. Configure o acesso de rede para permitir conexões do servidor de hospedagem e mantenha a URI e a senha privadas.
 
-1. Obtenha o código do projeto no servidor de hospedagem.
-2. Copie `.env.example` para `.env`.
-3. Configure `MONGODB_URI`, `JWT_SECRET` e `ADMIN_EMAIL`. Defina `FRONTEND_URL` com o endereço público da instalação.
-4. Inicie a aplicação:
+### 2. Configure as variáveis de ambiente
 
-   ```bash
-   docker compose up --build -d
-   ```
+Cadastre estas variáveis na área de configuração do provedor. Se for usar Docker Compose, coloque-as em um arquivo `.env` no servidor, nunca dentro do ZIP:
 
-A aplicação é disponibilizada na porta `8080` do container. Configure a hospedagem ou o proxy para encaminhar o tráfego, associar o domínio desejado e habilitar HTTPS. Consulte a documentação do provedor para os passos específicos de publicação.
+| Variável | Valor |
+|---|---|
+| `MONGODB_URI` | URI de conexão ao banco MongoDB |
+| `JWT_SECRET` | Chave aleatória forte e exclusiva para esta instalação |
+| `FRONTEND_URL` | Endereço público do sistema, por exemplo `https://contas.exemplo.com`, sem barra no final |
+| `ADMIN_EMAIL` | E-mail que será administrador ao fazer o primeiro acesso |
+| `GOOGLE_CLIENT_ID` | ID do cliente OAuth criado na etapa 4 |
+| `NODE_ENV` | `production` |
+| `ENABLE_LOCAL_LOGIN` | `false` |
+
+Gere uma chave `JWT_SECRET` que não seja usada em outro sistema. Em Linux, por exemplo, use `openssl rand -hex 32`; com Node.js, use `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`. Não compartilhe nem publique essa chave.
+
+### 3. Publique a aplicação
+
+Escolha **uma** das opções:
+
+**Sem Docker — hospedagem Node.js**
+
+- Comando de build: `npm run setup && npm run build`
+- Comando de início: `npm start`
+- Porta: use a porta definida pelo provedor na variável `PORT`.
+
+O servidor Node inicia a API e também serve os arquivos do frontend gerados na etapa de build.
+
+**Com Docker Compose**
+
+No servidor com Docker Compose instalado, execute:
+
+```bash
+docker compose up --build -d
+```
+
+O container escuta na porta `4000` e a configuração do Compose a publica na porta `8080` do servidor. Configure o proxy ou serviço de hospedagem para encaminhar o tráfego HTTPS à aplicação. Os passos para domínio, proxy e certificado variam conforme o provedor.
+
+### 4. Configure o login com Google
+
+No [Google Cloud Console](https://console.cloud.google.com/):
+
+1. Crie ou selecione um projeto e configure a tela de consentimento OAuth. Se o aplicativo estiver em modo de teste, adicione as contas de teste permitidas; para uso mais amplo, conclua a configuração de publicação exigida pelo Google.
+2. Crie uma credencial OAuth do tipo **ID do cliente OAuth para aplicativo da Web**.
+3. Em **Origens JavaScript autorizadas**, adicione o endereço do sistema, sem caminho. Exemplo: `https://contas.exemplo.com`.
+4. Em **URIs de redirecionamento autorizados**, adicione o callback: `https://contas.exemplo.com/api/auth/google/callback`.
+5. Copie o ID do cliente para `GOOGLE_CLIENT_ID` nas variáveis do provedor.
+
+Use o endereço público real da instalação e mantenha o domínio e o HTTPS iguais nos endereços autorizados e em `FRONTEND_URL`. O projeto usa o ID do cliente no fluxo de login; não coloque segredos OAuth no frontend. Reinicie ou publique novamente a aplicação após alterar as variáveis.
+
+### 5. Faça o primeiro acesso
+
+Entre com a conta Google definida em `ADMIN_EMAIL`; ela recebe acesso de administrador. Os demais usuários podem precisar de aprovação na área **Acessos**. A variável opcional `ALLOWED_DOMAINS` restringe os cadastros a domínios ou endereços específicos, como `empresa.com,usuario@exemplo.com`; sem configuração, não há essa restrição adicional.
 
 ## Desenvolvimento
 

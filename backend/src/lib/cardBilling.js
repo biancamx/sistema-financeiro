@@ -33,9 +33,8 @@ export async function ensureSubscriptionInstallments(userId, month, year, filter
     if (!subscriptionActiveInPeriod(purchase, year, month) || !purchase.cardId) continue;
     const first = await Installment.findOne({ userId, purchaseId: purchase._id, number: 1 })
       .sort({ year: 1, month: 1 }).lean();
-    if (!first) continue;
-    const startIndex = monthIndex(first.year, first.month);
-    if (requestedIndex < startIndex) continue;
+    const startIndex = first ? monthIndex(first.year, first.month) : requestedIndex;
+    if (first && requestedIndex < startIndex) continue;
 
     const subscriptionPeriod = `${purchase._id}:${year}-${String(month).padStart(2, '0')}`;
     let installment = await Installment.findOne({ userId, subscriptionPeriod }).lean();
@@ -52,7 +51,7 @@ export async function ensureSubscriptionInstallments(userId, month, year, filter
           installment = await Installment.create({
             userId,
             purchaseId: purchase._id,
-            number: requestedIndex - startIndex + 1,
+            number: first ? requestedIndex - startIndex + 1 : 1,
             year,
             month,
             amount: purchase.totalAmount,

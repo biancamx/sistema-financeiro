@@ -1,11 +1,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  ensureSubscriptionInstallments,
   generateCardInstallments,
   getFirstStatementPeriod,
   getInvoiceDueDate,
   subscriptionActiveInPeriod,
 } from '../src/lib/cardBilling.js';
+import { Installment } from '../src/models/Installment.js';
+import { Purchase } from '../src/models/Purchase.js';
 
 const card = { closingDay: 22, dueDay: 5, closingDayEqual: 'next' };
 
@@ -69,4 +72,54 @@ test('assinaturas importadas respeitam o mês final informado no PDF', () => {
   };
   assert.equal(subscriptionActiveInPeriod(purchase, 2026, 12), true);
   assert.equal(subscriptionActiveInPeriod(purchase, 2027, 1), false);
+});
+
+test('assinaturas ativas sem histórico de parcela surgem imediatamente no mês solicitado', async () => {
+  const originalFindPurchase = Purchase.find;
+  const originalFindOneInstallment = Installment.findOne;
+  const originalCreateInstallment = Installment.create;
+  try {
+    Purchase.find = () => ({
+      populate: () => ({
+        lean: async () => [{
+          _id: '68eb3d5d8b2d9b9d4b0ec062',
+          userId: '68eb3d5d8b2d9b9d4b0ec001',
+          isSubscription: true,
+          subscriptionStatus: 'active',
+          cardId: { _id: '68eb3d5d8b2d9b9d4b0ec055', closingDay: 22, closingDayEqual: 'next' },
+          totalAmount: 39.9,
+        }],
+      }),
+    });
+    Installment.findOne = (query) => ({
+      sort: () => ({
+        lean: async () => {
+          if (query && query.purchaseId && query.number === 1) return null;
+          return null;
+        },
+      }),
+      lean: async () => {
+        if (query && query.userId && query.subscriptionPeriod) return null;
+        if (query && query.userId && query.purchaseId && query.year === 2026 && query.month === 11) return null;
+        return null;
+      },
+    });
+    Installment.create = async (doc) => ({ ...doc, _id: 'installment-1' });
+
+    const created = await ensureSubscriptionInstallments(
+      '68eb3d5d8b2d9b9d4b0ec001',
+      11,
+      2026,
+    );
+
+    assert.equal(created.length, 1);
+    assert.equal(created[0].number, 1);
+    assert.equal(created[0].year, 2026);
+    assert.equal(created[0].month, 11);
+    assert.equal(created[0].amount, 39.9);
+  } finally {
+    Purchase.find = originalFindPurchase;
+    Installment.findOne = originalFindOneInstallment;
+    Installment.create = originalCreateInstallment;
+  }
 });

@@ -1,26 +1,11 @@
-import { useEffect } from 'react';
 import { useFetch } from './useFetch.js';
 import { cardsApi, categoriesApi, peopleApi } from '../services/api.js';
 
 /** Listas usadas nos filtros e formulários (pessoas, cartões, categorias). */
 export function useLookups() {
-  const people = useFetch(() => peopleApi.list(), []);
-  const cards = useFetch(() => cardsApi.list(), []);
-  const categories = useFetch(() => categoriesApi.list(), []);
-
-  useEffect(() => {
-    const refreshPeople = () => people.reload();
-    const refreshCards = () => cards.reload();
-    const refreshCategories = () => categories.reload();
-    window.addEventListener('people:refresh', refreshPeople);
-    window.addEventListener('cards:refresh', refreshCards);
-    window.addEventListener('categories:refresh', refreshCategories);
-    return () => {
-      window.removeEventListener('people:refresh', refreshPeople);
-      window.removeEventListener('cards:refresh', refreshCards);
-      window.removeEventListener('categories:refresh', refreshCategories);
-    };
-  }, []);
+  const people = useFetch(() => peopleApi.list(), [], { cacheKey: 'lookup:people', refreshEvent: 'people:refresh' });
+  const cards = useFetch(() => cardsApi.list(), [], { cacheKey: 'lookup:cards', refreshEvent: 'cards:refresh' });
+  const categories = useFetch(() => categoriesApi.list(), [], { cacheKey: 'lookup:categories', refreshEvent: 'categories:refresh' });
 
   return {
     people: people.data || [],

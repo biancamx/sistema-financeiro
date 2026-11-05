@@ -100,7 +100,7 @@ const emptyForm = { name: '', phone: '', email: '', birthDate: '', pixKey: '', a
 export default function PeoplePage() {
   const { month, year } = usePeriod();
   const toast = useToast();
-  const { data, error, reload } = useFetch(() => peopleApi.list(), []);
+  const { data, error, reload } = useFetch(() => peopleApi.list(), [], { cacheKey: 'lookup:people', refreshEvent: 'people:refresh' });
   const portalContact = useFetch(() => systemApi.getPortalContact(), []);
   const [editing, setEditing] = useState(null);
   const [personModalOpen, setPersonModalOpen] = useState(false);
@@ -188,7 +188,6 @@ export default function PeoplePage() {
       toast.success(editing ? 'Pessoa atualizada' : 'Pessoa adicionada');
       setEditing(null);
       setPersonModalOpen(false);
-      reload();
     } catch (e) {
       toast.error(e);
     } finally {
@@ -200,7 +199,6 @@ export default function PeoplePage() {
     try {
       await peopleApi.remove(person.id);
       toast.success('Pessoa excluída');
-      reload();
     } catch (e) {
       toast.error(e);
     }

@@ -23,6 +23,9 @@ const purchaseSchema = new mongoose.Schema(
 );
 
 purchaseSchema.index({ userId: 1, personId: 1, cardId: 1 });
+purchaseSchema.index({ userId: 1, cardId: 1 });
+purchaseSchema.index({ userId: 1, categoryId: 1 });
+purchaseSchema.index({ userId: 1, _id: -1 });
 purchaseSchema.index({ userId: 1, splitGroupId: 1 });
 purchaseSchema.index({ userId: 1, vehicleExpenseId: 1 }, { sparse: true });
 purchaseSchema.index(

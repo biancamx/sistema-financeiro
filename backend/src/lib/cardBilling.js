@@ -22,53 +22,125 @@ export function subscriptionActiveInPeriod(purchase, year, month) {
   return monthIndex(year, month) <= monthIndex(canceledAt.getUTCFullYear(), canceledAt.getUTCMonth() + 1);
 }
 
-export async function ensureSubscriptionInstallments(userId, month, year, filter = {}) {
+export async function ensureSubscriptionInstallmentsForPeriods(userId, periods, filter = {}) {
+  const requestedPeriods = [...new Map(periods.map(({ month, year }) => [
+    `${year}-${month}`,
+    { month, year, index: monthIndex(year, month) },
+  ])).values()];
+  if (!requestedPeriods.length) return [];
+
   const purchases = await Purchase.find({ userId, isSubscription: true, ...filter })
     .populate('cardId', 'closingDay closingDayEqual')
     .lean();
-  const requestedIndex = monthIndex(year, month);
-  const created = [];
+  const eligiblePurchases = purchases.filter((purchase) => purchase.cardId
+    && requestedPeriods.some(({ month, year }) => subscriptionActiveInPeriod(purchase, year, month)));
+  if (!eligiblePurchases.length) return [];
 
-  for (const purchase of purchases) {
-    if (!subscriptionActiveInPeriod(purchase, year, month) || !purchase.cardId) continue;
-    const first = await Installment.findOne({ userId, purchaseId: purchase._id, number: 1 })
-      .sort({ year: 1, month: 1 }).lean();
-    const startIndex = first ? monthIndex(first.year, first.month) : requestedIndex;
-    if (first && requestedIndex < startIndex) continue;
-
-    const subscriptionPeriod = `${purchase._id}:${year}-${String(month).padStart(2, '0')}`;
-    let installment = await Installment.findOne({ userId, subscriptionPeriod }).lean();
-    if (!installment) {
-      installment = await Installment.findOne({ userId, purchaseId: purchase._id, year, month }).lean();
-      if (installment) {
-        await Installment.updateOne(
-          { _id: installment._id, userId },
-          { $set: { subscriptionPeriod } },
-        );
-        installment.subscriptionPeriod = subscriptionPeriod;
-      } else {
-        try {
-          installment = await Installment.create({
-            userId,
-            purchaseId: purchase._id,
-            number: first ? requestedIndex - startIndex + 1 : 1,
-            year,
-            month,
-            amount: purchase.totalAmount,
-            paid: false,
-            paidAmount: 0,
-            subscriptionPeriod,
-          });
-        } catch (error) {
-          if (error.code !== 11000) throw error;
-          installment = await Installment.findOne({ userId, subscriptionPeriod }).lean();
-          if (!installment) throw error;
-        }
+  const purchaseIds = eligiblePurchases.map((purchase) => purchase._id);
+  const aggregateUserId = userId instanceof mongoose.Types.ObjectId || !mongoose.Types.ObjectId.isValid(userId)
+    ? userId
+    : new mongoose.Types.ObjectId(userId);
+  const firstInstallments = await Installment.aggregate([
+    { $match: { userId: aggregateUserId, purchaseId: { $in: purchaseIds }, number: 1 } },
+    { $sort: { year: 1, month: 1, _id: 1 } },
+    { $group: { _id: '$purchaseId', year: { $first: '$year' }, month: { $first: '$month' } } },
+  ]);
+  const firstPeriodByPurchase = new Map(firstInstallments.map((item) => [
+    String(item._id),
+    monthIndex(item.year, item.month),
+  ]));
+  const startPeriodByPurchase = new Map(eligiblePurchases.map((purchase) => {
+    const key = String(purchase._id);
+    const firstIndex = firstPeriodByPurchase.get(key);
+    const startIndex = firstIndex ?? requestedPeriods.find((period) => (
+      subscriptionActiveInPeriod(purchase, period.year, period.month)
+    ))?.index;
+    return [key, startIndex];
+  }));
+  const periodKeys = [];
+  for (const purchase of eligiblePurchases) {
+    const startIndex = startPeriodByPurchase.get(String(purchase._id));
+    for (const period of requestedPeriods) {
+      if (subscriptionActiveInPeriod(purchase, period.year, period.month)
+        && (startIndex === undefined || period.index >= startIndex)) {
+        periodKeys.push(`${purchase._id}:${period.year}-${String(period.month).padStart(2, '0')}`);
       }
     }
-    created.push(installment);
+  }
+  if (!periodKeys.length) return [];
+
+  const periodKeySet = new Set(periodKeys);
+  const dateFilters = requestedPeriods.map(({ month, year }) => ({ year, month }));
+  const existingInstallments = await Installment.find({
+    userId,
+    $or: [
+      { purchaseId: { $in: purchaseIds }, $or: dateFilters },
+      { subscriptionPeriod: { $in: periodKeys } },
+    ],
+  }).lean();
+  const bySubscriptionPeriod = new Map();
+  const byPurchasePeriod = new Map();
+  for (const installment of existingInstallments) {
+    if (installment.subscriptionPeriod && periodKeySet.has(installment.subscriptionPeriod)) {
+      bySubscriptionPeriod.set(installment.subscriptionPeriod, installment);
+    }
+    byPurchasePeriod.set(
+      `${installment.purchaseId}:${installment.year}-${String(installment.month).padStart(2, '0')}`,
+      installment,
+    );
+  }
+
+  const created = [];
+
+  for (const purchase of eligiblePurchases) {
+    const startIndex = startPeriodByPurchase.get(String(purchase._id));
+    for (const period of requestedPeriods) {
+      if (!subscriptionActiveInPeriod(purchase, period.year, period.month)
+        || (startIndex !== undefined && period.index < startIndex)) continue;
+
+      const subscriptionPeriod = `${purchase._id}:${period.year}-${String(period.month).padStart(2, '0')}`;
+      let installment = bySubscriptionPeriod.get(subscriptionPeriod);
+      if (!installment) {
+        installment = byPurchasePeriod.get(
+          `${purchase._id}:${period.year}-${String(period.month).padStart(2, '0')}`,
+        );
+        if (installment) {
+          await Installment.updateOne(
+            { _id: installment._id, userId },
+            { $set: { subscriptionPeriod } },
+          );
+          installment.subscriptionPeriod = subscriptionPeriod;
+          bySubscriptionPeriod.set(subscriptionPeriod, installment);
+        } else {
+          try {
+            installment = await Installment.create({
+              userId,
+              purchaseId: purchase._id,
+              number: period.index - startIndex + 1,
+              year: period.year,
+              month: period.month,
+              amount: purchase.totalAmount,
+              paid: false,
+              paidAmount: 0,
+              subscriptionPeriod,
+            });
+            bySubscriptionPeriod.set(subscriptionPeriod, installment.toObject());
+          } catch (error) {
+            if (error.code !== 11000) throw error;
+            installment = await Installment.findOne({ userId, subscriptionPeriod }).lean();
+            if (!installment) throw error;
+            bySubscriptionPeriod.set(subscriptionPeriod, installment);
+          }
+        }
+      }
+      created.push(installment);
+    }
   }
   return created;
+}
+
+export function ensureSubscriptionInstallments(userId, month, year, filter = {}) {
+  return ensureSubscriptionInstallmentsForPeriods(userId, [{ month, year }], filter);
 }
 
 export function getInstallmentBalanceCents(amount, paidAmount, paid) {
@@ -209,9 +281,11 @@ export function createCardBilling() {
   }
 
   async function calculatePersonInvoicesByYear(userId, personId, year) {
-    for (let month = 1; month <= 12; month += 1) {
-      await ensureSubscriptionInstallments(userId, month, year, { personId });
-    }
+    await ensureSubscriptionInstallmentsForPeriods(
+      userId,
+      Array.from({ length: 12 }, (_, index) => ({ month: index + 1, year })),
+      { personId },
+    );
     const purchases = await Purchase.find({ userId, personId })
       .select('isSubscription subscriptionStatus canceledAt subscriptionEndAt')
       .populate('cardId', 'name').lean();
@@ -275,19 +349,77 @@ export function createCardBilling() {
 
   async function listCards(userId, month, year, withImages = false) {
     const cards = await Card.find({ userId }).populate('ownerId', 'name').sort({ name: 1 }).lean();
-    return Promise.all(cards.map(async (card) => {
+    if (!cards.length) return [];
+    const now = new Date();
+    const currentMonth = now.getMonth() + 1;
+    const currentYear = now.getFullYear();
+    await ensureSubscriptionInstallmentsForPeriods(userId, [
+      { month, year },
+      { month: currentMonth, year: currentYear },
+    ]);
+    const purchases = await Purchase.find({ userId })
+      .select('_id cardId isSubscription subscriptionStatus canceledAt subscriptionEndAt')
+      .lean();
+    const installments = purchases.length ? await Installment.find({
+      userId, purchaseId: { $in: purchases.map((purchase) => purchase._id) },
+    }).lean() : [];
+    const purchaseById = new Map(purchases.map((purchase) => [String(purchase._id), purchase]));
+    const installmentsByCard = new Map();
+    for (const installment of installments) {
+      const purchase = purchaseById.get(String(installment.purchaseId));
+      if (!purchase) continue;
+      const cardId = String(purchase.cardId);
+      const rows = installmentsByCard.get(cardId) ?? [];
+      rows.push({ installment, purchase });
+      installmentsByCard.set(cardId, rows);
+    }
+
+    return cards.map((card) => {
       const shaped = {
         id: String(card._id), name: card.name, limit: card.limit, issuer: card.issuer, brand: card.brand,
         lastFour: card.lastDigits, color: card.color, imageData: withImages ? card.imageData : null,
         ownerId: card.ownerId ? String(card.ownerId._id) : null, owner: card.ownerId?.name ?? null,
         dueDay: card.dueDay, closingDay: card.closingDay, closingDayEqual: card.closingDayEqual,
       };
-      const [invoice, limit] = await Promise.all([
-        calculateInvoice(userId, card._id, month, year),
-        calculateLimit(userId, card._id),
-      ]);
-      return { ...shaped, invoice: invoice.amount, invoiceDueDate: getInvoiceDueDate(shaped, year, month), ...limit };
-    }));
+      const cardInstallments = installmentsByCard.get(String(card._id)) ?? [];
+      const invoiceCents = cardInstallments.reduce((sum, { installment, purchase }) => {
+        if (installment.year !== year || installment.month !== month
+          || (purchase.isSubscription && !subscriptionActiveInPeriod(purchase, year, month))) return sum;
+        return sum + getInstallmentBalanceCents(installment.amount, installment.paidAmount, installment.paid);
+      }, 0);
+
+      const currentIndex = monthIndex(currentYear, currentMonth);
+      const nextSubscriptionPeriods = new Map();
+      for (const { installment, purchase } of cardInstallments) {
+        const periodIndex = monthIndex(installment.year, installment.month);
+        if (!purchase.isSubscription || periodIndex < currentIndex
+          || !subscriptionActiveInPeriod(purchase, installment.year, installment.month)) continue;
+        const key = String(purchase._id);
+        const previous = nextSubscriptionPeriods.get(key);
+        if (!previous || periodIndex < monthIndex(previous.year, previous.month)) {
+          nextSubscriptionPeriods.set(key, installment);
+        }
+      }
+      const usedCents = cardInstallments.reduce((sum, { installment, purchase }) => {
+        const periodIndex = monthIndex(installment.year, installment.month);
+        if (purchase.isSubscription) {
+          const next = nextSubscriptionPeriods.get(String(purchase._id));
+          if (!next || next._id.toString() !== installment._id.toString()) return sum;
+        } else if (periodIndex < currentIndex) {
+          return sum;
+        }
+        return sum + getInstallmentBalanceCents(installment.amount, installment.paidAmount, installment.paid);
+      }, 0);
+      const used = fromCents(usedCents);
+      return {
+        ...shaped,
+        invoice: fromCents(invoiceCents),
+        invoiceDueDate: getInvoiceDueDate(shaped, year, month),
+        used,
+        available: card.limit > 0 ? round2(card.limit - used) : 0,
+        percentUsed: card.limit > 0 ? (used / card.limit) * 100 : 0,
+      };
+    });
   }
 
   async function recordPayment(userId, installmentId, paid) {

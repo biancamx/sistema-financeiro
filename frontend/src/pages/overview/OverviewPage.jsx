@@ -14,7 +14,7 @@ export default function OverviewPage() {
   const nav = useNavigate();
   const toast = useToast();
   const params = useParams();
-  const people = useFetch(() => peopleApi.list(), []);
+  const people = useFetch(() => peopleApi.list(), [], { cacheKey: 'lookup:people', refreshEvent: 'people:refresh' });
   const thisYear = new Date().getFullYear();
   const personId = params.personId || people.data?.[0]?.id;
   const year = Number(params.year) || thisYear;

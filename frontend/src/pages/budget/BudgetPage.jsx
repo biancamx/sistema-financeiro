@@ -14,7 +14,7 @@ export default function BudgetPage() {
   const nav = useNavigate();
   const toast = useToast();
   const params = useParams();
-  const people = useFetch(() => peopleApi.list(), []);
+  const people = useFetch(() => peopleApi.list(), [], { cacheKey: 'lookup:people', refreshEvent: 'people:refresh' });
   const thisYear = new Date().getFullYear();
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
   const [showFullYearMobile, setShowFullYearMobile] = useState(false);

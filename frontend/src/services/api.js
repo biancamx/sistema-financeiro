@@ -1,4 +1,5 @@
 import { get, post, put, patch, del, apiUrl, postFormData } from './http.js';
+import { refreshLookup } from './lookupRefresh.js';
 
 // Um objeto por "módulo" da API (espelha as pastas do backend).
 export const authApi = {
@@ -85,13 +86,25 @@ export const budgetApi = {
   fill: (rowId, fromMonth, value) => post(`/budgets/rows/${rowId}/fill`, { fromMonth, value }),
 };
 
-const crud = (base) => ({
+const crud = (base, lookupName) => ({
   list: (q) => get(base, q).then((r) => r.data),
-  create: (b) => post(base, b).then((r) => r.data),
-  update: (id, b) => put(`${base}/${id}`, b).then((r) => r.data),
-  remove: (id) => del(`${base}/${id}`),
+  async create(b) {
+    const result = await post(base, b).then((r) => r.data);
+    if (lookupName) refreshLookup(lookupName);
+    return result;
+  },
+  async update(id, b) {
+    const result = await put(`${base}/${id}`, b).then((r) => r.data);
+    if (lookupName) refreshLookup(lookupName);
+    return result;
+  },
+  async remove(id) {
+    const result = await del(`${base}/${id}`);
+    if (lookupName) refreshLookup(lookupName);
+    return result;
+  },
 });
-export const peopleApi = crud('/people');
+export const peopleApi = crud('/people', 'people');
 export const portalApi = {
   get: (token) => get(`/portal/${encodeURIComponent(token)}`).then((r) => r.data),
 };
@@ -104,24 +117,24 @@ export const remindersApi = {
   settlePersonMonth: (personId, month, year) => post('/reminders/settle-person-month', { personId, month, year }),
 };
 export const cardsApi = {
-  ...crud('/cards'),
+  ...crud('/cards', 'cards'),
   payInvoice: (id, b) => post(`/cards/${id}/payments`, b).then((r) => r.data),
 };
 export const categoriesApi = {
   list: (q) => get('/categories', q).then((r) => r.data),
   async create(body) {
     const result = await post('/categories', body).then((r) => r.data);
-    window.dispatchEvent(new Event('categories:refresh'));
+    refreshLookup('categories');
     return result;
   },
   async update(id, body) {
     const result = await put(`/categories/${id}`, body).then((r) => r.data);
-    window.dispatchEvent(new Event('categories:refresh'));
+    refreshLookup('categories');
     return result;
   },
   async remove(id) {
     const result = await del(`/categories/${id}`);
-    window.dispatchEvent(new Event('categories:refresh'));
+    refreshLookup('categories');
     return result;
   },
 };

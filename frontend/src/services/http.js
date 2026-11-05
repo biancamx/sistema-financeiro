@@ -7,11 +7,11 @@ const getCache = new Map();
 const pendingGets = new Map();
 let cacheVersion = 0;
 
-export function clearHttpCache() {
+export function clearHttpCache({ preserveLookups = false } = {}) {
   cacheVersion += 1;
   getCache.clear();
   pendingGets.clear();
-  clearFetchData();
+  clearFetchData({ preserveLookups });
 }
 
 export class ApiError extends Error {
@@ -46,7 +46,7 @@ export async function http(method, path, { body, query } = {}) {
   const url = `${BASE}${path}${qs}`;
   const cacheable = method === 'GET';
 
-  if (!cacheable) clearHttpCache();
+  if (!cacheable) clearHttpCache({ preserveLookups: !path.startsWith('/auth/') });
   if (cacheable) {
     const cached = getCache.get(url);
     if (cached && cached.expiresAt > Date.now()) return cached.data;
@@ -97,12 +97,12 @@ export async function http(method, path, { body, query } = {}) {
     return await request;
   } finally {
     if (cacheable && pendingGets.get(url) === request) pendingGets.delete(url);
-    if (!cacheable) clearHttpCache();
+    if (!cacheable) clearHttpCache({ preserveLookups: !path.startsWith('/auth/') });
   }
 }
 
 export async function postFormData(path, formData) {
-  clearHttpCache();
+  clearHttpCache({ preserveLookups: true });
   let res;
   try {
     res = await fetch(`${BASE}${path}`, {
@@ -116,8 +116,14 @@ export async function postFormData(path, formData) {
   if (res.status === 204) return null;
   const json = await res.json().catch(() => null);
   if (!res.ok) {
-    if (res.status === 401 && !path.startsWith('/auth/')) onUnauthorized();
-    if (json?.error?.code === 'ACCOUNT_PENDING') onAccountPending();
+    if (res.status === 401) {
+      clearHttpCache();
+      if (!path.startsWith('/auth/')) onUnauthorized();
+    }
+    if (json?.error?.code === 'ACCOUNT_PENDING') {
+      clearHttpCache();
+      onAccountPending();
+    }
     throw new ApiError(res.status, json);
   }
   return json;

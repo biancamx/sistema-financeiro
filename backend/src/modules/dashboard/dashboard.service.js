@@ -1,6 +1,6 @@
 import { monthIndex, round2 } from '../../lib/months.js';
 import { badRequest } from '../../lib/errors.js';
-import { createCardBilling, ensureSubscriptionInstallments, getInstallmentBalanceCents, getInvoiceDueDate, subscriptionActiveInPeriod } from '../../lib/cardBilling.js';
+import { createCardBilling, ensureSubscriptionInstallmentsForPeriods, getInstallmentBalanceCents, getInvoiceDueDate, subscriptionActiveInPeriod } from '../../lib/cardBilling.js';
 import { createBudgetsService } from '../budgets/budgets.service.js';
 import { createCashLedgerService } from '../cashLedger/cashLedger.service.js';
 import { BudgetSheet } from '../../models/BudgetSheet.js';
@@ -19,9 +19,10 @@ export function createDashboardService() {
     async summary(userId, { month, year, personId }) {
       const idx = monthIndex(year, month);
       const sum = (rows) => round2(rows.reduce((total, row) => total + row.amount, 0));
-      await Promise.all(Array.from({ length: 12 }, (_, index) => (
-        ensureSubscriptionInstallments(userId, index + 1, year)
-      )));
+      await ensureSubscriptionInstallmentsForPeriods(
+        userId,
+        Array.from({ length: 12 }, (_, index) => ({ month: index + 1, year })),
+      );
       const [cardDocs, cash, peopleDocs, purchases, installments] = await Promise.all([
         Card.find({ userId })
           .select('name limit issuer brand lastDigits color ownerId dueDay closingDay closingDayEqual')

@@ -205,6 +205,7 @@ export default function AppLayout() {
                   key={i.to}
                   to={i.to}
                   onPointerEnter={() => preloadRoute(i.to)}
+                  onPointerDown={() => preloadRoute(i.to)}
                   onFocus={() => preloadRoute(i.to)}
                   data-tour={navTourId(i.to)}
                   title={desktopCollapsed ? i.label : undefined}
@@ -401,6 +402,7 @@ export default function AppLayout() {
                       key={item.to}
                       to={item.to}
                       onPointerEnter={() => preloadRoute(item.to)}
+                      onPointerDown={() => preloadRoute(item.to)}
                       onFocus={() => preloadRoute(item.to)}
                       data-tour={navTourId(item.to)}
                       onClick={() => setMobileMenuOpen(false)}
@@ -447,6 +449,7 @@ export default function AppLayout() {
               key={item.to}
               to={item.to}
               onPointerEnter={() => preloadRoute(item.to)}
+              onPointerDown={() => preloadRoute(item.to)}
               onFocus={() => preloadRoute(item.to)}
               data-tour={navTourId(item.to)}
               className={({ isActive }) => `mobile-bottom-link ${isActive ? 'active' : ''}`}

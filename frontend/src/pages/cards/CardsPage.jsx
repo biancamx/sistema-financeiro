@@ -87,7 +87,7 @@ export default function CardsPage() {
   const toast = useToast();
   const { data, error, reload } = useFetch(() => cardsApi.list({ month, year, withImages: true }), [month, year]);
   useFinanceRefresh(reload);
-  const people = useFetch(() => peopleApi.list(), []);
+  const people = useFetch(() => peopleApi.list(), [], { cacheKey: 'lookup:people', refreshEvent: 'people:refresh' });
   const [editing, setEditing] = useState(null);
   const [paying, setPaying] = useState(null);
 
@@ -116,12 +116,11 @@ export default function CardsPage() {
       notifyFinanceChanged();
       toast.success('Cartão salvo');
       setEditing(null);
-      reload();
     } catch (e) { toast.error(e); }
   };
   const remove = async (card) => {
     if (!window.confirm(`Excluir "${card.name}"? As compras feitas nele também serão apagadas.`)) return;
-    try { await cardsApi.remove(card.id); notifyFinanceChanged(); toast.success('Cartão excluído'); reload(); } catch (e) { toast.error(e); }
+    try { await cardsApi.remove(card.id); notifyFinanceChanged(); toast.success('Cartão excluído'); } catch (e) { toast.error(e); }
   };
   const editCard = (card) => setEditing({
     id: card.id,
@@ -155,7 +154,6 @@ export default function CardsPage() {
       notifyFinanceChanged();
       toast.success('Pagamento registrado; limite atualizado');
       setPaying(null);
-      reload();
     } catch (e) { toast.error(e); }
   };
 

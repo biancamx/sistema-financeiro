@@ -17,6 +17,17 @@ export function setFetchData(key, data) {
   cache.set(key, { data, expiresAt: Date.now() + CACHE_TTL_MS });
 }
 
-export function clearFetchData() {
-  cache.clear();
+export function clearFetchData({ preserveLookups = false } = {}) {
+  if (!preserveLookups) {
+    cache.clear();
+    return;
+  }
+  for (const key of cache.keys()) {
+    if (!key.startsWith('lookup:')) cache.delete(key);
+  }
+}
+
+export function refreshFetchData(key, eventName) {
+  cache.delete(key);
+  window.dispatchEvent(new Event(eventName));
 }

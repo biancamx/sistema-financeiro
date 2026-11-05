@@ -16,13 +16,18 @@ const loaders = {
 };
 
 export const routePaths = Object.keys(loaders);
+const preloadedRoutes = new Map();
 
 export const loadRoute = (path) => loaders[path];
 
 export function preloadRoute(path) {
   const load = loadRoute(path);
   if (!load) return Promise.resolve();
-  return load().catch((error) => {
+  if (preloadedRoutes.has(path)) return preloadedRoutes.get(path);
+  const preload = load().catch((error) => {
+    preloadedRoutes.delete(path);
     console.error(`Falha ao antecipar o carregamento de ${path}:`, error);
   });
+  preloadedRoutes.set(path, preload);
+  return preload;
 }

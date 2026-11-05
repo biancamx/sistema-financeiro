@@ -16,6 +16,7 @@ import { Button, Card, Modal, PageHeader } from '../../components/ui/ui.jsx';
 import { useAppBusy } from '../../context/BusyContext.jsx';
 import { useToast } from '../../context/ToastContext.jsx';
 import { notifyFinanceChanged } from '../../hooks/useFinanceRefresh.js';
+import { refreshAllLookups } from '../../services/lookupRefresh.js';
 import { MONTHS_SHORT, money } from '../../lib/format.js';
 import { categoriesApi, importApi, systemApi } from '../../services/api.js';
 import './SettingsPage.css';
@@ -90,7 +91,6 @@ export default function SettingsPage() {
       if (categoryForm.id) await categoriesApi.update(categoryForm.id, payload);
       else await categoriesApi.create(payload);
       setCategoryForm(null);
-      await loadCategories();
       toast.success(categoryForm.id ? 'Categoria atualizada.' : 'Categoria criada.');
     } catch (error) {
       toast.error(error);
@@ -105,7 +105,6 @@ export default function SettingsPage() {
     try {
       await categoriesApi.remove(categoryToDelete.id);
       setCategoryToDelete(null);
-      await loadCategories();
       toast.success('Categoria excluída.');
     } catch (error) {
       toast.error(error);
@@ -159,9 +158,7 @@ export default function SettingsPage() {
       toast.success(analyzedData.sourceType === 'pdf'
         ? `Importação concluída: ${summary.peopleUpserted} novas pessoas, ${summary.cardsUpserted} novos cartões, ${summary.categoriesCreated} novas categorias, ${summary.purchasesUpserted} compras e ${summary.installmentsUpserted} parcelas${summary.purchasesIgnored ? `; ${summary.purchasesIgnored} duplicadas ignoradas` : ''}.`
         : `Importação concluída: ${summary.peopleUpserted} pessoas, ${summary.cardsUpserted} cartões, ${summary.purchasesUpserted} compras, ${summary.installmentsUpserted} parcelas e ${summary.budgetsUpserted} linhas.`);
-      window.dispatchEvent(new Event('people:refresh'));
-      window.dispatchEvent(new Event('cards:refresh'));
-      window.dispatchEvent(new Event('categories:refresh'));
+      refreshAllLookups();
       notifyFinanceChanged();
       window.dispatchEvent(new Event('reminders:refresh'));
     } catch (error) {
@@ -182,6 +179,7 @@ export default function SettingsPage() {
       toast.success(result?.message || 'Dados removidos com sucesso.');
       setConfirmation(null);
       setResetPhrase('');
+      if (!resetPurchases) refreshAllLookups();
       window.dispatchEvent(new Event('reminders:refresh'));
     } catch (error) {
       toast.error(error);

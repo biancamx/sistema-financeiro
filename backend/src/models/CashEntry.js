@@ -27,6 +27,7 @@ const cashEntrySchema = new mongoose.Schema(
 );
 
 cashEntrySchema.index({ userId: 1, entryDate: 1 });
+cashEntrySchema.index({ userId: 1, kind: 1, entryDate: 1 });
 cashEntrySchema.index({ userId: 1, personId: 1 });
 
 export const CashEntry = mongoose.model('CashEntry', cashEntrySchema);

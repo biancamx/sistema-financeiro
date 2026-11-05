@@ -227,22 +227,45 @@ export function createPurchasesService() {
       const filter = listFor(userId, query);
       const purchases = await populatePurchases(filter);
       const collapse = !query.personId;
-      const unique = collapse
-        ? purchases.filter((p) => !p.splitGroupId || purchases.findIndex((item) => item.splitGroupId === p.splitGroupId) === purchases.indexOf(p))
-        : purchases;
+      const seenGroups = new Set();
+      const unique = collapse ? purchases.filter((purchase) => {
+        if (!purchase.splitGroupId) return true;
+        if (seenGroups.has(purchase.splitGroupId)) return false;
+        seenGroups.add(purchase.splitGroupId);
+        return true;
+      }) : purchases;
       const total = unique.length;
-      const data = await Promise.all(unique.slice((query.page - 1) * query.pageSize, query.page * query.pageSize).map(async (p) => {
-        const rows = await Installment.find({ purchaseId: p._id }).lean();
-        const groupRows = p.splitGroupId ? purchases.filter((row) => row.splitGroupId === p.splitGroupId) : [];
-        const result = shape(p, rows, groupRows);
-        if (collapse && p.splitGroupId) {
+      const page = unique.slice((query.page - 1) * query.pageSize, query.page * query.pageSize);
+      const pageIds = page.map((purchase) => purchase._id);
+      const installments = pageIds.length
+        ? await Installment.find({ userId, purchaseId: { $in: pageIds } }).lean()
+        : [];
+      const installmentsByPurchase = new Map();
+      for (const installment of installments) {
+        const key = String(installment.purchaseId);
+        const rows = installmentsByPurchase.get(key) ?? [];
+        rows.push(installment);
+        installmentsByPurchase.set(key, rows);
+      }
+      const groupRowsById = new Map();
+      for (const purchase of purchases) {
+        if (!purchase.splitGroupId) continue;
+        const rows = groupRowsById.get(purchase.splitGroupId) ?? [];
+        rows.push(purchase);
+        groupRowsById.set(purchase.splitGroupId, rows);
+      }
+      const data = page.map((purchase) => {
+        const rows = installmentsByPurchase.get(String(purchase._id)) ?? [];
+        const groupRows = groupRowsById.get(purchase.splitGroupId) ?? [];
+        const result = shape(purchase, rows, groupRows);
+        if (collapse && purchase.splitGroupId) {
           result.total = result.groupTotal;
-          result.perInstallment = round2(result.groupTotal / p.totalInstallments);
+          result.perInstallment = round2(result.groupTotal / purchase.totalInstallments);
           result.person = result.participantsNames;
           result.personId = null;
         }
         return result;
-      }));
+      });
       return { data, page: query.page, pageSize: query.pageSize, total };
     },
     get,

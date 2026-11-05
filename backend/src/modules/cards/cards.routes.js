@@ -107,7 +107,7 @@ export function cardsRoutes() {
       await session.withTransaction(async () => {
         const card = await Card.findOne({ _id: req.params.id, userId }).session(session);
         if (!card) throw notFound('Cartão não encontrado');
-        const purchases = await Purchase.find({ cardId: card._id, userId }).select('_id').session(session);
+        const purchases = await Purchase.find({ cardId: card._id, userId }).select('_id').session(session).lean();
         await Installment.deleteMany({ userId, purchaseId: { $in: purchases.map(({ _id }) => _id) } }, { session });
         await Purchase.deleteMany({ cardId: card._id, userId }, { session });
         await card.deleteOne({ session });

@@ -210,7 +210,7 @@ export default function PurchasesPage() {
     <div className="purchases-page">
       <PageHeader
         title="Lançamentos"
-        subtitle={<span className="purchase-page-subtitle">Compras no cartão e suas parcelas — a antiga aba “Banco de Dados”</span>}
+        subtitle={<span className="purchase-page-subtitle">Compras no cartão e suas parcelas</span>}
         actions={<>
           <a className="btn btn-ghost purchase-export" href={purchasesApi.exportUrl()} aria-label="Exportar CSV">
             <Download size={16} aria-hidden="true" /><span>Exportar CSV</span>

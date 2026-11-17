@@ -72,6 +72,36 @@ test('configurações de IA exigem autenticação', async () => {
   assert.equal((await anonymous('GET', '/settings/ai')).status, 401);
 });
 
+test('modelos Gemini atuais ficam disponíveis para seleção e teste', async () => {
+  const account = await createTestAccount({ email: 'ai-gemini-models@example.invalid' });
+  const api = createApiClient(baseUrl, account.cookie);
+  const settings = await api('GET', '/settings/ai');
+  const models = settings.json.data.providers.gemini.models;
+  for (const model of [
+    'gemini-3.5-flash-lite',
+    'gemini-3.6-flash',
+    'gemini-3.8-flash',
+    'gemini-4-hydrogen',
+    'gemini-4-argon',
+    'gemini-4-carbon',
+  ]) assert.ok(models.includes(model), `${model} deve estar disponível`);
+
+  const saved = await saveConfig(api, ['gemini', 'gemini-4-hydrogen', 'AIza-gemini-new-model-key']);
+  assert.equal(saved.status, 200, saved.text);
+  assert.equal(saved.json.data.model, 'gemini-4-hydrogen');
+
+  let requestedUrl = '';
+  mockProviderFetch(async (url) => {
+    requestedUrl = String(url);
+    return providerResponse('gemini');
+  });
+  const tested = await api('POST', '/settings/ai/test', {
+    provider: 'gemini', model: 'gemini-3.5-flash-lite', apiKey: 'AIza-gemini-new-model-key',
+  });
+  assert.equal(tested.status, 200, tested.text);
+  assert.ok(requestedUrl.includes('gemini-3.5-flash-lite'));
+});
+
 test('salva Gemini, OpenAI e Claude criptografados e troca provedor/modelo', async () => {
   const account = await createTestAccount({ email: 'ai-settings@example.invalid' });
   const api = createApiClient(baseUrl, account.cookie);

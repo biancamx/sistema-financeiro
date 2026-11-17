@@ -31,7 +31,7 @@ async function setup(email) {
   );
   const ids = {};
   for (const person of people) ids[person.name] = String(person._id);
-  return { c: createApiClient(base, account.cookie), ids };
+  return { c: createApiClient(base, account.cookie), cookie: account.cookie, ids };
 }
 const car = { kind: 'car', model: 'Carro de demonstração', plate: 'demo-001', year: 2024, purchaseValue: 50000, status: 'active' };
 
@@ -78,6 +78,32 @@ test('gasto individual: valor mínimo R$ 1, categoria válida, km e fatia do pag
   assert.equal(got.totalSpent, 251.5);
   assert.equal(got.expensesCount, 2);
   assert.equal(got.currentKm, 12000);
+});
+
+test('KM atual avança sem reduzir e litros são aceitos somente em combustível', async () => {
+  const { c, ids } = await setup('vehicle-mileage@teste.com');
+  const vehicle = (await c('POST', '/vehicles', car)).json.data;
+  const expense = {
+    vehicleId: vehicle.id, date: '2026-03-10', category: 'fuel', description: 'Abastecimento',
+    amount: 250, km: 41200, liters: 42.5, payerId: ids['Pessoa 01'],
+  };
+  const first = await c('POST', '/vehicles/expenses', expense);
+  assert.equal(first.status, 201, first.text);
+  assert.equal(first.json.data.liters, 42.5);
+  assert.equal((await c('GET', `/vehicles/${vehicle.id}`)).json.data.currentKm, 41200);
+
+  const lower = await c('POST', '/vehicles/expenses', { ...expense, km: 41000, liters: undefined });
+  assert.equal(lower.status, 201, lower.text);
+  assert.equal((await c('GET', `/vehicles/${vehicle.id}`)).json.data.currentKm, 41200);
+  assert.equal((await c('POST', '/vehicles/expenses', { ...expense, category: 'oil', liters: 2 })).status, 400);
+
+  const updated = await c('PUT', `/vehicles/${vehicle.id}`, { ...car, plate: vehicle.plate, currentKm: 39000 });
+  assert.equal(updated.json.data.currentKm, 39000);
+  const afterManualEdit = await c('POST', '/vehicles/expenses', { ...expense, km: 38000, liters: undefined });
+  assert.equal(afterManualEdit.status, 201, afterManualEdit.text);
+  assert.equal((await c('GET', `/vehicles/${vehicle.id}`)).json.data.currentKm, 39000);
+  assert.equal((await c('DELETE', `/vehicles/expenses/${first.json.data.id}`)).status, 204);
+  assert.equal((await c('GET', `/vehicles/${vehicle.id}`)).json.data.currentKm, 39000);
 });
 
 test('rateio: iguais fecham no centavo, por % e por R$; erros de soma', async () => {
@@ -163,6 +189,155 @@ test('resumo do veículo inclui gastos recentes com suas datas em ordem decresce
   ]);
 });
 
+test('resumo por período calcula comparação, média, custo por km e consumo', async () => {
+  const { c, ids } = await setup('vehicle-summary-period@teste.com');
+  const vehicle = (await c('POST', '/vehicles', car)).json.data;
+  const add = (date, category, amount, km, liters) => c('POST', '/vehicles/expenses', {
+    vehicleId: vehicle.id, date, category, amount, km, liters, payerId: ids['Pessoa 01'],
+  });
+  await add('2026-03-01', 'fuel', 100, 1000, 40);
+  await add('2026-03-10', 'fuel', 100, 1400, 40);
+  await add('2026-02-20', 'oil', 50, 900);
+  await add('2025-03-01', 'fuel', 75, 500, 35);
+
+  const summary = (await c('GET', `/vehicles/summary?vehicleId=${vehicle.id}&year=2026&period=month&month=3`)).json.data;
+  assert.equal(summary.total, 200);
+  assert.equal(summary.comparison.total, 50);
+  assert.equal(summary.comparison.percentChange, 300);
+  assert.equal(summary.averageMonthly, 200);
+  assert.equal(summary.costPerKm, 0.5);
+  assert.equal(summary.consumptionKmPerLiter, 10);
+  assert.equal(summary.byMonth.length, 12);
+  assert.equal(summary.byMonth[2].total, 200);
+  assert.equal(summary.recentExpenses.length, 2);
+
+  const quarter = (await c('GET', `/vehicles/summary?vehicleId=${vehicle.id}&year=2026&period=quarter&month=3`)).json.data;
+  assert.equal(quarter.total, 250);
+});
+
+test('lembretes calculam status, notificam uma vez por mudança e completam com gasto', async () => {
+  const { c, ids } = await setup('vehicle-reminders@teste.com');
+  const other = await setup('vehicle-reminders-other@teste.com');
+  const today = new Date();
+  const todayIso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  const vehicle = (await c('POST', '/vehicles', { ...car, currentKm: 100000 })).json.data;
+  const oil = await c('POST', '/vehicles/maintenance', {
+    vehicleId: vehicle.id, type: 'oil', rule: 'km', intervalKm: 1000,
+    lastPerformedDate: '2025-01-01', lastPerformedKm: 99000,
+  });
+  assert.equal(oil.status, 201, oil.text);
+  assert.equal(oil.json.data.status, 'upcoming', JSON.stringify(oil.json.data));
+  const fixed = await c('POST', '/vehicles/maintenance', {
+    vehicleId: vehicle.id, type: 'insurance', rule: 'fixed_date', dueDate: '2020-01-01',
+  });
+  assert.equal(fixed.status, 201, fixed.text);
+  assert.equal(fixed.json.data.status, 'overdue');
+  assert.equal((await other.c('GET', '/vehicles/maintenance')).json.data.length, 0);
+
+  const alerts = await c('GET', '/reminders/alerts');
+  assert.equal(alerts.json.alerts.filter((alert) => alert.type === 'vehicle_reminder').length, 2);
+  const repeatedAlerts = await c('GET', '/reminders/alerts');
+  assert.equal(repeatedAlerts.json.alerts.filter((alert) => alert.type === 'vehicle_reminder').length, 0);
+
+  const savedExpense = await c('POST', '/vehicles/expenses', {
+    vehicleId: vehicle.id, date: todayIso, category: 'oil', description: 'Troca de óleo',
+    amount: 250, km: 100001, payerId: ids['Pessoa 01'], reminderId: oil.json.data.id,
+  });
+  assert.equal(savedExpense.status, 201, savedExpense.text);
+  const updated = (await c('GET', `/vehicles/maintenance?vehicleId=${vehicle.id}`)).json.data
+    .find((reminder) => reminder.id === oil.json.data.id);
+  assert.equal(updated.lastPerformedDate, todayIso);
+  assert.equal(updated.lastPerformedKm, 100001);
+  assert.equal(updated.status, 'on_track');
+
+  const paid = await c('POST', `/vehicles/maintenance/${fixed.json.data.id}/paid`);
+  assert.equal(paid.json.data.status, 'paid');
+  assert.equal(paid.json.data.active, false);
+  await c('GET', '/reminders/alerts');
+  await c('PUT', `/vehicles/${vehicle.id}`, { ...car, plate: vehicle.plate, currentKm: 101002 });
+  const changedStatusAlerts = await c('GET', '/reminders/alerts');
+  assert.equal(changedStatusAlerts.json.alerts.filter((alert) => alert.type === 'vehicle_reminder').length, 1);
+  assert.equal(changedStatusAlerts.json.alerts.find((alert) => alert.type === 'vehicle_reminder').status, 'overdue');
+  const repeatedOverdueAlerts = await c('GET', '/reminders/alerts');
+  assert.equal(repeatedOverdueAlerts.json.alerts.filter((alert) => alert.type === 'vehicle_reminder').length, 0);
+
+  const future = new Date();
+  future.setDate(future.getDate() + 40);
+  const near = await c('POST', '/vehicles/maintenance', {
+    vehicleId: vehicle.id, type: 'licensing', rule: 'fixed_date',
+    dueDate: `${future.getFullYear()}-${String(future.getMonth() + 1).padStart(2, '0')}-${String(future.getDate()).padStart(2, '0')}`,
+  });
+  assert.equal(near.json.data.status, 'on_track');
+  const settings = await c('PUT', '/vehicles/maintenance/settings', { daysBefore: 45, kmBefore: 800 });
+  assert.deepEqual(settings.json.data, { daysBefore: 45, kmBefore: 800 });
+  const otherSettings = await other.c('GET', '/vehicles/maintenance/settings');
+  assert.deepEqual(otherSettings.json.data, { daysBefore: 30, kmBefore: 500 });
+  const adjusted = (await c('GET', `/vehicles/maintenance?vehicleId=${vehicle.id}`)).json.data
+    .find((reminder) => reminder.id === near.json.data.id);
+  assert.equal(adjusted.status, 'upcoming');
+});
+
+test('documentos são privados e criam/removem lembretes de validade', async () => {
+  const { c, cookie } = await setup('vehicle-documents@teste.com');
+  const other = await setup('vehicle-documents-other@teste.com');
+  const dateAfter = (days) => {
+    const date = new Date();
+    date.setDate(date.getDate() + days);
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  };
+  const vehicle = (await c('POST', '/vehicles', {
+    ...car, insuranceDueDate: dateAfter(40),
+  })).json.data;
+  const form = new FormData();
+  form.append('vehicleId', vehicle.id);
+  form.append('name', 'CRLV digital');
+  form.append('type', 'crlv');
+  form.append('dueDate', dateAfter(20));
+  form.append('file', new Blob(['%PDF-1.4\nvehicle document'], { type: 'application/pdf' }), 'crlv.pdf');
+  const uploaded = await fetch(`${base}/vehicles/documents`, {
+    method: 'POST', headers: { Cookie: cookie }, body: form,
+  });
+  const document = await uploaded.json();
+  assert.equal(uploaded.status, 201, JSON.stringify(document));
+  assert.equal(document.data.contentType, 'application/pdf');
+
+  const reminders = (await c('GET', `/vehicles/maintenance?vehicleId=${vehicle.id}`)).json.data;
+  assert.equal(reminders.some((item) => item.source === 'insurance' && item.dueDate === dateAfter(40)), true);
+  assert.equal(reminders.some((item) => item.source === 'document' && item.title === 'Validade: CRLV digital'), true);
+
+  const appUrl = base.slice(0, -4);
+  const view = await fetch(`${appUrl}${document.data.fileUrl}`, { headers: { Cookie: cookie } });
+  assert.equal(view.status, 200);
+  assert.match(view.headers.get('content-type'), /application\/pdf/);
+  const download = await fetch(`${appUrl}${document.data.downloadUrl}`, { headers: { Cookie: cookie } });
+  assert.match(download.headers.get('content-disposition'), /^attachment/);
+  const denied = await fetch(`${appUrl}${document.data.fileUrl}`, { headers: { Cookie: other.cookie } });
+  assert.equal(denied.status, 404);
+
+  await c('DELETE', `/vehicles/documents/${document.data.id}`);
+  const afterDelete = (await c('GET', `/vehicles/maintenance?vehicleId=${vehicle.id}`)).json.data;
+  assert.equal(afterDelete.some((item) => item.source === 'document'), false);
+  const clearInsurance = await c('PUT', `/vehicles/${vehicle.id}`, { ...car, insuranceDueDate: null });
+  assert.equal(clearInsurance.status, 200, clearInsurance.text);
+  const afterInsuranceClear = (await c('GET', `/vehicles/maintenance?vehicleId=${vehicle.id}`)).json.data;
+  assert.equal(afterInsuranceClear.some((item) => item.source === 'insurance'), false);
+
+  const resetForm = new FormData();
+  resetForm.append('vehicleId', vehicle.id);
+  resetForm.append('name', 'Comprovante');
+  resetForm.append('type', 'other');
+  resetForm.append('file', new Blob(['%PDF-1.4\nreset test'], { type: 'application/pdf' }), 'comprovante.pdf');
+  const resetDocument = await fetch(`${base}/vehicles/documents`, {
+    method: 'POST', headers: { Cookie: cookie }, body: resetForm,
+  });
+  const resetDocumentData = await resetDocument.json();
+  assert.equal(resetDocument.status, 201, JSON.stringify(resetDocumentData));
+  assert.equal((await c('POST', '/system/reset-all')).status, 200);
+  assert.equal((await c('GET', '/vehicles')).json.data.length, 0);
+  assert.equal((await c('GET', '/vehicles/documents')).json.data.length, 0);
+  assert.equal((await fetch(`${appUrl}${resetDocumentData.data.fileUrl}`, { headers: { Cookie: cookie } })).status, 404);
+});
+
 test('excluir: veículo com histórico exige force; pessoa com gasto não pode ser apagada', async () => {
   const { c, ids } = await setup('v5@teste.com');
   const v = (await c('POST', '/vehicles', car)).json.data;
@@ -197,6 +372,34 @@ test('exige login', async () => {
   const c = createApiClient(base);
   assert.equal((await c('GET', '/vehicles')).status, 401);
   assert.equal((await c('GET', '/vehicles/expenses')).status, 401);
+});
+
+test('foto do veículo é privada, pode ser substituída e removida', async () => {
+  const { c, cookie } = await setup('vehicle-photo@teste.com');
+  const other = await setup('vehicle-photo-other@teste.com');
+  const vehicle = (await c('POST', '/vehicles', car)).json.data;
+  const image = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jp1sAAAAASUVORK5CYII=', 'base64');
+  const upload = async () => {
+    const form = new FormData();
+    form.append('photo', new Blob([image], { type: 'image/png' }), 'photo.png');
+    form.append('thumbnail', new Blob([image], { type: 'image/png' }), 'thumb.png');
+    return fetch(`${base}/vehicles/${vehicle.id}/photo`, { method: 'POST', headers: { Cookie: cookie }, body: form });
+  };
+  const first = await upload();
+  assert.equal(first.status, 200);
+  const firstVehicle = (await first.json()).data;
+  assert.equal(firstVehicle.photoUrl, `/api/vehicles/${vehicle.id}/photo`);
+  assert.equal(firstVehicle.photoThumbnailUrl, `/api/vehicles/${vehicle.id}/photo/thumbnail`);
+  assert.equal((await fetch(`${base}/vehicles/${vehicle.id}/photo`, { headers: { Cookie: other.cookie } })).status, 404);
+  const photo = await fetch(`${base}/vehicles/${vehicle.id}/photo`, { headers: { Cookie: cookie } });
+  assert.equal(photo.status, 200);
+  assert.equal(photo.headers.get('content-type'), 'image/png');
+
+  const second = await upload();
+  assert.equal(second.status, 200);
+  assert.equal((await c('DELETE', `/vehicles/${vehicle.id}/photo`)).status, 204);
+  assert.equal((await c('GET', `/vehicles/${vehicle.id}`)).json.data.photoUrl, null);
+  assert.equal((await fetch(`${base}/vehicles/${vehicle.id}/photo`, { headers: { Cookie: cookie } })).status, 404);
 });
 
 test('gasto no cartão cria compra vinculada, parcelas e atualiza limite sem duplicar', async () => {

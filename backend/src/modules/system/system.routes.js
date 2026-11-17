@@ -18,7 +18,10 @@ import { Person } from '../../models/Person.js';
 import { Purchase } from '../../models/Purchase.js';
 import { User } from '../../models/User.js';
 import { Vehicle } from '../../models/Vehicle.js';
+import { VehicleDocument } from '../../models/VehicleDocument.js';
 import { VehicleExpense } from '../../models/VehicleExpense.js';
+import { VehicleReminder } from '../../models/VehicleReminder.js';
+import { deleteVehicleFilesForUser } from '../vehicles/vehicle-files.storage.js';
 
 const startedAt = Date.now();
 
@@ -96,7 +99,7 @@ export function systemRoutes() {
       await session.withTransaction(async () => {
         const filter = { userId: req.user._id };
         for (const model of [
-          CashReceipt, CashInstallment, CashEntry, VehicleExpense, Vehicle, Birthday,
+          CashReceipt, CashInstallment, CashEntry, VehicleDocument, VehicleReminder, VehicleExpense, Vehicle, Birthday,
           BudgetSheet, MonthStatus, Installment, Purchase, Card, Category, Person,
         ]) await model.deleteMany(filter, { session });
         await User.updateOne(
@@ -105,10 +108,12 @@ export function systemRoutes() {
             portalContactPersonId: null,
             categoriesInitialized: false,
             reminderSettings: { enabled: true, triggerDay: 5, triggerHour: 9, autoSend: false },
+            vehicleReminderSettings: { daysBefore: 30, kmBefore: 500 },
           } },
           { session },
         );
       });
+      await deleteVehicleFilesForUser(req.user._id);
       res.json({ message: 'Dados da conta apagados com sucesso.' });
     } catch (error) {
       throw error;

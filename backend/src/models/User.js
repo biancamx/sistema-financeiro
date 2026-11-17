@@ -23,6 +23,10 @@ const userSchema = new mongoose.Schema(
       triggerHour: { type: Number, default: 9, min: 0, max: 23 },
       autoSend: { type: Boolean, default: false },
     },
+    vehicleReminderSettings: {
+      daysBefore: { type: Number, default: 30, min: 0, max: 365 },
+      kmBefore: { type: Number, default: 500, min: 0, max: 100_000 },
+    },
   },
   { timestamps: true }
 );

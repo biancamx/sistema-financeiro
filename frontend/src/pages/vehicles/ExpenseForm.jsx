@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { Button, Field, Modal, Select } from '../../components/ui/ui.jsx';
 import { money, parseMoney } from '../../lib/format.js';
 import { showKm, todayIso, vehicleLabel } from './vehicles.js';
@@ -6,7 +6,7 @@ import { showKm, todayIso, vehicleLabel } from './vehicles.js';
 export const emptyExpense = (defaults = {}) => {
   const date = todayIso();
   return {
-    vehicleId: defaults.vehicleId ? String(defaults.vehicleId) : '', date, category: '', description: '', amount: '', km: '',
+    vehicleId: defaults.vehicleId ? String(defaults.vehicleId) : '', date, category: '', description: '', amount: '', km: '', liters: '',
     payerId: '', paymentMethod: 'cash', cardId: '', installmentCount: '1',
     requestId: globalThis.crypto.randomUUID(), shared: false, participantIds: [], splitMode: 'equal', values: {},
   };
@@ -14,7 +14,8 @@ export const emptyExpense = (defaults = {}) => {
 
 export const expenseToForm = (e) => ({
   id: e.id, requestId: e.requestId, vehicleId: e.vehicleId == null ? '' : String(e.vehicleId), date: e.date, category: e.category, description: e.description || '',
-  amount: String(e.amount).replace('.', ','), km: e.km == null ? '' : String(e.km), payerId: e.payerId == null ? '' : String(e.payerId),
+  amount: String(e.amount).replace('.', ','), km: e.km == null ? '' : String(e.km),
+  liters: e.liters == null ? '' : String(e.liters).replace('.', ','), payerId: e.payerId == null ? '' : String(e.payerId),
   paymentMethod: e.paymentMethod || 'cash', cardId: e.cardId == null ? '' : String(e.cardId), installmentCount: String(e.installmentCount || 1),
   shared: e.shared, participantIds: e.shared ? e.shares.map((s) => String(s.personId)) : [],
   // divisão desigual volta como "valor em R$" (exato, sem arredondar porcentagem)
@@ -66,8 +67,6 @@ export default function ExpenseForm({ value, onClose, onSubmit, vehicles, people
   const km = f.km === '' ? null : Number(f.km);
   const kmLow = vehicle?.currentKm != null && km != null && km < vehicle.currentKm;
 
-  const groups = useMemo(() => categories.groups.map((g) => ({ ...g, items: categories.categories.filter((c) => c.group === g.key) })), [categories]);
-
   const setIds = (ids, mode = f.splitMode) => setF((s) => ({ ...s, participantIds: ids, splitMode: mode, values: mode === 'equal' ? s.values : equalValues(mode, ids, amount) }));
   const toggle = (id) => setIds(f.participantIds.includes(id) ? f.participantIds.filter((x) => x !== id) : [...f.participantIds, id]);
   const changeMode = (mode) => {
@@ -92,6 +91,8 @@ export default function ExpenseForm({ value, onClose, onSubmit, vehicles, people
     if (!f.category) e.category = 'Escolha a categoria';
     if (!(amount >= 1)) e.amount = 'O valor mínimo é R$ 1,00';
     if (f.km !== '' && !(Number.isInteger(km) && km >= 0)) e.km = 'KM inválido';
+    const liters = f.liters === '' ? null : parseMoney(f.liters);
+    if (liters !== null && (!(liters > 0) || liters > 1_000)) e.liters = 'Informe uma quantidade de litros válida';
     if (!f.payerId) e.payerId = 'Informe quem pagou';
     if (f.paymentMethod === 'card' && !f.cardId) e.cardId = 'Escolha o cartão';
     if (f.paymentMethod === 'card' && !(Number.isInteger(Number(f.installmentCount)) && Number(f.installmentCount) >= 1 && Number(f.installmentCount) <= 120)) {
@@ -105,10 +106,12 @@ export default function ExpenseForm({ value, onClose, onSubmit, vehicles, people
     try {
       const body = {
         vehicleId: f.vehicleId, date: f.date, category: f.category, description: f.description.trim(),
-        amount, km, payerId: f.payerId, shared: f.shared, paymentMethod: f.paymentMethod,
+        amount, km, ...(f.category === 'fuel' && liters !== null && { liters }),
+        payerId: f.payerId, shared: f.shared, paymentMethod: f.paymentMethod,
         ...(f.paymentMethod === 'card' && {
           cardId: f.cardId, installmentCount: Number(f.installmentCount),
         }),
+        ...(f.reminderId && { reminderId: f.reminderId }),
         ...(!f.id && { requestId: f.requestId }),
       };
       await onSubmit(f.shared
@@ -127,18 +130,36 @@ export default function ExpenseForm({ value, onClose, onSubmit, vehicles, people
           {(id) => <Select id={id} value={f.vehicleId} onChange={set('vehicleId')} placeholder="Escolha…" options={vehicles.map((v) => ({ value: v.id, label: vehicleLabel(v) }))} />}
         </Field>
         <Field label="Categoria do gasto" error={errors.category}>
-          {(id) => (
-            <select id={id} className="input" value={f.category} onChange={set('category')}>
-              <option value="">Escolha…</option>
-              {groups.map((g) => <optgroup key={g.key} label={g.label}>{g.items.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}</optgroup>)}
-            </select>
+          {() => (
+            <div className="vehicle-expense-categories" role="group" aria-label="Categoria do gasto">
+              {categories.categories.map((category) => (
+                <button
+                  key={category.key}
+                  type="button"
+                  className={f.category === category.key ? 'is-selected' : ''}
+                  aria-pressed={f.category === category.key}
+                  onClick={() => setF((current) => ({
+                    ...current,
+                    category: category.key,
+                    ...(category.key !== 'fuel' && { liters: '' }),
+                  }))}
+                >
+                  {category.label}
+                </button>
+              ))}
+            </div>
           )}
         </Field>
         <Field label="Valor (R$)" error={errors.amount} hint="A partir de R$ 1,00">{(id) => <input id={id} className="input" inputMode="decimal" value={f.amount} onChange={set('amount')} placeholder="0,00" />}</Field>
         <Field label="Descrição" error={errors.description}>{(id) => <input id={id} className="input" value={f.description} onChange={set('description')} maxLength={200} placeholder="Ex.: Gasolina aditivada — Posto Ipiranga" />}</Field>
-        <Field label="KM atual" error={errors.km} hint={kmLow ? `Menor que o último registrado (${showKm(vehicle.currentKm)}). Confira o odômetro.` : vehicle?.currentKm != null ? `Último registrado: ${showKm(vehicle.currentKm)}` : 'Opcional'}>
+        <Field label="KM atual" error={errors.km} hint={kmLow ? `KM menor que o atual (${showKm(vehicle.currentKm)}). Confirme se está correto.` : vehicle?.currentKm != null ? `Último registrado: ${showKm(vehicle.currentKm)}` : 'Opcional'}>
           {(id) => <input id={id} className="input" inputMode="numeric" value={f.km} onChange={(e) => setF((s) => ({ ...s, km: e.target.value.replace(/\D/g, '') }))} placeholder="Ex.: 41200" />}
         </Field>
+        {f.category === 'fuel' && (
+          <Field label="Litros" error={errors.liters} hint="Opcional; usado no cálculo do consumo médio">
+            {(id) => <input id={id} className="input" inputMode="decimal" value={f.liters} onChange={set('liters')} placeholder="Ex.: 42,5" />}
+          </Field>
+        )}
         <Field label="Pessoa responsável / pagadora" error={errors.payerId}>{(id) => <Select id={id} value={f.payerId} onChange={set('payerId')} placeholder="Escolha…" options={personOpts} />}</Field>
         <Field label="Forma de pagamento">
           {(id) => <Select id={id} value={f.paymentMethod} onChange={set('paymentMethod')} options={[{ value: 'cash', label: 'Dinheiro / outro' }, { value: 'card', label: 'Cartão de crédito' }]} />}

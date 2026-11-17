@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import {
   AlertTriangle,
   ArrowRight,
+  Bell,
   CheckCircle2,
   Eye,
   EyeOff,
@@ -16,13 +17,13 @@ import {
   Upload,
   X,
 } from 'lucide-react';
-import { Button, Card, Modal, PageHeader } from '../../components/ui/ui.jsx';
+import { Button, Card, Field, Modal, PageHeader } from '../../components/ui/ui.jsx';
 import { useAppBusy } from '../../context/BusyContext.jsx';
 import { useToast } from '../../context/ToastContext.jsx';
 import { notifyFinanceChanged } from '../../hooks/useFinanceRefresh.js';
 import { refreshAllLookups } from '../../services/lookupRefresh.js';
 import { MONTHS_SHORT, money } from '../../lib/format.js';
-import { categoriesApi, importApi, settingsAiApi, systemApi } from '../../services/api.js';
+import { categoriesApi, importApi, settingsAiApi, systemApi, vehiclesApi } from '../../services/api.js';
 import './SettingsPage.css';
 
 const IMPORT_COUNT_CARDS = [
@@ -42,7 +43,7 @@ const PDF_IMPORT_COUNT_CARDS = [
   ['Novas compras', (data) => data.deduplication?.newCount ?? data.summaryCounts.purchasesCount],
   ['Já existentes', (data) => data.deduplication?.existingCount ?? 0],
 ];
-const SETTINGS_TABS = ['categories', 'import', 'ai', 'danger'];
+const SETTINGS_TABS = ['categories', 'import', 'ai', 'vehicle-reminders', 'danger'];
 const pdfPeriodLabel = (month, year) => `${MONTHS_SHORT[month - 1]}/${year}`;
 
 export default function SettingsPage() {
@@ -67,6 +68,9 @@ export default function SettingsPage() {
   const [aiBusy, setAiBusy] = useState(false);
   const [aiLoading, setAiLoading] = useState(true);
   const [removeAiConfirmation, setRemoveAiConfirmation] = useState(false);
+  const [vehicleReminderSettings, setVehicleReminderSettings] = useState({ daysBefore: 30, kmBefore: 500 });
+  const [vehicleReminderSettingsLoading, setVehicleReminderSettingsLoading] = useState(true);
+  const [vehicleReminderSettingsBusy, setVehicleReminderSettingsBusy] = useState(false);
   const fileInput = useRef(null);
   const { begin, end } = useAppBusy();
   const toast = useToast();
@@ -87,6 +91,30 @@ export default function SettingsPage() {
     window.addEventListener('categories:refresh', loadCategories);
     return () => window.removeEventListener('categories:refresh', loadCategories);
   }, []);
+
+  useEffect(() => {
+    vehiclesApi.reminderSettings()
+      .then(setVehicleReminderSettings)
+      .catch((error) => toast.error(error))
+      .finally(() => setVehicleReminderSettingsLoading(false));
+  }, []);
+
+  async function saveVehicleReminderSettings(event) {
+    event.preventDefault();
+    setVehicleReminderSettingsBusy(true);
+    try {
+      const saved = await vehiclesApi.saveReminderSettings({
+        daysBefore: Number(vehicleReminderSettings.daysBefore),
+        kmBefore: Number(vehicleReminderSettings.kmBefore),
+      });
+      setVehicleReminderSettings(saved);
+      toast.success('Antecedência dos lembretes atualizada.');
+    } catch (error) {
+      toast.error(error);
+    } finally {
+      setVehicleReminderSettingsBusy(false);
+    }
+  }
 
   useEffect(() => {
     settingsAiApi.get()
@@ -345,7 +373,7 @@ export default function SettingsPage() {
     <div className="settings-page">
       <PageHeader
         title="Configurações"
-        subtitle="Gerencie categorias, importações, inteligência artificial e dados da sua conta."
+        subtitle="Gerencie categorias, importações, inteligência artificial, lembretes e dados da sua conta."
       />
 
       <div className="settings-layout">
@@ -384,6 +412,15 @@ export default function SettingsPage() {
           ><Sparkles aria-hidden="true" /> Inteligência artificial
             {aiEnabled && <span className="settings-nav-dot" aria-label="Configurada" />}
           </button>
+          <button
+            id="settings-tab-vehicle-reminders"
+            type="button"
+            role="tab"
+            aria-selected={activeSection === 'vehicle-reminders'}
+            aria-controls="settings-vehicle-reminders"
+            tabIndex={activeSection === 'vehicle-reminders' ? 0 : -1}
+            onClick={() => setActiveSection('vehicle-reminders')}
+          ><Bell aria-hidden="true" /> Lembretes de veículos</button>
           <button
             id="settings-tab-danger"
             type="button"
@@ -570,6 +607,36 @@ export default function SettingsPage() {
           </p>
         )}
       </Card>
+      </section>
+
+      <section
+        id="settings-vehicle-reminders"
+        className="settings-section"
+        role="tabpanel"
+        aria-labelledby="settings-tab-vehicle-reminders"
+        tabIndex="0"
+        hidden={activeSection !== 'vehicle-reminders'}
+      >
+        <Card className="settings-card">
+          <header className="settings-card-head">
+            <div className="settings-icon"><Bell aria-hidden="true" /></div>
+            <div className="settings-card-copy">
+              <h2>Antecedência dos lembretes</h2>
+              <p>Defina quando um lembrete de veículo muda para “Em breve”.</p>
+            </div>
+          </header>
+          <form onSubmit={saveVehicleReminderSettings}>
+            <div className="form-grid">
+              <Field label="Avisar até (dias antes)">{(id) => <input id={id} className="input" type="number" min="0" max="365" value={vehicleReminderSettings.daysBefore} disabled={vehicleReminderSettingsLoading || vehicleReminderSettingsBusy} onChange={(event) => setVehicleReminderSettings((current) => ({ ...current, daysBefore: event.target.value }))} />}</Field>
+              <Field label="Avisar até (km antes)">{(id) => <input id={id} className="input" type="number" min="0" max="100000" value={vehicleReminderSettings.kmBefore} disabled={vehicleReminderSettingsLoading || vehicleReminderSettingsBusy} onChange={(event) => setVehicleReminderSettings((current) => ({ ...current, kmBefore: event.target.value }))} />}</Field>
+            </div>
+            <div className="settings-ai-actions">
+              <Button type="submit" variant="primary" disabled={vehicleReminderSettingsLoading || vehicleReminderSettingsBusy}>
+                {vehicleReminderSettingsBusy ? 'Salvando…' : 'Salvar preferências'}
+              </Button>
+            </div>
+          </form>
+        </Card>
       </section>
 
       <section

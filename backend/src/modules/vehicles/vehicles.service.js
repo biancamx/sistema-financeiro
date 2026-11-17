@@ -9,7 +9,11 @@ import { Installment } from '../../models/Installment.js';
 import { Person } from '../../models/Person.js';
 import { Purchase } from '../../models/Purchase.js';
 import { Vehicle } from '../../models/Vehicle.js';
+import { VehicleDocument } from '../../models/VehicleDocument.js';
 import { VehicleExpense } from '../../models/VehicleExpense.js';
+import { VehicleReminder } from '../../models/VehicleReminder.js';
+import { completeReminderFromExpense, listVehicleReminders } from './vehicle-reminders.service.js';
+import { deleteVehicleFile, getVehicleFile, uploadVehicleFile } from './vehicle-files.storage.js';
 import { EXPENSE_CATEGORIES, EXPENSE_GROUPS, groupOf } from './vehicles.categories.js';
 
 export const normalizePlate = (plate) => String(plate).toUpperCase().replace(/[\s-]/g, '');
@@ -19,18 +23,44 @@ export function createVehiclesService() {
   const assertOwned = async (Model, id, userId, label) => {
     if (!await Model.exists({ _id: id, userId })) throw badRequest(`${label} inválido(a)`);
   };
+  const advanceVehicleMileage = async (userId, vehicleId, newKm, expenseId, session) => {
+    const vehicle = await Vehicle.findOne({ _id: vehicleId, userId }).select('currentKm').session(session);
+    if (!vehicle) throw notFound('Veículo não encontrado');
+    const highestExpense = await VehicleExpense.findOne({ userId, vehicleId, _id: { $ne: expenseId }, km: { $ne: null } })
+      .sort({ km: -1 }).select('km').session(session).lean();
+    const baselineKm = vehicle.currentKm ?? highestExpense?.km ?? null;
+    if (newKm != null && (baselineKm == null || newKm > baselineKm)) {
+      vehicle.currentKm = newKm;
+      await vehicle.save({ session });
+    } else if (vehicle.currentKm == null && highestExpense?.km != null) {
+      vehicle.currentKm = highestExpense.km;
+      await vehicle.save({ session });
+    }
+  };
+  const preserveMileageBeforeExpenseRemoval = async (userId, vehicleId, session) => {
+    const vehicle = await Vehicle.findOne({ _id: vehicleId, userId }).select('currentKm').session(session);
+    if (!vehicle || vehicle.currentKm != null) return;
+    const highestExpense = await VehicleExpense.findOne({ userId, vehicleId, km: { $ne: null } })
+      .sort({ km: -1 }).select('km').session(session).lean();
+    if (highestExpense?.km != null) {
+      vehicle.currentKm = highestExpense.km;
+      await vehicle.save({ session });
+    }
+  };
   const getVehicle = async (userId, id) => {
     const vehicle = await Vehicle.findOne({ _id: id, userId }).populate('ownerId', 'name avatar').lean();
     if (!vehicle) throw notFound('Veículo não encontrado');
     const expenses = await VehicleExpense.find({ userId, vehicleId: id }).select('amount km expenseDate').lean();
+    const expenseKm = expenses.map((item) => item.km).filter((km) => km != null);
     return {
       id: String(vehicle._id), kind: vehicle.kind, model: vehicle.model, plate: vehicle.plate,
-      year: vehicle.year, purchaseValue: vehicle.purchaseValue, status: vehicle.status,
+      year: vehicle.year, purchaseValue: vehicle.purchaseValue, currentKm: vehicle.currentKm ?? (expenseKm.length ? Math.max(...expenseKm) : null),
+      insuranceDueDate: vehicle.insuranceDueDate, photoUrl: vehicle.photoUrl, photoThumbnailUrl: vehicle.photoThumbnailUrl,
+      status: vehicle.status,
       ownerId: idString(vehicle.ownerId), ownerName: vehicle.ownerId?.name ?? null, ownerAvatar: vehicle.ownerId?.avatar ?? null,
       soldDate: vehicle.soldDate, soldValue: vehicle.soldValueCents == null ? null : round2(vehicle.soldValueCents / 100),
       notes: vehicle.notes, totalSpent: round2(expenses.reduce((sum, item) => sum + item.amount, 0)),
       expensesCount: expenses.length,
-      currentKm: expenses.some((item) => item.km != null) ? Math.max(...expenses.map((item) => item.km).filter((km) => km != null)) : null,
       lastExpenseDate: expenses.map((item) => item.expenseDate).sort().at(-1) ?? null,
     };
   };
@@ -134,7 +164,8 @@ export function createVehiclesService() {
     return {
       id: String(expense._id), vehicleId: String(expense.vehicleId), vehicleModel: vehicle?.model ?? '',
       vehiclePlate: vehicle?.plate ?? '', date: expense.expenseDate, category: expense.category,
-      description: expense.description, amount: expense.amount, km: expense.km, payerId: String(expense.payerId),
+      description: expense.description, amount: expense.amount, km: expense.km, liters: expense.liters ?? null,
+      payerId: String(expense.payerId),
       payer: payer?.name ?? '', shared: expense.shared, splitMode: expense.splitMode,
       paymentMethod: expense.paymentMethod, requestId: expense.requestId,
       cardId: purchase?.cardId ? String(purchase.cardId._id) : null, card: purchase?.cardId?.name ?? null,
@@ -160,6 +191,24 @@ export function createVehiclesService() {
     if (!expense) throw notFound('Lançamento não encontrado');
     return expenseShape(userId, expense);
   };
+  const syncInsuranceReminder = async (userId, vehicleId, dueDate) => {
+    const filter = { userId, vehicleId, source: 'insurance' };
+    if (!dueDate) {
+      await VehicleReminder.deleteMany(filter);
+      return;
+    }
+    await VehicleReminder.findOneAndUpdate(
+      filter,
+      {
+        $set: { type: 'insurance', rule: 'fixed_date', dueDate, active: true, paidAt: null, notifiedStatus: null },
+        $setOnInsert: {
+          userId, vehicleId, source: 'insurance', title: '',
+          intervalKm: null, intervalMonths: null, lastPerformedDate: null, lastPerformedKm: null,
+        },
+      },
+      { upsert: true, runValidators: true, setDefaultsOnInsert: true },
+    );
+  };
 
   return {
     categories: () => ({ groups: EXPENSE_GROUPS, categories: EXPENSE_CATEGORIES }),
@@ -174,8 +223,11 @@ export function createVehiclesService() {
       if (data.ownerId) await assertOwned(Person, data.ownerId, userId, 'Proprietário');
       const vehicle = await Vehicle.create({
         userId, kind: data.kind, model: data.model, plate, year: data.year ?? null,
-        purchaseValue: data.purchaseValue, ownerId: data.ownerId ?? null, status: data.status, notes: data.notes || null,
+        purchaseValue: data.purchaseValue, currentKm: data.currentKm ?? null,
+        insuranceDueDate: data.insuranceDueDate ?? null, ownerId: data.ownerId ?? null,
+        status: data.status, notes: data.notes || null,
       });
+      await syncInsuranceReminder(userId, vehicle._id, data.insuranceDueDate ?? null);
       return getVehicle(userId, vehicle._id);
     },
     async updateVehicle(userId, id, data) {
@@ -183,27 +235,99 @@ export function createVehiclesService() {
       const plate = normalizePlate(data.plate);
       if (await Vehicle.exists({ userId, plate, _id: { $ne: id } })) throw conflict('Já existe um veículo com esta placa');
       if (data.ownerId) await assertOwned(Person, data.ownerId, userId, 'Proprietário');
-      await Vehicle.updateOne({ _id: id, userId }, { $set: {
+      const updates = {
         kind: data.kind, model: data.model, plate, year: data.year ?? null, purchaseValue: data.purchaseValue,
         ownerId: data.ownerId ?? null, status: data.status, notes: data.notes || null,
-      } });
+      };
+      if (Object.hasOwn(data, 'currentKm')) updates.currentKm = data.currentKm ?? null;
+      if (Object.hasOwn(data, 'insuranceDueDate')) {
+        updates.insuranceDueDate = data.insuranceDueDate ?? null;
+        await syncInsuranceReminder(userId, id, updates.insuranceDueDate);
+      }
+      await Vehicle.updateOne({ _id: id, userId }, { $set: updates });
       return getVehicle(userId, id);
+    },
+    async updateVehiclePhoto(userId, id, image, thumbnail) {
+      const vehicle = await Vehicle.findOne({ _id: id, userId }).select('photoFileId photoThumbnailFileId').lean();
+      if (!vehicle) throw notFound('Veículo não encontrado');
+      const uploadedIds = [];
+      try {
+        const photoFileId = await uploadVehicleFile(image.buffer, {
+          filename: `${id}-${randomUUID()}.${image.contentType.split('/')[1]}`,
+          contentType: image.contentType,
+          metadata: { userId: String(userId), vehicleId: String(id), purpose: 'vehicle-photo' },
+        });
+        uploadedIds.push(photoFileId);
+        const photoThumbnailFileId = await uploadVehicleFile(thumbnail.buffer, {
+          filename: `${id}-${randomUUID()}.${thumbnail.contentType.split('/')[1]}`,
+          contentType: thumbnail.contentType,
+          metadata: { userId: String(userId), vehicleId: String(id), purpose: 'vehicle-photo-thumbnail' },
+        });
+        uploadedIds.push(photoThumbnailFileId);
+        await Vehicle.updateOne({ _id: id, userId }, { $set: {
+          photoFileId,
+          photoThumbnailFileId,
+          photoContentType: image.contentType,
+          photoThumbnailContentType: thumbnail.contentType,
+          photoUrl: `/api/vehicles/${id}/photo`,
+          photoThumbnailUrl: `/api/vehicles/${id}/photo/thumbnail`,
+        } });
+      } catch (error) {
+        const cleanup = await Promise.allSettled(uploadedIds.map((fileId) => deleteVehicleFile(fileId)));
+        const failures = cleanup.filter((result) => result.status === 'rejected').map((result) => result.reason);
+        if (failures.length) throw new AggregateError([error, ...failures], 'Falha ao salvar a foto e limpar arquivos temporários.');
+        throw error;
+      }
+      if (vehicle.photoFileId) await deleteVehicleFile(vehicle.photoFileId);
+      if (vehicle.photoThumbnailFileId) await deleteVehicleFile(vehicle.photoThumbnailFileId);
+      return getVehicle(userId, id);
+    },
+    async removeVehiclePhoto(userId, id) {
+      const vehicle = await Vehicle.findOne({ _id: id, userId }).select('photoFileId photoThumbnailFileId').lean();
+      if (!vehicle) throw notFound('Veículo não encontrado');
+      await Vehicle.updateOne({ _id: id, userId }, { $set: {
+        photoFileId: null, photoThumbnailFileId: null, photoContentType: null,
+        photoThumbnailContentType: null, photoUrl: null, photoThumbnailUrl: null,
+      } });
+      if (vehicle.photoFileId) await deleteVehicleFile(vehicle.photoFileId);
+      if (vehicle.photoThumbnailFileId) await deleteVehicleFile(vehicle.photoThumbnailFileId);
+    },
+    async getVehiclePhoto(userId, id, thumbnail = false) {
+      const vehicle = await Vehicle.findOne({ _id: id, userId })
+        .select(thumbnail
+          ? 'photoThumbnailFileId photoThumbnailContentType'
+          : 'photoFileId photoContentType').lean();
+      if (!vehicle) throw notFound('Veículo não encontrado');
+      const fileId = thumbnail ? vehicle.photoThumbnailFileId : vehicle.photoFileId;
+      if (!fileId) throw notFound('Foto não encontrada');
+      const file = await getVehicleFile(fileId);
+      if (!file) throw notFound('Foto não encontrada');
+      return { ...file, file: { ...file.file, contentType: thumbnail ? vehicle.photoThumbnailContentType : vehicle.photoContentType } };
     },
     async removeVehicle(userId, id, force = false) {
       const vehicle = await this.getVehicle(userId, id);
       if (vehicle.expensesCount && !force) throw conflict(`Este veículo tem ${vehicle.expensesCount} lançamento(s). Para manter o histórico, marque-o como Vendido ou Inativo; excluir apaga tudo.`);
       const session = await mongoose.startSession();
+      let photoFileIds = [];
+      let documentFileIds = [];
       try {
         await session.withTransaction(async () => {
           const expenses = await VehicleExpense.find({ userId, vehicleId: id }).select('_id').session(session);
           const expenseIds = expenses.map((item) => item._id);
+          const vehicle = await Vehicle.findOne({ _id: id, userId }).select('photoFileId photoThumbnailFileId').session(session).lean();
+          photoFileIds = [vehicle?.photoFileId, vehicle?.photoThumbnailFileId].filter(Boolean);
+          const documents = await VehicleDocument.find({ userId, vehicleId: id }).select('fileId').session(session).lean();
+          documentFileIds = documents.map((document) => document.fileId);
           const purchases = await Purchase.find({ userId, vehicleExpenseId: { $in: expenseIds } }).select('_id').session(session);
           await Installment.deleteMany({ userId, purchaseId: { $in: purchases.map((item) => item._id) } }, { session });
           await Purchase.deleteMany({ userId, vehicleExpenseId: { $in: expenseIds } }, { session });
           await VehicleExpense.deleteMany({ userId, vehicleId: id }, { session });
+          await VehicleDocument.deleteMany({ userId, vehicleId: id }, { session });
+          await VehicleReminder.deleteMany({ userId, vehicleId: id }, { session });
           await Vehicle.deleteOne({ _id: id, userId }, { session });
         });
       } finally { await session.endSession(); }
+      await Promise.all([...photoFileIds, ...documentFileIds].map((fileId) => deleteVehicleFile(fileId)));
     },
     async listExpenses(userId, query) {
       const filter = filterExpenses(userId, query);
@@ -233,12 +357,14 @@ export function createVehiclesService() {
           }
           const [expense] = await VehicleExpense.create([{
             userId, vehicleId: data.vehicleId, expenseDate: data.date, category: data.category,
-            description: data.description ?? '', amount, km: data.km ?? null, payerId: data.payerId,
+            description: data.description ?? '', amount, km: data.km ?? null, liters: data.liters ?? null, payerId: data.payerId,
             shared: data.shared, splitMode: data.shared ? data.splitMode : 'equal', paymentMethod: data.paymentMethod,
             requestId: data.requestId ?? null,
             shares,
           }], { session });
           id = expense._id;
+          await advanceVehicleMileage(userId, data.vehicleId, data.km ?? null, expense._id, session);
+          if (data.reminderId) await completeReminderFromExpense(userId, data.reminderId, data, session);
           if (data.paymentMethod === 'card') {
             const vehicle = await Vehicle.findOne({ _id: data.vehicleId, userId }).session(session).lean();
             await createLinkedPurchases(userId, { ...data, amount, _id: expense._id }, shares, vehicle, session);
@@ -259,11 +385,12 @@ export function createVehiclesService() {
           const expense = await VehicleExpense.findOne({ _id: id, userId }).session(session);
           Object.assign(expense, {
             vehicleId: data.vehicleId, expenseDate: data.date, category: data.category,
-            description: data.description ?? '', amount, km: data.km ?? null, payerId: data.payerId,
+            description: data.description ?? '', amount, km: data.km ?? null, liters: data.liters ?? null, payerId: data.payerId,
             shared: data.shared, splitMode: data.shared ? data.splitMode : 'equal',
             paymentMethod: data.paymentMethod, shares,
           });
           await expense.save({ session });
+          await advanceVehicleMileage(userId, data.vehicleId, data.km ?? null, expense._id, session);
           const vehicle = await Vehicle.findOne({ _id: data.vehicleId, userId }).session(session).lean();
           await syncLinkedPurchases(userId, { ...data, amount, _id: expense._id }, shares, vehicle, session);
         });
@@ -276,6 +403,7 @@ export function createVehiclesService() {
         await session.withTransaction(async () => {
           const expense = await VehicleExpense.findOne({ _id: id, userId }).session(session);
           if (!expense) throw notFound('Lançamento não encontrado');
+          await preserveMileageBeforeExpenseRemoval(userId, expense.vehicleId, session);
           const purchases = await Purchase.find({ userId, vehicleExpenseId: expense._id }).select('_id').session(session);
           await Installment.deleteMany({ userId, purchaseId: { $in: purchases.map((item) => item._id) } }, { session });
           await Purchase.deleteMany({ userId, vehicleExpenseId: expense._id }, { session });
@@ -283,11 +411,28 @@ export function createVehiclesService() {
         });
       } finally { await session.endSession(); }
     },
-    async summary(userId, { vehicleId, year } = {}) {
-      if (vehicleId) await this.getVehicle(userId, vehicleId);
-      const filter = filterExpenses(userId, { vehicleId, year });
-      const expenses = await VehicleExpense.find(filter).populate('payerId', 'name').lean();
-      const total = expenses.reduce((sum, item) => sum + item.amount, 0);
+    async summary(userId, { vehicleId, year, period, month } = {}) {
+      const now = new Date();
+      const selectedYear = year ?? now.getFullYear();
+      const selectedMonth = month ?? now.getMonth() + 1;
+      const selectedPeriod = period ?? (year ? 'year' : 'all');
+      const selectedVehicle = vehicleId ? await this.getVehicle(userId, vehicleId) : null;
+
+      const dateRange = (rangePeriod, rangeYear, rangeMonth) => {
+        if (rangePeriod === 'all') return null;
+        if (rangePeriod === 'year') return { from: `${rangeYear}-01-01`, to: `${rangeYear}-12-31` };
+        const firstMonth = rangePeriod === 'quarter' ? Math.floor((rangeMonth - 1) / 3) * 3 + 1 : rangeMonth;
+        const lastMonth = rangePeriod === 'quarter' ? firstMonth + 2 : firstMonth;
+        const lastDay = new Date(Date.UTC(rangeYear, lastMonth, 0)).getUTCDate();
+        return {
+          from: `${rangeYear}-${String(firstMonth).padStart(2, '0')}-01`,
+          to: `${rangeYear}-${String(lastMonth).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`,
+        };
+      };
+      const selectedRange = dateRange(selectedPeriod, selectedYear, selectedMonth);
+      const filter = filterExpenses(userId, { vehicleId, ...selectedRange });
+      const expenses = await VehicleExpense.find(filter).populate('payerId', 'name').populate('vehicleId', 'model plate').lean();
+      const total = round2(expenses.reduce((sum, item) => sum + item.amount, 0));
       const byCategory = EXPENSE_CATEGORIES.map((category) => {
         const rows = expenses.filter((item) => item.category === category.key);
         return { key: category.key, label: category.label, group: category.group, count: rows.length, total: round2(rows.reduce((sum, item) => sum + item.amount, 0)) };
@@ -296,20 +441,39 @@ export function createVehiclesService() {
         const rows = byCategory.filter((item) => item.group === group.key);
         return { key: group.key, label: group.label, count: rows.reduce((sum, item) => sum + item.count, 0), total: round2(rows.reduce((sum, item) => sum + item.total, 0)) };
       });
+      const chartYear = year ?? now.getFullYear();
+      const yearExpenses = await VehicleExpense.find(filterExpenses(userId, {
+        vehicleId, from: `${chartYear}-01-01`, to: `${chartYear}-12-31`,
+      })).select('amount expenseDate').lean();
+      const ownershipTotal = round2(yearExpenses.reduce((sum, item) => sum + item.amount, 0));
       const monthMap = new Map();
-      for (const item of expenses) {
+      for (const item of yearExpenses) {
         const [y, m] = item.expenseDate.split('-').map(Number);
         const key = `${y}-${m}`;
         monthMap.set(key, (monthMap.get(key) ?? 0) + item.amount);
       }
-      const byMonth = year
-        ? Array.from({ length: 12 }, (_, i) => ({ year, month: i + 1, total: round2(monthMap.get(`${year}-${i + 1}`) ?? 0) }))
-        : [...monthMap].map(([key, amount]) => { const [y, m] = key.split('-').map(Number); return { year: y, month: m, total: round2(amount) }; }).sort((a, b) => a.year - b.year || a.month - b.month);
-      const vehicles = await Vehicle.find({ userId, ...(vehicleId && { _id: vehicleId }) }).select('model plate').lean();
-      const byVehicle = await Promise.all(vehicles.map(async (vehicle) => {
-        const records = await VehicleExpense.find({ userId, vehicleId: vehicle._id, ...(year && { expenseDate: { $gte: `${year}-01-01`, $lte: `${year}-12-31` } }) }).select('amount').lean();
-        return { vehicleId: String(vehicle._id), label: `${vehicle.model} · ${vehicle.plate}`, count: records.length, total: round2(records.reduce((sum, item) => sum + item.amount, 0)) };
+      const byMonth = Array.from({ length: 12 }, (_, i) => ({
+        year: chartYear, month: i + 1, total: round2(monthMap.get(`${chartYear}-${i + 1}`) ?? 0),
+        current: chartYear === now.getFullYear() && i + 1 === now.getMonth() + 1,
       }));
+      const vehicles = await Vehicle.find({ userId, ...(vehicleId && { _id: vehicleId }) })
+        .select('model plate purchaseValue currentKm').lean();
+      const vehicleById = new Map(vehicles.map((vehicle) => [String(vehicle._id), vehicle]));
+      const vehicleTotals = new Map();
+      for (const expense of expenses) {
+        const id = String(expense.vehicleId._id ?? expense.vehicleId);
+        const aggregate = vehicleTotals.get(id) ?? { count: 0, total: 0 };
+        aggregate.count += 1;
+        aggregate.total += expense.amount;
+        vehicleTotals.set(id, aggregate);
+      }
+      const byVehicle = vehicles.map((vehicle) => {
+        const aggregate = vehicleTotals.get(String(vehicle._id)) ?? { count: 0, total: 0 };
+        return {
+          vehicleId: String(vehicle._id), label: `${vehicle.model} · ${vehicle.plate}`,
+          count: aggregate.count, total: round2(aggregate.total),
+        };
+      }).sort((a, b) => b.total - a.total);
       const paid = new Map(); const owes = new Map(); const ids = new Set();
       for (const expense of expenses) {
         const payer = String(expense.payerId._id); ids.add(payer); paid.set(payer, (paid.get(payer) ?? 0) + expense.amount);
@@ -323,21 +487,85 @@ export function createVehiclesService() {
         const paidValue = round2(paid.get(personId) ?? 0); const owedValue = round2(owes.get(personId) ?? 0);
         return { personId, name: personMap.get(personId) ?? '', paid: paidValue, owes: owedValue, balance: round2(paidValue - owedValue) };
       }).sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
-      const out = { year: year ?? null, total: round2(total), count: expenses.length, byGroup, byCategory, byMonth, byVehicle, people: balances };
-      if (vehicleId) {
-        const all = await VehicleExpense.find({ userId, vehicleId }).select('amount km expenseDate description category').sort({ expenseDate: -1, _id: -1 }).lean();
-        const kms = all.map((item) => item.km).filter((km) => km != null);
-        out.recentExpenses = all.filter((item) => {
-          const [label] = item.expenseDate.split('T');
-          return !year || label.startsWith(String(year));
-        }).slice(0, 8).map((item) => ({
-          id: String(item._id), date: item.expenseDate, category: item.category, description: item.description,
-          amount: item.amount, km: item.km,
-          categoryLabel: EXPENSE_CATEGORIES.find((category) => category.key === item.category)?.label ?? item.category,
-        }));
-        out.currentKm = kms.length ? Math.max(...kms) : null;
-        out.kmSpan = kms.length ? Math.max(...kms) - Math.min(...kms) : 0;
-        out.costPerKm = out.kmSpan > 0 ? round2(all.reduce((sum, item) => sum + item.amount, 0) / out.kmSpan) : null;
+      const out = {
+        year: year ?? null, chartYear, period: selectedPeriod, total, count: expenses.length,
+        byGroup, byCategory, byMonth, byVehicle, people: balances,
+        recentExpenses: [...expenses]
+          .sort((a, b) => b.expenseDate.localeCompare(a.expenseDate) || String(b._id).localeCompare(String(a._id)))
+          .slice(0, 3)
+          .map((item) => ({
+            id: String(item._id), vehicleId: String(item.vehicleId._id ?? item.vehicleId),
+            vehicleModel: item.vehicleId?.model ?? vehicleById.get(String(item.vehicleId))?.model ?? '',
+            date: item.expenseDate, category: item.category, description: item.description,
+            amount: item.amount, km: item.km, shared: item.shared,
+            categoryLabel: EXPENSE_CATEGORIES.find((category) => category.key === item.category)?.label ?? item.category,
+          })),
+        currentKm: selectedVehicle?.currentKm ?? null,
+        comparison: null,
+        averageMonthly: null,
+        costPerKm: null,
+        consumptionKmPerLiter: null,
+        possessionCostPercent: null,
+        reminders: (await listVehicleReminders(userId, vehicleId))
+          .filter((reminder) => ['overdue', 'upcoming'].includes(reminder.status))
+          .slice(0, 3)
+          .map(({ id, title, description, status, statusLabel, vehicleId: reminderVehicleId }) => ({
+            id, title, description, status, statusLabel, vehicleId: reminderVehicleId,
+          })),
+      };
+      const monthsWithExpenses = new Set(expenses.map((item) => item.expenseDate.slice(0, 7))).size;
+      out.averageMonthly = expenses.length ? round2(total / monthsWithExpenses) : null;
+      if (expenses.length) {
+        const kms = expenses.map((item) => item.km).filter((km) => km != null);
+        if (kms.length >= 2) {
+          const kmSpan = Math.max(...kms) - Math.min(...kms);
+          if (kmSpan > 0) {
+            out.kmSpan = kmSpan;
+            out.costPerKm = round2(total / kmSpan);
+          }
+        }
+
+        const refuels = expenses
+          .filter((item) => item.category === 'fuel' && item.liters > 0 && item.km != null)
+          .sort((a, b) => a.expenseDate.localeCompare(b.expenseDate) || String(a._id).localeCompare(String(b._id)));
+        let traveledKm = 0;
+        let consumedLiters = 0;
+        for (let index = 1; index < refuels.length; index += 1) {
+          const distance = refuels[index].km - refuels[index - 1].km;
+          if (distance > 0) {
+            traveledKm += distance;
+            consumedLiters += refuels[index].liters;
+          }
+        }
+        if (consumedLiters > 0) out.consumptionKmPerLiter = round2(traveledKm / consumedLiters);
+      }
+
+      const acquisitionTotal = vehicles.reduce((sum, vehicle) => sum + (vehicle.purchaseValue || 0), 0);
+      if (acquisitionTotal > 0) out.possessionCostPercent = round2((ownershipTotal / acquisitionTotal) * 100);
+
+      const previousRange = selectedPeriod === 'month'
+        ? (() => {
+          const previousDate = new Date(Date.UTC(selectedYear, selectedMonth - 2, 1));
+          return dateRange('month', previousDate.getUTCFullYear(), previousDate.getUTCMonth() + 1);
+        })()
+        : selectedPeriod === 'quarter'
+          ? (() => {
+            const firstMonth = Math.floor((selectedMonth - 1) / 3) * 3 - 1;
+            const previousDate = new Date(Date.UTC(selectedYear, firstMonth, 1));
+            return dateRange('quarter', previousDate.getUTCFullYear(), previousDate.getUTCMonth() + 1);
+          })()
+          : selectedPeriod === 'year'
+            ? dateRange('year', selectedYear - 1, selectedMonth)
+            : null;
+      if (previousRange) {
+        const previousExpenses = await VehicleExpense.find(filterExpenses(userId, { vehicleId, ...previousRange })).select('amount').lean();
+        const previousTotal = round2(previousExpenses.reduce((sum, item) => sum + item.amount, 0));
+        if (previousTotal > 0) {
+          out.comparison = {
+            total: previousTotal,
+            percentChange: round2(((total - previousTotal) / previousTotal) * 100),
+          };
+        }
       }
       return out;
     },

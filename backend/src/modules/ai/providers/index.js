@@ -5,8 +5,18 @@ import { openaiProvider } from './openai.js';
 export const aiProviders = {
   gemini: {
     label: 'Google Gemini',
-    hint: 'Crie a chave no Google AI Studio.',
-    models: ['gemini-2.5-flash', 'gemini-2.5-pro'],
+    hint: 'Crie a chave no Google AI Studio. A disponibilidade de modelos pode variar por projeto.',
+    models: [
+      'gemini-3.5-flash-lite',
+      'gemini-3.6-flash',
+      'gemini-3.8-flash',
+      'gemini-3.1-flash-lite',
+      'gemini-4-hydrogen',
+      'gemini-4-argon',
+      'gemini-4-carbon',
+      'gemini-2.5-flash',
+      'gemini-2.5-pro',
+    ],
     adapter: geminiProvider,
   },
   openai: {

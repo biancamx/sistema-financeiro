@@ -17,6 +17,7 @@ const vehicleExpenseSchema = new mongoose.Schema(
     description: { type: String, default: '' },
     amount: { type: Number, required: true, min: 1 },
     km: { type: Number, default: null, min: 0 },
+    liters: { type: Number, default: null, min: 0 },
     payerId: { type: mongoose.Schema.Types.ObjectId, ref: 'Person', required: true },
     shared: { type: Boolean, default: false },
     splitMode: { type: String, enum: ['equal', 'percent', 'amount'], default: 'equal' },

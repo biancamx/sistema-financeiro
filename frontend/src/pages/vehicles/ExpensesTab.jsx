@@ -40,6 +40,7 @@ export default function ExpensesTab({ vehicleId, year, people, categories, onEdi
           <Select value={f.personId} onChange={set('personId')} placeholder="Todas as pessoas" options={people.map((p) => ({ value: p.id, label: p.name }))} aria-label="Pessoa" />
           <Select value={f.shared} onChange={set('shared')} placeholder="Individuais e compartilhados" options={[{ value: 'false', label: 'Só individuais' }, { value: 'true', label: 'Só compartilhados' }]} aria-label="Tipo" />
         </div>
+        {data && <span className="muted small">Total filtrado: <strong>{money(data.sum)}</strong></span>}
         <a className="btn btn-ghost" href={vehiclesApi.exportUrl(exportQ)}>Exportar CSV</a>
       </div>
 
@@ -57,7 +58,10 @@ export default function ExpensesTab({ vehicleId, year, people, categories, onEdi
                     <td className="nowrap">{showDate(e.date)}</td>
                     {!vehicleId && <td>{e.vehicleModel} <span className="muted small">{e.vehiclePlate}</span></td>}
                     <td>{e.categoryLabel}</td>
-                    <td>{e.description || <span className="muted">—</span>}</td>
+                    <td>
+                      {e.description || <span className="muted">—</span>}
+                      {e.shared && <span className="vehicle-shared-badge">Compartilhada</span>}
+                    </td>
                     <td className="num">{showKm(e.km)}</td>
                     <td>{e.payer}</td>
                     <td>{e.paymentMethod === 'card' ? `Cartão · ${e.card || 'registrado'}` : 'Dinheiro / outro'}</td>
@@ -74,7 +78,7 @@ export default function ExpensesTab({ vehicleId, year, people, categories, onEdi
                   </tr>
                 ))}
               </tbody>
-              <tfoot><tr><td colSpan={vehicleId ? 7 : 8}>Total dos {data.total} lançamento(s) filtrados</td><td className="num">{money(data.sum)}</td><td /></tr></tfoot>
+              <tfoot><tr><td colSpan={vehicleId ? 7 : 8}>Total filtrado ({data.total} lançamento(s))</td><td className="num">{money(data.sum)}</td><td /></tr></tfoot>
             </table>
           </div>
           <div className="mobile-card-list">
@@ -90,7 +94,7 @@ export default function ExpensesTab({ vehicleId, year, people, categories, onEdi
                     <Money value={e.amount} strong />
                   </div>
                 </div>
-                {e.description && <p>{e.description}</p>}
+                {e.description && <p>{e.description}{e.shared && <span className="vehicle-shared-badge">Compartilhada</span>}</p>}
                 <p className="muted small">{showDate(e.date)}{e.km != null ? ` · ${showKm(e.km)}` : ''}</p>
                 <div className="mobile-record-details">
                   <span>Pagou: {e.payer}</span>

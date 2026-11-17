@@ -74,7 +74,32 @@ export const vehiclesApi = {
   create: (b) => post('/vehicles', b).then((r) => r.data),
   update: (id, b) => put(`/vehicles/${id}`, b).then((r) => r.data),
   remove: (id, force) => del(`/vehicles/${id}${force ? '?force=true' : ''}`),
+  uploadPhoto: (id, images) => {
+    const body = new FormData();
+    body.append('photo', images.photo);
+    body.append('thumbnail', images.thumbnail);
+    return postFormData(`/vehicles/${id}/photo`, body).then((r) => r.data);
+  },
+  removePhoto: (id) => del(`/vehicles/${id}/photo`),
   summary: (q) => get('/vehicles/summary', q).then((r) => r.data),
+  listReminders: (q) => get('/vehicles/maintenance', q).then((r) => r.data),
+  createReminder: (body) => post('/vehicles/maintenance', body).then((r) => r.data),
+  updateReminder: (id, body) => put(`/vehicles/maintenance/${id}`, body).then((r) => r.data),
+  markReminderPaid: (id) => post(`/vehicles/maintenance/${id}/paid`).then((r) => r.data),
+  removeReminder: (id) => del(`/vehicles/maintenance/${id}`),
+  reminderSettings: () => get('/vehicles/maintenance/settings').then((r) => r.data),
+  saveReminderSettings: (body) => put('/vehicles/maintenance/settings', body).then((r) => r.data),
+  listDocuments: (q) => get('/vehicles/documents', q).then((r) => r.data),
+  createDocument: ({ vehicleId, name, type, dueDate, file }) => {
+    const body = new FormData();
+    body.append('vehicleId', vehicleId);
+    body.append('name', name);
+    body.append('type', type);
+    if (dueDate) body.append('dueDate', dueDate);
+    body.append('file', file);
+    return postFormData('/vehicles/documents', body).then((r) => r.data);
+  },
+  removeDocument: (id) => del(`/vehicles/documents/${id}`),
   expenses: (q) => get('/vehicles/expenses', q),
   expense: (id) => get(`/vehicles/expenses/${id}`).then((r) => r.data),
   createExpense: (b) => post('/vehicles/expenses', b).then((r) => r.data),

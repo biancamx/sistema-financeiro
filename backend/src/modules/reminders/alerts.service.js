@@ -5,6 +5,7 @@ import { Installment } from '../../models/Installment.js';
 import { MonthStatus } from '../../models/MonthStatus.js';
 import { Person } from '../../models/Person.js';
 import { Purchase } from '../../models/Purchase.js';
+import { getVehicleReminderAlerts } from '../vehicles/vehicle-reminders.service.js';
 
 const DAY_MS = 86400000;
 const MONTH_NAMES = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
@@ -81,6 +82,7 @@ async function getSystemAlerts(userId, today = new Date()) {
       personName: person?.name, link: '/planilha',
     });
   }
+  alerts.push(...await getVehicleReminderAlerts(userId, `${today.getFullYear()}-${String(currentMonth).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`));
   const severityOrder = { danger: 1, warning: 2, info: 3 };
   alerts.sort((a, b) => severityOrder[a.severity] - severityOrder[b.severity] || (a.dueDate || '').localeCompare(b.dueDate || ''));
   return {

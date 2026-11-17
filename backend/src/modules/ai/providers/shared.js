@@ -1,4 +1,5 @@
 import { AppError } from '../../../lib/errors.js';
+import { logger } from '../../../lib/logger.js';
 
 export function toJsonSchema(schema = {}) {
   const typeMap = {
@@ -31,11 +32,15 @@ export function providerRequestError(status) {
   if (status === 400 || status === 404) {
     return new AppError(422, 'AI_MODEL_UNAVAILABLE', 'O provedor não aceitou o modelo selecionado para esta chave.');
   }
-  return new AppError(502, 'AI_PROVIDER_ERROR', 'Não foi possível concluir a solicitação no provedor de IA.');
+  if (status >= 500) {
+    return new AppError(502, 'AI_PROVIDER_UNAVAILABLE', 'O provedor de IA está indisponível no momento. Tente novamente mais tarde.');
+  }
+  return new AppError(502, 'AI_PROVIDER_ERROR', 'O provedor de IA não conseguiu concluir a resposta. Confira a chave, o modelo e a cota em Configurações.');
 }
 
 export async function postProviderJson(url, headers, body) {
   let response;
+  const providerHost = new URL(url).hostname;
   try {
     response = await fetch(url, {
       method: 'POST',
@@ -43,14 +48,28 @@ export async function postProviderJson(url, headers, body) {
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(30_000),
     });
-  } catch {
+  } catch (error) {
+    logger.error({
+      providerHost,
+      failureKind: 'network',
+      ...(typeof error?.name === 'string' && { errorName: error.name }),
+      ...(typeof error?.cause?.code === 'string' && { causeCode: error.cause.code }),
+    }, 'Falha ao conectar ao provedor de IA');
     throw new AppError(502, 'AI_PROVIDER_UNAVAILABLE', 'Não foi possível conectar ao provedor de IA.');
   }
 
-  if (!response.ok) throw providerRequestError(response.status);
+  if (!response.ok) {
+    logger.error({ providerHost, status: response.status }, 'O provedor de IA respondeu com erro');
+    throw providerRequestError(response.status);
+  }
   try {
     return await response.json();
-  } catch {
+  } catch (error) {
+    logger.error({
+      providerHost,
+      failureKind: 'invalid_response',
+      ...(typeof error?.name === 'string' && { errorName: error.name }),
+    }, 'Resposta inválida do provedor de IA');
     throw new AppError(502, 'AI_PROVIDER_RESPONSE', 'O provedor de IA retornou uma resposta inválida.');
   }
 }

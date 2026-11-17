@@ -1,12 +1,18 @@
 import mongoose from 'mongoose';
+import { round2 } from '../../lib/months.js';
+import { subscriptionActiveInPeriod } from '../../lib/cardBilling.js';
 import { Card } from '../../models/Card.js';
 import { Category } from '../../models/Category.js';
+import { BudgetSheet } from '../../models/BudgetSheet.js';
+import { Installment } from '../../models/Installment.js';
 import { Person } from '../../models/Person.js';
+import { Purchase } from '../../models/Purchase.js';
 import { Vehicle } from '../../models/Vehicle.js';
 import { createCashLedgerService } from '../cashLedger/cashLedger.service.js';
 import { createDashboardService } from '../dashboard/dashboard.service.js';
 import { createPurchasesService } from '../purchases/purchases.service.js';
 import { createVehiclesService } from '../vehicles/vehicles.service.js';
+import { SECTIONS } from '../budgets/budgets.defaults.js';
 import { EXPENSE_CATEGORIES } from '../vehicles/vehicles.categories.js';
 
 export const toolsDeclaration = [
@@ -16,10 +22,65 @@ export const toolsDeclaration = [
     parameters: {
       type: 'OBJECT',
       properties: {
-        mes: { type: 'NUMBER', description: 'Número do mês (de 1 a 12)' },
-        ano: { type: 'NUMBER', description: 'Ano com 4 dígitos (ex: 2026)' },
+        mes: { type: 'NUMBER', description: 'Número do mês (de 1 a 12); padrão: mês atual' },
+        ano: { type: 'NUMBER', description: 'Ano com 4 dígitos; padrão: ano atual' },
       },
-      required: ['mes', 'ano'],
+    },
+  },
+  {
+    name: 'consultarContasFinanceiras',
+    description: 'Consulta saldo do Caixa Avulso, despesas, valores a receber e vencimentos. Para pendências ou atrasos históricos, use todosPeriodos=true.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        mes: { type: 'NUMBER', description: 'Número do mês de 1 a 12; padrão: mês atual' },
+        ano: { type: 'NUMBER', description: 'Ano com 4 dígitos; padrão: ano atual' },
+        status: { type: 'STRING', enum: ['pendente', 'atrasada', 'quitado'] },
+        todosPeriodos: { type: 'BOOLEAN', description: 'Quando verdadeiro, lista itens de todos os períodos' },
+      },
+    },
+  },
+  {
+    name: 'consultarHistoricoFinanceiro',
+    description: 'Consulta compras e parcelas de cartão e lançamentos do Caixa Avulso no mês escolhido, com busca opcional por descrição e filtro opcional por cartão.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        mes: { type: 'NUMBER', description: 'Número do mês de 1 a 12; padrão: mês atual' },
+        ano: { type: 'NUMBER', description: 'Ano com 4 dígitos; padrão: ano atual' },
+        origem: { type: 'STRING', enum: ['cartao', 'avulso', 'todos'], description: 'Fonte do histórico; padrão todos' },
+        busca: { type: 'STRING', description: 'Texto para buscar na descrição' },
+        nomeCartao: { type: 'STRING', description: 'Nome exato do cartão, quando quiser filtrar' },
+      },
+    },
+  },
+  {
+    name: 'listarCategoriasFinanceiras',
+    description: 'Lista as categorias financeiras cadastradas pelo usuário atual, incluindo seu tipo.',
+    parameters: { type: 'OBJECT', properties: {} },
+  },
+  {
+    name: 'consultarPlanilhaFinanceiraPessoa',
+    description: 'Consulta a planilha financeira anual e as receitas/despesas registradas para uma pessoa. Não cria nem altera a planilha.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        nomePessoa: { type: 'STRING', description: 'Nome exato da pessoa cadastrada' },
+        ano: { type: 'NUMBER', description: 'Ano com 4 dígitos; padrão: ano atual' },
+        mes: { type: 'NUMBER', description: 'Mês de 1 a 12 para restringir o resultado; opcional' },
+      },
+      required: ['nomePessoa'],
+    },
+  },
+  {
+    name: 'consultarComparacaoFinanceira',
+    description: 'Compara faturas de cartão, despesas avulsas e recebimentos do mês selecionado com o mês anterior.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        mes: { type: 'NUMBER', description: 'Número do mês de 1 a 12; padrão: mês atual' },
+        ano: { type: 'NUMBER', description: 'Ano com 4 dígitos; padrão: ano atual' },
+      },
     },
   },
   {
@@ -172,6 +233,36 @@ function today() {
   return new Date().toISOString().slice(0, 10);
 }
 
+function resolvePeriod(args = {}) {
+  const now = new Date();
+  const month = args.mes === undefined ? now.getUTCMonth() + 1 : Number(args.mes);
+  const year = args.ano === undefined ? now.getUTCFullYear() : Number(args.ano);
+  if (!Number.isInteger(month) || month < 1 || month > 12) {
+    throw new Error('O mês deve ser um número entre 1 e 12.');
+  }
+  if (!Number.isInteger(year) || year < 2000 || year > 2100) {
+    throw new Error('O ano deve estar entre 2000 e 2100.');
+  }
+  return { month, year };
+}
+
+function previousPeriod({ month, year }) {
+  return month === 1 ? { month: 12, year: year - 1 } : { month: month - 1, year };
+}
+
+function compareAmounts(current, previous) {
+  return {
+    atual: current,
+    periodoAnterior: previous,
+    diferenca: round2(current - previous),
+    variacaoPercentual: previous === 0 ? null : round2(((current - previous) / previous) * 100),
+  };
+}
+
+function escapeRegex(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 function validatePurchaseArgs(args) {
   if (typeof args.descricao !== 'string' || !args.descricao.trim() || args.descricao.trim().length > 120) {
     throw new Error('A descrição deve ter entre 1 e 120 caracteres.');
@@ -210,11 +301,238 @@ export async function executarFerramenta(nomeFuncao, args, userId) {
 
   switch (nomeFuncao) {
     case 'consultarResumoFinanceiro': {
-      const mes = Number(args.mes);
-      const ano = Number(args.ano);
-      if (!Number.isInteger(mes) || mes < 1 || mes > 12) throw new Error('O mês deve ser um número entre 1 e 12.');
-      if (!Number.isInteger(ano) || ano < 2000 || ano > 2100) throw new Error('O ano deve estar entre 2000 e 2100.');
-      return dashboardService.summary(userId, { month: mes, year: ano });
+      const period = resolvePeriod(args);
+      return dashboardService.summary(userId, period);
+    }
+
+    case 'consultarComparacaoFinanceira': {
+      const currentPeriod = resolvePeriod(args);
+      const priorPeriod = previousPeriod(currentPeriod);
+      const current = await dashboardService.summary(userId, currentPeriod);
+      const previous = await dashboardService.summary(userId, priorPeriod);
+      return {
+        periodo: currentPeriod,
+        periodoAnterior: priorPeriod,
+        cartoes: compareAmounts(current.totals.month, previous.totals.month),
+        despesasAvulsas: compareAmounts(current.totals.cash.spent, previous.totals.cash.spent),
+        valoresRecebidos: compareAmounts(current.totals.cash.received, previous.totals.cash.received),
+        valoresAReceber: current.totals.cash.totalReceivable,
+      };
+    }
+
+    case 'consultarContasFinanceiras': {
+      const period = resolvePeriod(args);
+      if (args.todosPeriodos !== undefined && typeof args.todosPeriodos !== 'boolean') {
+        throw new Error('O campo todosPeriodos deve ser verdadeiro ou falso.');
+      }
+      const filters = {
+        ...(args.todosPeriodos ? { all: true } : period),
+        ...(args.status && { status: args.status }),
+      };
+      if (args.status && !['pendente', 'atrasada', 'quitado'].includes(args.status)) {
+        throw new Error('Status inválido. Use pendente, atrasada ou quitado.');
+      }
+      const [summary, result, dashboard] = await Promise.all([
+        cashLedgerService.summary(userId, period.month, period.year),
+        cashLedgerService.list(userId, filters),
+        cashLedgerService.dashboard(userId, { period: 'month', ...period }),
+      ]);
+      const entries = result.data.slice(-30).map((item) => ({
+        id: item.entryId,
+        tipo: item.kind,
+        descricao: item.description,
+        data: item.entryDate,
+        vencimento: item.dueDate,
+        parcela: item.number,
+        totalParcelas: item.count,
+        categoria: item.category,
+        pessoa: item.person,
+        contraparte: item.counterparty,
+        valor: item.amount,
+        recebido: item.received,
+        emAberto: item.outstanding,
+        status: item.status,
+      }));
+      return {
+        periodo: period,
+        resumo: summary,
+        saldoCaixa: round2(dashboard.totals.balanceCents / 100),
+        vencidas: dashboard.overdue.map((item) => ({
+          descricao: item.description,
+          pessoa: item.person,
+          vencimento: item.dueDate,
+          emAberto: round2(item.amountCents / 100),
+        })),
+        proximas: dashboard.upcoming.map((item) => ({
+          descricao: item.description,
+          pessoa: item.person,
+          vencimento: item.dueDate,
+          emAberto: round2(item.amountCents / 100),
+        })),
+        totalLancamentos: result.data.length,
+        truncado: result.data.length > 30,
+        lancamentos: entries,
+        aviso: 'Despesas avulsas são registradas como movimentações; o Caixa Avulso não controla status de pagamento para elas.',
+      };
+    }
+
+    case 'consultarHistoricoFinanceiro': {
+      const period = resolvePeriod(args);
+      const origin = args.origem ?? 'todos';
+      if (!['cartao', 'avulso', 'todos'].includes(origin)) {
+        throw new Error('Origem inválida. Use cartao, avulso ou todos.');
+      }
+      if (args.busca !== undefined && (typeof args.busca !== 'string' || args.busca.length > 100)) {
+        throw new Error('A busca deve ter até 100 caracteres.');
+      }
+      let cardId;
+      if (args.nomeCartao) {
+        if (typeof args.nomeCartao !== 'string' || !args.nomeCartao.trim()) {
+          throw new Error('Informe um nome de cartão válido.');
+        }
+        const cards = await Card.find({ userId }).select('_id name').lean();
+        cardId = matchByName(cards, args.nomeCartao, 'Cartão')._id;
+      }
+
+      const items = {};
+      if (origin !== 'avulso') {
+        const periodInstallments = await Installment.find({
+          userId, year: period.year, month: period.month,
+        }).select('purchaseId number year month amount paidAmount paid').lean();
+        const periodStart = `${period.year}-${String(period.month).padStart(2, '0')}-01`;
+        const periodEnd = new Date(Date.UTC(period.year, period.month, 0)).toISOString().slice(0, 10);
+        const purchaseFilter = {
+          userId,
+          ...(cardId && { cardId }),
+          ...(args.busca && { description: { $regex: escapeRegex(args.busca), $options: 'i' } }),
+          $or: [
+            { _id: { $in: periodInstallments.map((item) => item.purchaseId) } },
+            { purchaseDate: { $gte: periodStart, $lte: periodEnd } },
+          ],
+        };
+        const purchaseRows = await Purchase.find(purchaseFilter)
+          .populate('personId', 'name')
+          .populate('cardId', 'name')
+          .populate('categoryId', 'name')
+          .sort({ purchaseDate: -1, createdAt: -1 })
+          .limit(101)
+          .lean();
+        const purchases = purchaseRows.slice(0, 100);
+        const cardHistoryTruncated = purchaseRows.length > 100;
+        const purchaseIds = purchases.map((item) => item._id);
+        const installments = purchaseIds.length
+          ? await Installment.find({
+            userId, purchaseId: { $in: purchaseIds }, year: period.year, month: period.month,
+          }).lean()
+          : [];
+        const installmentByPurchase = new Map(installments.map((item) => [String(item.purchaseId), item]));
+        items.cartao = purchases.map((purchase) => {
+          const installment = installmentByPurchase.get(String(purchase._id));
+          if (purchase.isSubscription && !subscriptionActiveInPeriod(purchase, period.year, period.month)) return null;
+          return {
+            descricao: purchase.description,
+            dataCompra: purchase.purchaseDate,
+            cartao: purchase.cardId?.name ?? null,
+            pessoa: purchase.personId?.name ?? null,
+            categoria: purchase.categoryId?.name ?? null,
+            valorTotal: purchase.totalAmount,
+            parcelas: purchase.totalInstallments,
+            parcelaNoPeriodo: installment ? {
+              numero: installment.number,
+              valor: installment.amount,
+              pago: installment.paid,
+              valorPago: installment.paidAmount,
+            } : null,
+          };
+        }).filter(Boolean);
+        items.cartaoTruncado = cardHistoryTruncated;
+      }
+
+      if (origin !== 'cartao') {
+        const cash = await cashLedgerService.list(userId, {
+          month: period.month,
+          year: period.year,
+          ...(args.busca && { search: args.busca }),
+        });
+        items.avulso = cash.data.slice(-30).map((item) => ({
+          tipo: item.kind,
+          descricao: item.description,
+          data: item.entryDate,
+          vencimento: item.dueDate,
+          parcela: item.number,
+          totalParcelas: item.count,
+          categoria: item.category,
+          pessoa: item.person,
+          valor: item.amount,
+          recebido: item.received,
+          emAberto: item.outstanding,
+          status: item.status,
+        }));
+        items.avulsoTruncado = cash.data.length > 30;
+      }
+
+      return { periodo: period, ...items };
+    }
+
+    case 'listarCategoriasFinanceiras': {
+      const categories = await Category.find({ userId }).select('name type').sort({ name: 1 }).lean();
+      return categories.map(({ name, type }) => ({ nome: name, tipo: type }));
+    }
+
+    case 'consultarPlanilhaFinanceiraPessoa': {
+      if (typeof args.nomePessoa !== 'string' || !args.nomePessoa.trim()) {
+        throw new Error('Informe o nome exato da pessoa cadastrada.');
+      }
+      const { year } = resolvePeriod({ ano: args.ano });
+      const month = args.mes === undefined ? null : Number(args.mes);
+      if (month !== null && (!Number.isInteger(month) || month < 1 || month > 12)) {
+        throw new Error('O mês deve ser um número entre 1 e 12.');
+      }
+      const people = await Person.find({ userId }).select('_id name').lean();
+      const person = matchByName(people, args.nomePessoa, 'Pessoa');
+      const sheet = await BudgetSheet.findOne({
+        userId, personId: person._id, year,
+      }).select('rows').lean();
+      if (!sheet) {
+        return {
+          pessoa: person.name,
+          ano: year,
+          encontrada: false,
+          mensagem: 'Não há uma planilha financeira salva para esta pessoa e ano.',
+        };
+      }
+
+      const sectionLabels = new Map(SECTIONS.map((section) => [section.key, section.label]));
+      const totalsBySection = new Map();
+      const preparedRows = sheet.rows.map((row) => {
+        const values = Array(12).fill(0);
+        for (const cell of row.cells) values[cell.month - 1] = cell.value;
+        const totals = totalsBySection.get(row.section) ?? Array(12).fill(0);
+        values.forEach((value, index) => { totals[index] += value; });
+        totalsBySection.set(row.section, totals);
+        return { row, values };
+      });
+      const relevantRows = preparedRows.filter(({ values }) => month === null || values[month - 1] !== 0);
+      const rows = relevantRows.slice(0, 100).map(({ row, values }) => ({
+        secao: sectionLabels.get(row.section) ?? row.section,
+        nome: row.label,
+        ...(month === null ? { valoresMensais: values } : { valor: values[month - 1] }),
+      }));
+      const sections = [...totalsBySection].map(([key, values]) => ({
+        secao: sectionLabels.get(key) ?? key,
+        ...(month === null ? { valoresMensais: values.map(round2) } : { valor: round2(values[month - 1]) }),
+      }));
+      return {
+        pessoa: person.name,
+        ano: year,
+        ...(month !== null && { mes: month }),
+        encontrada: true,
+        linhasRetornadas: rows.length,
+        linhasTotais: relevantRows.length,
+        truncada: relevantRows.length > 100,
+        secoes: sections,
+        linhas: rows,
+      };
     }
 
     case 'listarCartoesELimites': {

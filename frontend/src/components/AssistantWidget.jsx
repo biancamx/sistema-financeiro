@@ -5,6 +5,17 @@ import { assistantApi } from '../services/api.js';
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 const IMAGE_ONLY_PROMPT = 'Analise este comprovante e registre o gasto.';
+const ASSISTANT_ERROR_MESSAGES = {
+  AI_NOT_CONFIGURED: 'Configure seu provedor e sua chave de IA em Configurações para usar o assistente.',
+  AI_CONSENT_REQUIRED: 'Autorize o uso dos dados do sistema em Configurações para continuar.',
+  AI_KEY_REJECTED: 'O provedor recusou a chave. Confira a chave salva em Configurações.',
+  AI_MODEL_UNAVAILABLE: 'O modelo não está disponível para esta chave. Escolha outro modelo em Configurações.',
+  AI_PROVIDER_LIMIT: 'O limite ou a cota do provedor foi atingido. Tente novamente mais tarde.',
+  AI_PROVIDER_UNAVAILABLE: 'O provedor de IA está indisponível no momento. Tente novamente mais tarde.',
+  AI_PROVIDER_RESPONSE: 'O provedor de IA retornou uma resposta inválida. Tente novamente.',
+  AI_PROVIDER_ERROR: 'O provedor não conseguiu responder. Confira a chave, o modelo e a cota em Configurações.',
+  NETWORK: 'Não foi possível conectar à API do sistema. Verifique sua conexão e tente novamente.',
+};
 
 const INITIAL_MESSAGE = {
   role: 'assistant',
@@ -32,11 +43,25 @@ export default function AssistantWidget() {
   const launcherRef = useRef(null);
   const restoreFocus = useRef(false);
   const recognitionRef = useRef(null);
+  const conversationVersion = useRef(0);
 
   function stopVoiceRecognition() {
     recognitionRef.current?.stop();
     recognitionRef.current = null;
     setIsListening(false);
+  }
+
+  function closeAssistant() {
+    conversationVersion.current += 1;
+    restoreFocus.current = true;
+    stopVoiceRecognition();
+    setIsOpen(false);
+    setInputMessage('');
+    setIsLoading(false);
+    setMessages([INITIAL_MESSAGE]);
+    setImageAttachment(null);
+    setAssistantError('');
+    if (imageInputRef.current) imageInputRef.current.value = '';
   }
 
   useEffect(() => {
@@ -51,8 +76,7 @@ export default function AssistantWidget() {
     if (!isOpen) return undefined;
     const closeOnEscape = (event) => {
       if (event.key === 'Escape') {
-        restoreFocus.current = true;
-        setIsOpen(false);
+        closeAssistant();
       }
     };
     window.addEventListener('keydown', closeOnEscape);
@@ -76,14 +100,15 @@ export default function AssistantWidget() {
 
   async function handleImageSelected(event) {
     const file = event.target.files?.[0];
+    const version = conversationVersion.current;
     event.target.value = '';
     if (!file) return;
     if (!IMAGE_TYPES.includes(file.type)) {
-      setAssistantError('Envie uma imagem JPEG, PNG ou WebP.');
+      if (conversationVersion.current === version) setAssistantError('Envie uma imagem JPEG, PNG ou WebP.');
       return;
     }
     if (file.size > MAX_IMAGE_BYTES) {
-      setAssistantError('A imagem deve ter no máximo 8 MB.');
+      if (conversationVersion.current === version) setAssistantError('A imagem deve ter no máximo 8 MB.');
       return;
     }
 
@@ -94,12 +119,13 @@ export default function AssistantWidget() {
         reader.onerror = () => reject(new Error('Não foi possível ler a imagem selecionada.'));
         reader.readAsDataURL(file);
       });
+      if (conversationVersion.current !== version) return;
       const [header, base64] = String(dataUrl).split(',', 2);
       if (!base64 || !header.includes(file.type)) throw new Error('Não foi possível preparar a imagem.');
       setAssistantError('');
       setImageAttachment({ base64, mimeType: file.type, preview: dataUrl });
     } catch (error) {
-      setAssistantError(error.message);
+      if (conversationVersion.current === version) setAssistantError(error.message);
     }
   }
 
@@ -115,10 +141,12 @@ export default function AssistantWidget() {
     }
     setAssistantError('');
     const recognition = new Recognition();
+    const version = conversationVersion.current;
     recognition.lang = 'pt-BR';
     recognition.continuous = false;
     recognition.interimResults = true;
     recognition.onresult = (event) => {
+      if (conversationVersion.current !== version) return;
       const transcript = Array.from(event.results)
         .map((result) => result[0]?.transcript || '')
         .join(' ')
@@ -127,11 +155,13 @@ export default function AssistantWidget() {
       if (transcript) setInputMessage(transcript);
     };
     recognition.onerror = (event) => {
+      if (conversationVersion.current !== version) return;
       setAssistantError(event.error === 'not-allowed'
         ? 'Permita o acesso ao microfone para usar a transcrição.'
         : 'Não foi possível transcrever o áudio. Tente novamente.');
     };
     recognition.onend = () => {
+      if (conversationVersion.current !== version) return;
       recognitionRef.current = null;
       setIsListening(false);
     };
@@ -140,6 +170,7 @@ export default function AssistantWidget() {
     try {
       recognition.start();
     } catch {
+      if (conversationVersion.current !== version) return;
       recognitionRef.current = null;
       setIsListening(false);
       setAssistantError('Não foi possível iniciar o microfone. Tente novamente.');
@@ -149,6 +180,7 @@ export default function AssistantWidget() {
   const handleSend = async (textToSend = inputMessage, imageToSend = imageAttachment) => {
     const typedMessage = textToSend.trim();
     if ((!typedMessage && !imageToSend) || isLoading) return;
+    const version = conversationVersion.current;
     const message = typedMessage || IMAGE_ONLY_PROMPT;
 
     const history = messages
@@ -172,14 +204,17 @@ export default function AssistantWidget() {
         ...(imageToSend ? { image: { base64: imageToSend.base64, mimeType: imageToSend.mimeType } } : {}),
         history,
       });
+      if (conversationVersion.current !== version) return;
       setMessages((current) => [...current, { role: 'assistant', text: result.reply }]);
     } catch (error) {
+      if (conversationVersion.current !== version) return;
+      const errorMessage = ASSISTANT_ERROR_MESSAGES[error?.code] || error?.message || 'Tente novamente em alguns instantes.';
       setMessages((current) => [
         ...current,
-        { role: 'assistant', text: `Não consegui processar sua mensagem: ${error.message}` },
+        { role: 'assistant', text: `Não consegui processar sua mensagem: ${errorMessage}` },
       ]);
     } finally {
-      setIsLoading(false);
+      if (conversationVersion.current === version) setIsLoading(false);
     }
   };
 
@@ -196,10 +231,7 @@ export default function AssistantWidget() {
             <button
               className="assistant-icon-button"
               type="button"
-              onClick={() => {
-                restoreFocus.current = true;
-                setIsOpen(false);
-              }}
+              onClick={closeAssistant}
               aria-label="Fechar assistente"
               title="Fechar"
             >

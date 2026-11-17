@@ -18,6 +18,27 @@ const [{ createApp }, { User }, { decryptAiApiKey }, { processUserMessage }, { a
   import('../src/modules/assistant/assistant.service.js'),
   import('../src/modules/import/pdf.reader.js'),
 ]);
+const [
+  { executarFerramenta, toolsDeclaration },
+  { Card },
+  { Category },
+  { BudgetSheet },
+  { CashEntry },
+  { CashInstallment },
+  { Installment },
+  { Person },
+  { Purchase },
+] = await Promise.all([
+  import('../src/modules/assistant/assistant.tools.js'),
+  import('../src/models/Card.js'),
+  import('../src/models/Category.js'),
+  import('../src/models/BudgetSheet.js'),
+  import('../src/models/CashEntry.js'),
+  import('../src/models/CashInstallment.js'),
+  import('../src/models/Installment.js'),
+  import('../src/models/Person.js'),
+  import('../src/models/Purchase.js'),
+]);
 
 const PROVIDERS = [
   ['gemini', 'gemini-2.5-flash', 'AIza-gemini-secret-key-1234'],
@@ -196,12 +217,204 @@ test('teste de chave diferencia credencial válida e rejeitada nos três provedo
     const invalid = await api('POST', '/settings/ai/test', { provider, model, apiKey });
     assert.equal(invalid.status, 422, invalid.text);
     assert.match(invalid.json.error.message, /recusou a chave/);
+
+    mockProviderFetch(async () => providerResponse(provider, 503));
+    const unavailable = await api('POST', '/settings/ai/test', { provider, model, apiKey });
+    assert.equal(unavailable.status, 502, unavailable.text);
+    assert.equal(unavailable.json.error.code, 'AI_PROVIDER_UNAVAILABLE');
   }
 
   const invalidModel = await api('POST', '/settings/ai/test', {
     provider: 'openai', model: 'https://attacker.invalid', apiKey: 'secret-key-for-test',
   });
   assert.equal(invalidModel.status, 400);
+});
+
+test('falha de conexão do Gemini retorna erro específico e preserva a configuração', async () => {
+  const account = await createTestAccount({ email: 'ai-gemini-network-error@example.invalid' });
+  const api = createApiClient(baseUrl, account.cookie);
+  const config = ['gemini', 'gemini-4-hydrogen', 'AIza-gemini-network-test-key'];
+  await saveConfig(api, config);
+  mockProviderFetch(async () => {
+    throw new TypeError('fetch failed');
+  });
+
+  const response = await api('POST', '/assistant/chat', { message: 'Olá' });
+  assert.equal(response.status, 502);
+  assert.equal(response.json.error.code, 'AI_PROVIDER_UNAVAILABLE');
+  assert.match(response.json.error.message, /conectar ao provedor de IA/);
+
+  const saved = await api('GET', '/settings/ai');
+  assert.equal(saved.json.data.configured, true);
+  assert.equal(saved.json.data.model, config[1]);
+  assert.equal(saved.json.data.last4, config[2].slice(-4));
+});
+
+test('ferramentas consultam histórico, contas e categorias somente do usuário autenticado', async () => {
+  const owner = await createTestAccount({ email: 'ai-financial-tools-owner@example.invalid' });
+  const other = await createTestAccount({ email: 'ai-financial-tools-other@example.invalid' });
+  const ownerId = String(owner.user._id);
+  const otherId = String(other.user._id);
+  const [person, card, category, otherPerson, otherCard, otherCategory] = await Promise.all([
+    Person.create({ userId: ownerId, name: 'Pessoa dona' }),
+    Card.create({ userId: ownerId, name: 'Cartão dono', limit: 1000 }),
+    Category.create({ userId: ownerId, name: 'Alimentação', type: 'expense' }),
+    Person.create({ userId: otherId, name: 'Pessoa alheia' }),
+    Card.create({ userId: otherId, name: 'Cartão alheio', limit: 1000 }),
+    Category.create({ userId: otherId, name: 'Categoria alheia', type: 'expense' }),
+  ]);
+  const purchase = await Purchase.create({
+    userId: ownerId,
+    personId: person._id,
+    cardId: card._id,
+    categoryId: category._id,
+    description: 'Compra do usuário',
+    purchaseDate: '2026-11-10',
+    totalAmount: 120,
+    totalInstallments: 3,
+  });
+  await Installment.create({
+    userId: ownerId, purchaseId: purchase._id, number: 1, year: 2026, month: 11,
+    amount: 40, paidAmount: 10, paid: false,
+  });
+  const otherPurchase = await Purchase.create({
+    userId: otherId,
+    personId: otherPerson._id,
+    cardId: otherCard._id,
+    categoryId: otherCategory._id,
+    description: 'Compra de outro usuário',
+    purchaseDate: '2026-11-10',
+    totalAmount: 80,
+    totalInstallments: 1,
+  });
+  await Installment.create({
+    userId: otherId, purchaseId: otherPurchase._id, number: 1, year: 2026, month: 11,
+    amount: 80, paidAmount: 0, paid: false,
+  });
+  await BudgetSheet.create({
+    userId: ownerId,
+    personId: person._id,
+    year: 2026,
+    rows: [
+      { section: 'income', label: 'Salário', cells: [{ month: 11, value: 5000 }] },
+      { section: 'housing', label: 'Energia', cells: [{ month: 11, value: 200 }] },
+    ],
+  });
+  await CashEntry.create({
+    userId: ownerId, kind: 'expense', description: 'Conta de energia', totalCents: 5000,
+    categoryId: category._id, personId: person._id, entryDate: '2026-11-12', paymentMethod: 'pix',
+  });
+  await CashEntry.create({
+    userId: otherId, kind: 'expense', description: 'Despesa alheia', totalCents: 10000,
+    categoryId: otherCategory._id, personId: otherPerson._id, entryDate: '2026-11-12', paymentMethod: 'pix',
+  });
+  const receivable = await CashEntry.create({
+    userId: ownerId, kind: 'sale', description: 'Venda a receber', totalCents: 8000,
+    categoryId: category._id, personId: person._id, entryDate: '2026-11-12', firstDueDate: '2026-11-20',
+  });
+  await CashInstallment.create({
+    userId: ownerId, entryId: receivable._id, number: 1, count: 1, amountCents: 8000, dueDate: '2026-11-20',
+  });
+
+  const history = await executarFerramenta('consultarHistoricoFinanceiro', {
+    mes: 11, ano: 2026, origem: 'cartao',
+  }, ownerId);
+  assert.equal(history.cartao.length, 1);
+  assert.equal(history.cartao[0].descricao, 'Compra do usuário');
+  assert.equal(history.cartao[0].parcelaNoPeriodo.valorPago, 10);
+
+  const accounts = await executarFerramenta('consultarContasFinanceiras', {
+    mes: 11, ano: 2026,
+  }, ownerId);
+  assert.equal(accounts.resumo.spent, 50);
+  assert.equal(accounts.resumo.totalReceivable, 80);
+  assert.equal(accounts.saldoCaixa, -50);
+  assert.deepEqual(new Set(accounts.lancamentos.map((item) => item.descricao)), new Set(['Conta de energia', 'Venda a receber']));
+
+  const categories = await executarFerramenta('listarCategoriasFinanceiras', {}, ownerId);
+  assert.deepEqual(categories, [{ nome: 'Alimentação', tipo: 'expense' }]);
+  const budget = await executarFerramenta('consultarPlanilhaFinanceiraPessoa', {
+    nomePessoa: 'Pessoa dona', mes: 11, ano: 2026,
+  }, ownerId);
+  assert.equal(budget.encontrada, true);
+  assert.deepEqual(budget.linhas.map((row) => row.nome), ['Salário', 'Energia']);
+  assert.equal(budget.linhas[0].valor, 5000);
+  await assert.rejects(() => executarFerramenta('consultarPlanilhaFinanceiraPessoa', {
+    nomePessoa: 'Pessoa dona', mes: 11, ano: 2026,
+  }, otherId), /não encontrado/);
+  const comparison = await executarFerramenta('consultarComparacaoFinanceira', {
+    mes: 11, ano: 2026,
+  }, ownerId);
+  assert.equal(comparison.cartoes.atual, 30);
+  assert.equal(comparison.cartoes.periodoAnterior, 0);
+  assert.equal(comparison.despesasAvulsas.atual, 50);
+  assert.equal(comparison.despesasAvulsas.periodoAnterior, 0);
+  assert.ok(toolsDeclaration.some((tool) => tool.name === 'consultarComparacaoFinanceira'));
+  assert.ok(toolsDeclaration.some((tool) => tool.name === 'consultarHistoricoFinanceiro'));
+});
+
+test('perguntas não autorizam escrita e pedidos explícitos habilitam as ferramentas de alteração', async () => {
+  const account = await createTestAccount({ email: 'ai-write-authorization@example.invalid' });
+  const api = createApiClient(baseUrl, account.cookie);
+  await saveConfig(api, PROVIDERS[0]);
+  let requestCount = 0;
+  let offeredTools = [];
+  mockProviderFetch(async (_url, options) => {
+    requestCount += 1;
+    const request = JSON.parse(options.body);
+    offeredTools = request.tools.flatMap((tool) => tool.functionDeclarations.map((item) => item.name));
+    if (requestCount === 1) {
+      return new Response(JSON.stringify({
+        candidates: [{
+          content: {
+            role: 'model',
+            parts: [{ functionCall: { name: 'cadastrarNovoCartao', args: {
+              nome: 'Cartão não autorizado', limite: 1000, diaFechamento: 3, diaVencimento: 10,
+            } } }],
+          },
+          finishReason: 'STOP',
+        }],
+      }), { status: 200 });
+    }
+    return providerResponse('gemini', 200, 'Não alterei nenhum dado sem autorização.');
+  });
+
+  const informational = await api('POST', '/assistant/chat', { message: 'Como faço para cadastrar um cartão?' });
+  assert.equal(informational.status, 200, informational.text);
+  assert.equal(requestCount, 2);
+  assert.equal(offeredTools.includes('cadastrarNovoCartao'), false);
+  assert.equal(await Card.countDocuments({ userId: account.user._id }), 1);
+  assert.equal(await Card.exists({ userId: account.user._id, name: 'Cartão não autorizado' }), null);
+
+  requestCount = 0;
+  mockProviderFetch(async (_url, options) => {
+    const request = JSON.parse(options.body);
+    offeredTools = request.tools.flatMap((tool) => tool.functionDeclarations.map((item) => item.name));
+    return providerResponse('gemini', 200, 'Informe os dados do cartão.');
+  });
+  const requested = await api('POST', '/assistant/chat', { message: 'Cadastre um cartão para mim.' });
+  assert.equal(requested.status, 200, requested.text);
+  assert.equal(offeredTools.includes('cadastrarNovoCartao'), true);
+
+  const followUp = await api('POST', '/assistant/chat', {
+    message: 'Cartão Azul, limite 1000, fecha dia 3 e vence dia 10.',
+    history: [
+      { role: 'user', text: 'Cadastre um cartão para mim.' },
+      { role: 'assistant', text: 'Qual é o nome, o limite, o dia de fechamento e o vencimento?' },
+    ],
+  });
+  assert.equal(followUp.status, 200, followUp.text);
+  assert.equal(offeredTools.includes('cadastrarNovoCartao'), true);
+
+  const declined = await api('POST', '/assistant/chat', {
+    message: 'Não, deixa para lá.',
+    history: [
+      { role: 'user', text: 'Cadastre um cartão para mim.' },
+      { role: 'assistant', text: 'Qual é o nome, o limite, o dia de fechamento e o vencimento?' },
+    ],
+  });
+  assert.equal(declined.status, 200, declined.text);
+  assert.equal(offeredTools.includes('cadastrarNovoCartao'), false);
 });
 
 test('assistente usa somente o provedor salvo por aquele usuário e exige configuração', async () => {

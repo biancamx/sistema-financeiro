@@ -10,7 +10,7 @@ Aplicação web para organizar as finanças de pessoas e grupos. Acompanhe cart�
 - **Planilha mensal e visão por pessoa:** receitas, despesas, parcelas e saldos por mês.
 - **Cartões:** limites, faturas, fechamento e vencimento.
 - **Veículos:** cadastro, fotos, gastos, consumo, manutenção, lembretes e documentos.
-- **Assistente de IA:** Gemini, OpenAI ou Claude, com chave individual criptografada por usuário.
+- **Assistente de IA:** Gemini, OpenAI ou Claude; consulta dados atuais da conta autenticada, planilhas por pessoa, compras, parcelas, categorias, contas e recebimentos, e compara períodos.
 - **Pessoas, aniversários, acessos e calculadora de rescisão.**
 
 ## Requisitos
@@ -102,5 +102,6 @@ Faça login com o endereço definido em `ADMIN_EMAIL` para receber acesso de adm
 
 - Não envie arquivos `.env`, chaves, credenciais, dados pessoais ou backups para o Git.
 - As chaves de IA dos usuários são armazenadas criptografadas no servidor e não são devolvidas ao frontend.
+- Com consentimento, a mensagem e os dados necessários às consultas do assistente são enviados ao provedor de IA escolhido. Consultas respeitam o usuário autenticado; alterações só são disponibilizadas após um pedido explícito do usuário.
 - As imagens e documentos de veículos são associados aos registros e protegidos pelas permissões do usuário.
 - Mantenha o acesso ao MongoDB restrito ao necessário para o serviço.

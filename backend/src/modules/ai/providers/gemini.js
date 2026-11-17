@@ -1,5 +1,28 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import { AppError } from '../../../lib/errors.js';
+import { logger } from '../../../lib/logger.js';
 import { providerRequestError } from './shared.js';
+
+function geminiRequestError(error, model) {
+  const status = error?.status ?? error?.response?.status;
+  const networkFailure = !status
+    && typeof error?.message === 'string'
+    && error.message.startsWith('[GoogleGenerativeAI Error]: Error fetching from ');
+
+  logger.error({
+    provider: 'gemini',
+    model,
+    failureKind: status ? 'http' : networkFailure ? 'network' : 'sdk',
+    ...(status && { status }),
+    ...(typeof error?.name === 'string' && { errorName: error.name }),
+    ...(typeof error?.cause?.code === 'string' && { causeCode: error.cause.code }),
+  }, 'Falha na solicitação ao provedor Gemini');
+
+  if (networkFailure) {
+    return new AppError(502, 'AI_PROVIDER_UNAVAILABLE', 'Não foi possível conectar ao provedor de IA.');
+  }
+  return providerRequestError(status);
+}
 
 function toGeminiContents(messages, document) {
   return messages.map((message, index) => {
@@ -40,7 +63,7 @@ export const geminiProvider = {
       await genAI.getGenerativeModel({ model, generationConfig: { maxOutputTokens: 16 } })
         .generateContent('Responda somente OK.');
     } catch (error) {
-      throw providerRequestError(error.status ?? error.response?.status);
+      throw geminiRequestError(error, model);
     }
   },
 
@@ -61,7 +84,7 @@ export const geminiProvider = {
         contents: toGeminiContents(messages, document),
       })).response;
     } catch (error) {
-      throw providerRequestError(error.status ?? error.response?.status);
+      throw geminiRequestError(error, model);
     }
 
     const toolCalls = response.functionCalls?.() ?? [];

@@ -1,14 +1,14 @@
 import express, { Router } from 'express';
 import cookieParser from 'cookie-parser';
-import cors from 'cors';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { isAllowedOrigin, setupSecurity } from './middleware/security.js';
+import { setupSecurity } from './middleware/security.js';
 import { requireActiveAccount, requireAuth } from './middleware/auth.js';
 import { cacheControl } from './middleware/cacheControl.js';
-import { errorHandler } from './middleware/errorHandler.js';
+import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 import { globalLimiter } from './middleware/rateLimit.js';
+import { requestLogger } from './middleware/requestLogger.js';
 
 import { authRoutes } from './modules/auth/auth.routes.js';
 import { systemRoutes } from './modules/system/system.routes.js';
@@ -27,6 +27,7 @@ import { importRoutes } from './modules/import/import.routes.js';
 import { cashLedgerRoutes } from './modules/cashLedger/cashLedger.routes.js';
 import { adminRoutes } from './modules/admin/admin.routes.js';
 import { assistantRoutes } from './modules/assistant/assistant.routes.js';
+import { settingsRoutes } from './modules/settings/ai.routes.js';
 
 const frontendDist = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../frontend/dist');
 
@@ -34,20 +35,10 @@ export function createApp() {
   const app = express();
 
   app.set('trust proxy', 1);
+  app.use(requestLogger);
 
   // Chamada oficial do seu repositório original
   setupSecurity(app);
-
-  app.use(
-    cors({
-      origin: (origin, callback) => {
-        callback(null, isAllowedOrigin(origin));
-      },
-      credentials: true,
-      methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-      allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept'],
-    })
-  );
 
   app.use('/api', globalLimiter);
   app.use('/api/import', express.json({ limit: '25mb' }));
@@ -67,6 +58,7 @@ export function createApp() {
   api.use(requireActiveAccount());
   api.use(cacheControl);
   api.use('/assistant', assistantRoutes());
+  api.use('/settings', settingsRoutes());
   api.use('/admin', adminRoutes());
   api.use('/purchases', purchasesRoutes());
   api.use('/dashboard', dashboardRoutes());
@@ -95,10 +87,7 @@ export function createApp() {
     });
   }
 
-  app.use((req, res) => {
-    res.status(404).json({ error: 'Rota não encontrada' });
-  });
-
+  app.use(notFoundHandler);
   app.use(errorHandler);
 
   return app;

@@ -1,10 +1,29 @@
-import { test } from 'node:test';
+import { test, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import XLSX from 'xlsx';
-import { openDb } from '../src/db/index.js';
-import { analyzeSpreadsheet, parseMoney } from '../src/modules/import/spreadsheet.reader.js';
+import { clearMongoMemory, createTestAccount, startMongoMemory } from './helpers/mongo.js';
+import { Person } from '../src/models/Person.js';
+import { Card } from '../src/models/Card.js';
+import { Purchase } from '../src/models/Purchase.js';
+import { Installment } from '../src/models/Installment.js';
+import { parseMoney, analyzeSpreadsheet } from '../src/modules/import/spreadsheet.reader.js';
 import { executeSpreadsheetImport } from '../src/modules/import/spreadsheet.writer.js';
 import { createBudgetsService } from '../src/modules/budgets/budgets.service.js';
+
+process.env.NODE_ENV = 'test';
+process.env.JWT_SECRET = 'test-secret-for-spreadsheet-writer';
+
+let stopMongo;
+
+before(async () => {
+  stopMongo = await startMongoMemory();
+});
+
+beforeEach(clearMongoMemory);
+
+after(async () => {
+  if (stopMongo) await stopMongo();
+});
 
 test('parseMoney preserves decimal values from spreadsheet display strings', () => {
   assert.equal(parseMoney('2.65'), 2.65);
@@ -13,7 +32,7 @@ test('parseMoney preserves decimal values from spreadsheet display strings', () 
   assert.equal(parseMoney('R$ 1,234.56'), 1234.56);
 });
 
-test('spreadsheet analysis preserves monthly categories and workbook values', () => {
+test('spreadsheet analysis preserves monthly categories and workbook values', async () => {
   const workbook = XLSX.utils.book_new();
   const monthlyRow = (label, value, total = value) => [
     label,
@@ -22,8 +41,8 @@ test('spreadsheet analysis preserves monthly categories and workbook values', ()
     total,
   ];
   const budget = [
-    ['Pessoa 01'],
-    ['', 'Pessoa 01 2026'],
+    ['Person 01'],
+    ['', 'Person 01 2026'],
     ['Categoria', 'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro', 'Total'],
     ['RECEITAS'],
     monthlyRow('Salário', 100),
@@ -41,7 +60,7 @@ test('spreadsheet analysis preserves monthly categories and workbook values', ()
     ['Total', 30, ...Array(11).fill(0), 30],
     ['DESPESAS VARIÁVEIS'],
     ['Cartão de crédito'],
-    monthlyRow('Cartao de exemplo', 999),
+    monthlyRow('Card example', 999),
     ['Total', 999, ...Array(11).fill(0), 999],
     ['Variadas'],
     monthlyRow('Diversas', 1),
@@ -51,13 +70,13 @@ test('spreadsheet analysis preserves monthly categories and workbook values', ()
     ['Total', 0, 50, ...Array(10).fill(0), 50],
     ['RESUMO GERAL'],
   ];
-  XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(budget), 'Financeiro Pessoa 01');
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(budget), 'Financeiro Person 01');
 
   const purchaseRows = [
     ['Data', 'Descrição', 'Pessoa', 'Valor Total', 'Qtd. Parcelas', 'Valor da Parcela', 'Mês', 'Ano', 'Cartão'],
-    ['Compra', 'Casa', 'Pessoa 01', 10, 3, 3.335, 'janeiro', 2026, 'Cartao de exemplo'],
-    ['Compra', 'Casa', 'Pessoa 01', 10, 3, 3.335, 'fevereiro', 2026, 'Cartao de exemplo'],
-    ['Compra', 'Casa', 'Pessoa 01', 10, 3, 3.335, 'janeiro', 2026, 'Cartao de exemplo'],
+    ['Purchase', 'Home', 'Person 01', 10, 3, 3.335, 'janeiro', 2026, 'Example card'],
+    ['Purchase', 'Home', 'Person 01', 10, 3, 3.335, 'fevereiro', 2026, 'Example card'],
+    ['Purchase', 'Home', 'Person 01', 10, 3, 3.335, 'janeiro', 2026, 'Example card'],
   ];
   XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(purchaseRows), 'Banco De Dados');
 
@@ -69,94 +88,87 @@ test('spreadsheet analysis preserves monthly categories and workbook values', ()
   assert.equal(budgetRow('alimentacao', 'Variadas').months[0].amount, 0);
   assert.equal(budgetRow('moradia', 'Energia').months[0].amount, null);
   assert.equal(budgetRow('moradia', 'Energia').months[1].amount, 50);
-  assert.equal(report.monthlyBudgets.some((row) => row.label === 'Cartao de exemplo'), false);
+  assert.equal(report.monthlyBudgets.some((row) => row.label === 'Card example'), false);
   assert.deepEqual(report.divergences, []);
   assert.equal(report.purchasesGrouped.length, 2);
   assert.deepEqual(report.purchasesGrouped[0].installments.map((installment) => installment.amount), [3.335, 3.335]);
 
-  const db = openDb(':memory:');
-  try {
-    const userId = Number(db.prepare(
-      "INSERT INTO users (name, email) VALUES ('Budget test', 'budget-reader-test@example.com')",
-    ).run().lastInsertRowid);
-    executeSpreadsheetImport(db, userId, report);
-    const personId = Number(db.prepare('SELECT id FROM people WHERE user_id = ? AND name = ?').get(userId, 'Pessoa 01').id);
-    const sheet = createBudgetsService(db).getSheet(userId, personId, 2026);
-    const housing = sheet.sections.find((section) => section.key === 'housing');
-    const energy = housing.rows.find((row) => row.label === 'Energia');
-    assert.deepEqual(energy.values.slice(0, 3), [0, 50, 0]);
-    assert.equal(energy.min, 50);
-    assert.equal(energy.max, 50);
-    const cards = sheet.sections.find((section) => section.key === 'cards');
-    assert.deepEqual(cards.totals.slice(0, 2), [6.67, 3.34]);
-    executeSpreadsheetImport(db, userId, report);
-    assert.equal(db.prepare('SELECT COUNT(*) AS count FROM purchases WHERE user_id = ?').get(userId).count, 2);
-    assert.equal(db.prepare('SELECT COUNT(*) AS count FROM installments WHERE user_id = ?').get(userId).count, 3);
-  } finally {
-    db.close();
-  }
+  const account = await createTestAccount({ email: 'spreadsheet-analysis@example.invalid' });
+  await executeSpreadsheetImport(String(account.user._id), report);
+  const importedPerson = await Person.findOne({ userId: account.user._id, name: 'Person 01' });
+  const sheet = await createBudgetsService().getSheet(
+    String(account.user._id),
+    String(importedPerson._id),
+    2026,
+  );
+  const housing = sheet.sections.find((section) => section.key === 'housing');
+  const energy = housing.rows.find((row) => row.label === 'Energia');
+  assert.deepEqual(energy.values.slice(0, 3), [0, 50, 0]);
+  assert.equal(energy.min, 50);
+  assert.equal(energy.max, 50);
+  const cards = sheet.sections.find((section) => section.key === 'cards');
+  assert.deepEqual(cards.totals.slice(0, 2), [6.67, 3.34]);
+  await executeSpreadsheetImport(String(account.user._id), report);
+  assert.equal(await Purchase.countDocuments({ userId: account.user._id }), 2);
+  assert.equal(await Installment.countDocuments({ userId: account.user._id }), 3);
 });
 
-test('spreadsheet import uses the SQLite schema and is idempotent', () => {
-  const db = openDb(':memory:');
-  try {
-    const userId = Number(db.prepare(
-      "INSERT INTO users (name, email) VALUES ('Import test', 'writer-test@example.com')",
-    ).run().lastInsertRowid);
-    const analyzedData = {
-      people: ['Pessoa 01'],
-      cards: ['Cartão teste'],
-      categories: ['Casa'],
-      limits: { 'cartao teste': 1500 },
-      purchasesGrouped: [{
-        description: 'Compra teste',
-        category: 'Categoria da compra',
-        personName: 'Pessoa 01',
-        cardName: 'Cartão teste',
-        purchaseDate: null,
-        totalAmount: 10,
-        totalInstallments: 2,
-        installments: [
-          { month: 1, year: 2027, amount: 5 },
-          { month: 2, year: 2027, amount: 5 },
-        ],
-      }],
-      monthlyBudgets: [{
-        person: 'Pessoa 01',
-        year: 2027,
-        section: 'moradia',
-        label: 'Aluguel',
-        months: Array.from({ length: 12 }, (_, index) => ({
-          month: index + 1,
-          amount: index === 0 ? parseMoney('2.65') : 0,
-        })),
-      }],
-      birthdays: [],
-    };
+test('spreadsheet import upserts purchases, installments and budgets in MongoDB', async () => {
+  const account = await createTestAccount({ email: 'spreadsheet-writer@example.invalid' });
+  const analyzedData = {
+    people: ['Person 01'],
+    cards: ['Test card'],
+    categories: ['Home'],
+    limits: { 'test card': 1500 },
+    purchasesGrouped: [{
+      description: 'Test purchase',
+      category: 'Purchase category',
+      personName: 'Person 01',
+      cardName: 'Test card',
+      purchaseDate: null,
+      totalAmount: 10,
+      totalInstallments: 2,
+      installments: [
+        { month: 1, year: 2027, amount: 5 },
+        { month: 2, year: 2027, amount: 5 },
+      ],
+    }],
+    monthlyBudgets: [{
+      person: 'Person 01',
+      year: 2027,
+      section: 'moradia',
+      label: 'Rent',
+      months: Array.from({ length: 12 }, (_, index) => ({
+        month: index + 1,
+        amount: index === 0 ? parseMoney('2.65') : 0,
+      })),
+    }],
+    birthdays: [],
+  };
+  const userId = String(account.user._id);
 
-    const summary = executeSpreadsheetImport(db, userId, analyzedData);
-    assert.deepEqual(summary, {
-      peopleUpserted: 1,
-      cardsUpserted: 1,
-      purchasesUpserted: 1,
-      installmentsUpserted: 2,
-      budgetsUpserted: 1,
-      birthdaysUpserted: 0,
-    });
-    assert.equal(db.prepare('SELECT limit_amount FROM cards WHERE user_id = ?').get(userId).limit_amount, 1500);
-    assert.equal(db.prepare('SELECT COUNT(*) AS count FROM categories WHERE user_id = ?').get(userId).count, 2);
-    assert.equal(db.prepare('SELECT COUNT(*) AS count FROM purchases WHERE user_id = ?').get(userId).count, 1);
-    assert.equal(db.prepare('SELECT COUNT(*) AS count FROM installments WHERE user_id = ?').get(userId).count, 2);
-    assert.equal(db.prepare('SELECT value FROM budget_cells WHERE user_id = ? AND month = 1').get(userId).value, 2.65);
+  const summary = await executeSpreadsheetImport(userId, analyzedData);
 
-    const repeat = executeSpreadsheetImport(db, userId, analyzedData);
-    assert.equal(repeat.peopleUpserted, 0);
-    assert.equal(repeat.cardsUpserted, 0);
-    assert.equal(repeat.purchasesUpserted, 0);
-    assert.equal(repeat.installmentsUpserted, 0);
-    assert.equal(db.prepare('SELECT COUNT(*) AS count FROM purchases WHERE user_id = ?').get(userId).count, 1);
-    assert.equal(db.prepare('SELECT COUNT(*) AS count FROM budget_sheets WHERE user_id = ?').get(userId).count, 1);
-  } finally {
-    db.close();
-  }
+  assert.deepEqual(summary, {
+    peopleUpserted: 1,
+    cardsUpserted: 1,
+    purchasesUpserted: 1,
+    installmentsUpserted: 2,
+    budgetsUpserted: 1,
+    birthdaysUpserted: 0,
+  });
+  assert.equal((await Card.findOne({ userId, name: 'Test card' }).lean()).limit, 1500);
+  assert.equal(await Purchase.countDocuments({ userId }), 1);
+  assert.equal(await Installment.countDocuments({ userId }), 2);
+  const importedPerson = await Person.findOne({ userId, name: 'Person 01' });
+  const sheet = await createBudgetsService().getSheet(userId, String(importedPerson._id), 2027);
+  assert.equal(sheet.sections.find((section) => section.key === 'housing').rows.find((row) => row.label === 'Rent').values[0], 2.65);
+
+  const repeat = await executeSpreadsheetImport(userId, analyzedData);
+  assert.equal(repeat.peopleUpserted, 0);
+  assert.equal(repeat.cardsUpserted, 0);
+  assert.equal(repeat.purchasesUpserted, 0);
+  assert.equal(repeat.installmentsUpserted, 0);
+  assert.equal(await Purchase.countDocuments({ userId }), 1);
+  assert.equal(await Installment.countDocuments({ userId }), 2);
 });

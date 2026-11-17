@@ -15,22 +15,23 @@ Aplicação de gestão financeira para acompanhar despesas, receitas e compromis
 
 ## Hospede sua própria instalação
 
-Você pode publicar sua própria instalação em um provedor de aplicações Node.js e acessá-la pela internet. O sistema precisa de um banco MongoDB acessível pelo servidor. Docker é **opcional**: use-o somente se preferir esse formato e sua hospedagem oferecer Docker Compose.
+Você pode publicar sua própria instalação em um provedor de aplicações Node.js e acessá-la pela internet. O sistema precisa de um banco MongoDB acessível pelo servidor.
 
 ### 1. Prepare o projeto e a hospedagem
 
-Envie o código-fonte para o servidor ou carregue o ZIP e extraia os arquivos. Não inclua arquivos `.env`, credenciais, backups ou dados pessoais no ZIP. Escolha um provedor que aceite Node.js 20 ou superior. Para Docker, o provedor também precisa aceitar Docker Compose.
+Envie o código-fonte para o servidor ou carregue o ZIP e extraia os arquivos. Não inclua arquivos `.env`, credenciais, backups ou dados pessoais no ZIP. Escolha um provedor que aceite Node.js 20 ou superior.
 
 Crie um banco MongoDB para essa instalação, por exemplo, no MongoDB Atlas. Configure o acesso de rede para permitir conexões do servidor de hospedagem e mantenha a URI e a senha privadas.
 
 ### 2. Configure as variáveis de ambiente
 
-Cadastre estas variáveis na área de configuração do provedor. Se for usar Docker Compose, coloque-as em um arquivo `.env` no servidor, nunca dentro do ZIP:
+Cadastre estas variáveis no painel de configuração do provedor:
 
 | Variável | Valor |
 |---|---|
 | `MONGODB_URI` | URI de conexão ao banco MongoDB |
 | `JWT_SECRET` | Chave aleatória forte e exclusiva para esta instalação |
+| `AI_KEY_SECRET` | Segredo aleatório de 32 bytes para criptografar as chaves de IA dos usuários |
 | `FRONTEND_URL` | Endereço público do sistema, por exemplo `https://contas.exemplo.com`, sem barra no final |
 | `ADMIN_EMAIL` | E-mail que será administrador ao fazer o primeiro acesso |
 | `GOOGLE_CLIENT_ID` | ID do cliente OAuth criado na etapa 4 |
@@ -39,27 +40,19 @@ Cadastre estas variáveis na área de configuração do provedor. Se for usar Do
 
 O servidor não inicia sem `JWT_SECRET` em nenhum ambiente que não seja de teste. Na hospedagem, confirme `NODE_ENV=production` e gere uma chave `JWT_SECRET` nova, aleatória e exclusiva para esta instalação. Em Linux, use `openssl rand -hex 32`; com Node.js, use `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`. Não compartilhe nem publique essa chave.
 
+`AI_KEY_SECRET` também é obrigatória fora de testes. Gere outro valor independente com `openssl rand -hex 32`; não reutilize `JWT_SECRET`. Cada usuário cadastra seu próprio provedor e sua própria chave de IA nas Configurações. Essa chave de criptografia permanece apenas no servidor e deve ser preservada para que as chaves cadastradas continuem descriptografáveis.
+
 ### 3. Publique a aplicação
 
-Escolha **uma** das opções:
-
-**Sem Docker — hospedagem Node.js**
+Configure a hospedagem Node.js com:
 
 - Comando de build: `npm run setup && npm run build`
 - Comando de início: `npm start`
 - Porta: use a porta definida pelo provedor na variável `PORT`.
 
-O servidor Node inicia a API e também serve os arquivos do frontend gerados na etapa de build.
+O servidor Node inicia a API e também serve os arquivos do frontend gerados na etapa de build. Se o provedor oferecer uma verificação de saúde, configure-a para `GET /api/system/health`.
 
-**Com Docker Compose**
-
-No servidor com Docker Compose instalado, execute:
-
-```bash
-docker compose up --build -d
-```
-
-O container escuta na porta `4000` e a configuração do Compose a publica na porta `8080` do servidor. Configure o proxy ou serviço de hospedagem para encaminhar o tráfego HTTPS à aplicação. Os passos para domínio, proxy e certificado variam conforme o provedor.
+O script `npm --prefix backend run backup` depende do executável `mongodump` (MongoDB Database Tools), que pode não estar disponível em hospedagens Node.js. Prefira os backups automáticos do MongoDB Atlas ou execute o script em um computador com as ferramentas instaladas e `MONGODB_URI` configurada. Mantenha os arquivos de backup fora do repositório.
 
 ### 4. Configure o login com Google
 

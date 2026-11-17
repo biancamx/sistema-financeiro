@@ -1,7 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizePdfRecord } from '../src/modules/import/pdf.reader.js';
-import { pdfPurchaseSignature } from '../src/modules/import/pdf.dedup.js';
+
+process.env.NODE_ENV = 'test';
+process.env.JWT_SECRET = 'test-secret-for-pdf-import';
+
+const [{ normalizePdfRecord }, { pdfPurchaseSignature }] = await Promise.all([
+  import('../src/modules/import/pdf.reader.js'),
+  import('../src/modules/import/pdf.dedup.js'),
+]);
 
 const accounts = { people: [], cards: [], categories: [] };
 const recurringRecord = {

@@ -11,6 +11,10 @@ const userSchema = new mongoose.Schema(
     avatar: { type: String, default: null },
     picture: { type: String, default: null },
     provider: { type: String, enum: ['password', 'google', 'local'], default: 'password' },
+    aiProvider: { type: String, enum: ['gemini', 'openai', 'anthropic'], default: null },
+    aiModel: { type: String, default: null },
+    aiApiKeyEncrypted: { type: String, default: null, select: false },
+    aiDataConsentAt: { type: Date, default: null, select: false },
     categoriesInitialized: { type: Boolean, default: false },
     portalContactPersonId: { type: mongoose.Schema.Types.ObjectId, ref: 'Person', default: null },
     reminderSettings: {

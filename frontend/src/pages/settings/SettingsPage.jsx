@@ -3,10 +3,14 @@ import {
   AlertTriangle,
   ArrowRight,
   CheckCircle2,
+  Eye,
+  EyeOff,
   FileSpreadsheet,
+  KeyRound,
   Pencil,
   Plus,
   ShieldCheck,
+  Sparkles,
   Tag,
   Trash2,
   Upload,
@@ -18,7 +22,7 @@ import { useToast } from '../../context/ToastContext.jsx';
 import { notifyFinanceChanged } from '../../hooks/useFinanceRefresh.js';
 import { refreshAllLookups } from '../../services/lookupRefresh.js';
 import { MONTHS_SHORT, money } from '../../lib/format.js';
-import { categoriesApi, importApi, systemApi } from '../../services/api.js';
+import { categoriesApi, importApi, settingsAiApi, systemApi } from '../../services/api.js';
 import './SettingsPage.css';
 
 const IMPORT_COUNT_CARDS = [
@@ -50,6 +54,17 @@ export default function SettingsPage() {
   const [categoryForm, setCategoryForm] = useState(null);
   const [categoryToDelete, setCategoryToDelete] = useState(null);
   const [fileDragging, setFileDragging] = useState(false);
+  const [aiSettings, setAiSettings] = useState(null);
+  const [aiProviders, setAiProviders] = useState({});
+  const [aiProvider, setAiProvider] = useState('');
+  const [aiModel, setAiModel] = useState('');
+  const [aiApiKey, setAiApiKey] = useState('');
+  const [showAiApiKey, setShowAiApiKey] = useState(false);
+  const [aiConsent, setAiConsent] = useState(false);
+  const [aiMessage, setAiMessage] = useState(null);
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiLoading, setAiLoading] = useState(true);
+  const [removeAiConfirmation, setRemoveAiConfirmation] = useState(false);
   const fileInput = useRef(null);
   const { begin, end } = useAppBusy();
   const toast = useToast();
@@ -69,6 +84,20 @@ export default function SettingsPage() {
     loadCategories();
     window.addEventListener('categories:refresh', loadCategories);
     return () => window.removeEventListener('categories:refresh', loadCategories);
+  }, []);
+
+  useEffect(() => {
+    settingsAiApi.get()
+      .then((settings) => {
+        setAiSettings(settings);
+        setAiProviders(settings.providers ?? {});
+        const provider = settings.provider ?? Object.keys(settings.providers ?? {})[0] ?? '';
+        setAiProvider(provider);
+        setAiModel(settings.model ?? settings.providers?.[provider]?.models?.[0] ?? '');
+        setAiConsent(settings.consentGiven);
+      })
+      .catch((error) => toast.error(error))
+      .finally(() => setAiLoading(false));
   }, []);
 
   function openCategoryForm(category = null) {
@@ -115,10 +144,16 @@ export default function SettingsPage() {
 
   async function analyzeImportFile(file) {
     if (!file) return;
+    if (file.name.toLowerCase().endsWith('.pdf')
+      && (!aiSettings?.configured || !aiSettings.consentGiven)) {
+      toast.error(new Error('Configure sua chave e confirme o envio de dados na seção Inteligência artificial antes de analisar PDFs.'));
+      document.getElementById('settings-ai')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      return;
+    }
 
     const formData = new FormData();
     formData.append('file', file);
-    begin(file.name.toLowerCase().endsWith('.pdf') ? 'Analisando o PDF com Gemini' : 'Analisando sua planilha');
+    begin(file.name.toLowerCase().endsWith('.pdf') ? 'Analisando o PDF com sua IA' : 'Analisando sua planilha');
 
     try {
       const result = await importApi.previewDocument(formData);
@@ -188,15 +223,125 @@ export default function SettingsPage() {
     }
   }
 
+  function handleAiProviderChange(event) {
+    const provider = event.target.value;
+    setAiProvider(provider);
+    setAiModel(aiProviders[provider]?.models?.[0] ?? '');
+    setAiApiKey('');
+    setAiMessage(null);
+  }
+
+  function validateAiForm({ requireKey = true } = {}) {
+    if (requireKey && !aiApiKey.trim()) {
+      setAiMessage({ text: 'Informe a chave de API para continuar.', type: 'error' });
+      return false;
+    }
+    if (!aiConsent) {
+      setAiMessage({ text: 'Confirme o aviso sobre o envio de dados ao provedor.', type: 'error' });
+      return false;
+    }
+    return true;
+  }
+
+  async function handleAiConsentChange(event) {
+    const consent = event.target.checked;
+    if (!aiSettings?.configured) {
+      setAiConsent(consent);
+      return;
+    }
+
+    setAiBusy(true);
+    try {
+      const result = await settingsAiApi.setConsent(consent);
+      setAiConsent(result.consentGiven);
+      setAiSettings({ ...aiSettings, consentGiven: result.consentGiven });
+      setAiMessage({
+        text: result.consentGiven
+          ? 'Consentimento ativado para o provedor selecionado.'
+          : 'Consentimento removido. O assistente e a análise de PDFs foram desativados.',
+        type: 'success',
+      });
+    } catch (error) {
+      setAiMessage({ text: error.message, type: 'error' });
+    } finally {
+      setAiBusy(false);
+    }
+  }
+
+  async function testAiKey() {
+    if (!validateAiForm()) return;
+    setAiBusy(true);
+    setAiMessage({ text: 'Testando a chave...', type: 'pending' });
+    try {
+      await settingsAiApi.test({ provider: aiProvider, model: aiModel, apiKey: aiApiKey.trim() });
+      setAiMessage({ text: 'Chave válida para o provedor e modelo selecionados.', type: 'success' });
+    } catch (error) {
+      setAiMessage({ text: error.message, type: 'error' });
+    } finally {
+      setAiBusy(false);
+    }
+  }
+
+  async function saveAiKey() {
+    const needsNewKey = !aiSettings?.configured || aiSettings.provider !== aiProvider;
+    if (!validateAiForm({ requireKey: needsNewKey })) return;
+    setAiBusy(true);
+    setAiMessage({ text: 'Salvando a chave...', type: 'pending' });
+    try {
+      const saved = await settingsAiApi.save({
+        provider: aiProvider,
+        model: aiModel,
+        ...(aiApiKey.trim() && { apiKey: aiApiKey.trim() }),
+        consent: aiConsent,
+      });
+      setAiSettings(saved);
+      setAiProviders(saved.providers ?? aiProviders);
+      setAiApiKey('');
+      setAiMessage({ text: 'Configuração de IA salva com segurança.', type: 'success' });
+    } catch (error) {
+      setAiMessage({ text: error.message, type: 'error' });
+    } finally {
+      setAiBusy(false);
+    }
+  }
+
+  async function removeAiKey() {
+    setAiBusy(true);
+    try {
+      await settingsAiApi.remove();
+      setAiSettings({ configured: false, provider: null, model: null, last4: null, consentGiven: false });
+      setAiApiKey('');
+      setAiConsent(false);
+      setRemoveAiConfirmation(false);
+      setAiMessage({ text: 'Chave removida. O assistente e a análise de PDFs foram desativados.', type: 'success' });
+    } catch (error) {
+      setAiMessage({ text: error.message, type: 'error' });
+    } finally {
+      setAiBusy(false);
+    }
+  }
+
   const resetAllConfirmed = confirmation?.kind !== 'all' || resetPhrase === 'RESETAR';
+  const aiEnabled = aiSettings?.configured && aiSettings?.consentGiven;
 
   return (
     <div className="settings-page">
       <PageHeader
         title="Configurações"
-        subtitle="Importe planilhas e gerencie os dados da sua conta."
+        subtitle="Gerencie categorias, importações, inteligência artificial e dados da sua conta."
       />
 
+      <div className="settings-layout">
+        <nav className="settings-nav" aria-label="Seções das configurações">
+          <a href="#settings-categories"><Tag aria-hidden="true" /> Categorias</a>
+          <a href="#settings-import"><FileSpreadsheet aria-hidden="true" /> Importação</a>
+          <a href="#settings-ai"><Sparkles aria-hidden="true" /> Inteligência artificial
+            {aiEnabled && <span className="settings-nav-dot" aria-label="Configurada" />}
+          </a>
+          <a href="#settings-danger" className="settings-nav-danger"><Trash2 aria-hidden="true" /> Zona de perigo</a>
+        </nav>
+        <main className="settings-sections">
+      <section id="settings-categories" className="settings-section">
       <Card className="settings-card">
         <header className="settings-card-head">
           <div className="settings-icon"><Tag aria-hidden="true" /></div>
@@ -210,7 +355,9 @@ export default function SettingsPage() {
           </Button>
         </header>
       </Card>
+      </section>
 
+      <section id="settings-import" className="settings-section">
       <Card className="settings-card">
         <header className="settings-card-head">
           <div className="settings-icon"><FileSpreadsheet aria-hidden="true" /></div>
@@ -230,7 +377,7 @@ export default function SettingsPage() {
         >
           <Upload className="settings-upload-icon" aria-hidden="true" />
           <h3>Importe uma planilha ou fatura</h3>
-          <p>Compatível com .xlsx, .xls e PDF de orçamento anual ou extrato de compras. O PDF é analisado pelo Google Gemini e só é gravado depois da sua conferência.</p>
+          <p>Compatível com .xlsx, .xls e PDF de orçamento anual ou extrato de compras. O PDF é analisado pela IA configurada na sua conta e só é gravado depois da sua conferência.</p>
           <Button
             variant="primary"
             className="settings-file-button"
@@ -251,7 +398,105 @@ export default function SettingsPage() {
           <span className="settings-upload-hint">ou arraste o arquivo para esta área · máximo de 14 MB para PDF</span>
         </div>
       </Card>
+      </section>
 
+      <section id="settings-ai" className="settings-section">
+      <Card className="settings-card">
+        <header className="settings-card-head">
+          <div className="settings-icon"><Sparkles aria-hidden="true" /></div>
+          <div className="settings-card-copy">
+            <h2>Sua chave de IA</h2>
+            <p>Use sua própria chave do Google Gemini, OpenAI ou Anthropic Claude.</p>
+          </div>
+          <span className={`settings-ai-status${aiEnabled ? ' is-active' : ''}`} role="status">
+            <span className="settings-ai-status-dot" />
+            {aiLoading ? 'Carregando' : aiEnabled ? 'Ativa' : aiSettings?.configured ? 'Consentimento pendente' : 'Sem chave'}
+          </span>
+        </header>
+
+        <div className="settings-ai-fields">
+          <label className="field">
+            <span className="field-label">Provedor</span>
+            <select className="input" value={aiProvider} onChange={handleAiProviderChange} disabled={aiLoading || aiBusy}>
+              {Object.entries(aiProviders).map(([id, provider]) => (
+                <option key={id} value={id}>{provider.label}</option>
+              ))}
+            </select>
+          </label>
+          <label className="field">
+            <span className="field-label">Modelo</span>
+            <select className="input" value={aiModel} onChange={(event) => setAiModel(event.target.value)} disabled={aiLoading || aiBusy || !aiProvider}>
+              {(aiProviders[aiProvider]?.models ?? []).map((model) => (
+                <option key={model} value={model}>{model}</option>
+              ))}
+            </select>
+          </label>
+          <label className="field settings-ai-key-field">
+            <span className="field-label">Chave de API</span>
+            <span className="settings-ai-key-input">
+              <input
+                className="input"
+                type={showAiApiKey ? 'text' : 'password'}
+                autoComplete="new-password"
+                spellCheck="false"
+                value={aiApiKey}
+                onChange={(event) => setAiApiKey(event.target.value)}
+                placeholder={aiSettings?.configured ? 'Chave salva não é exibida. Informe outra para substituir.' : 'Cole sua chave de API'}
+                disabled={aiBusy}
+              />
+              <button
+                type="button"
+                className="settings-ai-eye"
+                onClick={() => setShowAiApiKey((visible) => !visible)}
+                aria-label={showAiApiKey ? 'Ocultar chave' : 'Mostrar chave'}
+              >
+                {showAiApiKey ? <EyeOff aria-hidden="true" /> : <Eye aria-hidden="true" />}
+              </button>
+            </span>
+            <span className="field-hint">{aiProviders[aiProvider]?.hint}</span>
+          </label>
+        </div>
+
+        {aiSettings?.configured && (
+          <div className="settings-ai-saved" role="status">
+            <KeyRound aria-hidden="true" />
+            <span>{aiProviders[aiSettings.provider]?.label} · {aiSettings.model} · chave terminada em <strong>••••{aiSettings.last4}</strong></span>
+          </div>
+        )}
+
+        <div className="settings-ai-notice" role="note">
+          <AlertTriangle aria-hidden="true" />
+          <div>
+            <p><strong>Seus dados financeiros são enviados ao provedor escolhido.</strong> Mensagens do assistente, imagens e PDFs enviados para análise podem conter descrições, valores e categorias. Consulte os termos e a política de privacidade do provedor. A chave é criptografada no servidor e nunca volta a ser exibida.</p>
+            <label className="settings-ai-consent">
+              <input type="checkbox" checked={aiConsent} onChange={handleAiConsentChange} disabled={aiBusy} />
+              Entendi e concordo em enviar esses dados ao provedor selecionado.
+            </label>
+          </div>
+        </div>
+
+        <div className="settings-ai-actions">
+          <Button onClick={testAiKey} disabled={aiLoading || aiBusy || !aiProvider || !aiModel}>
+            {aiBusy && aiMessage?.text === 'Testando a chave...' ? 'Testando...' : 'Testar'}
+          </Button>
+          <Button variant="primary" onClick={saveAiKey} disabled={aiLoading || aiBusy || !aiProvider || !aiModel}>
+            <KeyRound aria-hidden="true" /> Salvar chave
+          </Button>
+          {aiSettings?.configured && (
+            <Button className="settings-button-warning" onClick={() => setRemoveAiConfirmation(true)} disabled={aiBusy}>
+              <Trash2 aria-hidden="true" /> Remover chave
+            </Button>
+          )}
+        </div>
+        {aiMessage && (
+          <p className={`settings-ai-message is-${aiMessage.type}`} role={aiMessage.type === 'error' ? 'alert' : 'status'}>
+            {aiMessage.text}
+          </p>
+        )}
+      </Card>
+      </section>
+
+      <section id="settings-danger" className="settings-section">
       <Card className="settings-card settings-danger">
         <header className="settings-card-head">
           <div className="settings-icon settings-icon-danger"><Trash2 aria-hidden="true" /></div>
@@ -291,6 +536,25 @@ export default function SettingsPage() {
           </section>
         </div>
       </Card>
+      </section>
+        </main>
+      </div>
+
+      <Modal
+        open={removeAiConfirmation}
+        title="Remover chave de IA"
+        onClose={() => setRemoveAiConfirmation(false)}
+        footer={(
+          <>
+            <Button onClick={() => setRemoveAiConfirmation(false)}>Cancelar</Button>
+            <Button variant="primary" className="settings-button-danger" onClick={removeAiKey} disabled={aiBusy}>
+              <Trash2 aria-hidden="true" /> Remover chave
+            </Button>
+          </>
+        )}
+      >
+        <p>O assistente e a análise de PDFs ficarão indisponíveis até que uma nova chave seja configurada.</p>
+      </Modal>
 
       <Modal
         open={categoryManagerOpen}
@@ -418,7 +682,7 @@ export default function SettingsPage() {
             )}
             <p className="muted">
               {previewData.sourceType === 'pdf'
-                ? 'Confira as compras reconhecidas e os vínculos com seus cadastros. O PDF é enviado ao Google Gemini para análise; nenhum dado será gravado até confirmar.'
+                ? 'Confira as compras reconhecidas e os vínculos com seus cadastros. O PDF é enviado ao provedor de IA configurado; nenhum dado será gravado até confirmar.'
                 : 'Revise os dados detectados. A gravação atualiza registros existentes sem duplicá-los.'}
             </p>
             <div className="settings-count-grid">

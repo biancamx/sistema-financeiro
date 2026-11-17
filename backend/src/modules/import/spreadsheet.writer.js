@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { normalizeText } from './spreadsheet.reader.js';
 import { Person } from '../../models/Person.js';
 import { Card } from '../../models/Card.js';
@@ -105,6 +106,7 @@ export async function executeSpreadsheetImport(userId, analyzedData, userDecisio
 
     const pendingInstallments = new Map();
     const importedPurchaseIds = new Set();
+    const purchaseOccurrences = new Map();
     for (const item of Array.isArray(payload.purchasesGrouped) ? payload.purchasesGrouped : []) {
       if (!item || typeof item !== 'object') continue;
       try {
@@ -131,13 +133,33 @@ export async function executeSpreadsheetImport(userId, analyzedData, userDecisio
         const purchaseDate = /^\d{4}-\d{2}-\d{2}$/.test(toSafeText(item.purchaseDate)) ? toSafeText(item.purchaseDate) : null;
         const totalInstallments = Math.max(1, Number(item.totalInstallments) || 1);
         const totalAmount = toSafeNumber(item.totalAmount, 0);
-        const query = {
+        const purchaseQuery = {
           userId, personId, cardId, categoryId: categoryId ?? null,
           description, totalAmount, totalInstallments, purchaseDate,
         };
-        let purchase = await Purchase.findOne(query);
+        const identity = JSON.stringify({
+          personId: String(personId),
+          cardId: String(cardId),
+          categoryId: categoryId ? String(categoryId) : null,
+          description,
+          totalAmount,
+          totalInstallments,
+          purchaseDate,
+          installments: Array.isArray(item.installments) ? item.installments : [],
+        });
+        const occurrence = (purchaseOccurrences.get(identity) ?? 0) + 1;
+        purchaseOccurrences.set(identity, occurrence);
+        const importSourceKey = `spreadsheet:${createHash('sha256').update(`${identity}:${occurrence}`).digest('hex')}`;
+        let purchase = await Purchase.findOne({ userId, importSourceKey });
+        if (!purchase && occurrence === 1) {
+          purchase = await Purchase.findOne({ ...purchaseQuery, importSourceKey: { $exists: false } });
+          if (purchase) {
+            purchase.importSourceKey = importSourceKey;
+            await purchase.save();
+          }
+        }
         if (!purchase) {
-          purchase = await Purchase.create(query);
+          purchase = await Purchase.create({ ...purchaseQuery, importSourceKey });
           summary.purchasesUpserted++;
         }
         importedPurchaseIds.add(String(purchase._id));

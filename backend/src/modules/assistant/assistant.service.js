@@ -1,26 +1,10 @@
-import 'dotenv/config';
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import { requireUserAiConfig } from '../settings/ai.service.js';
 import { executarFerramenta, toolsDeclaration } from './assistant.tools.js';
 
 const MAX_TOOL_ROUNDS = 4;
 const MAX_HISTORY_MESSAGES = 40;
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 const DEFAULT_IMAGE_PROMPT = 'Analise este comprovante e registre o gasto.';
-const MODEL_CACHE_TTL_MS = 15 * 60 * 1000;
-const FALLBACK_CACHE_TTL_MS = 60 * 1000;
-const MAX_DISCOVERED_MODELS = 12;
-const DEFAULT_MODELS = [
-  'gemini-3.8-flash',
-  'gemini-flash-latest',
-  'gemini-3.6-flash',
-];
-const PREFERRED_MODELS = [
-  'gemini-3.8-flash',
-  'gemini-flash-latest',
-  'gemini-3.6-flash',
-];
-let modelCache = { models: [], expiresAt: 0 };
-let modelInUse = null;
 const SYSTEM_INSTRUCTION = `
 Você é o assistente financeiro oficial do "Caderno de Contas", uma aplicação web para organizar as finanças de pessoas e grupos familiares.
 Ajude a entender as funções do sistema, esclarecer dúvidas financeiras sobre os dados consultáveis e registrar operações quando o usuário pedir. Seja cordial, objetivo, empático e claro.
@@ -77,88 +61,17 @@ DIRETRIZES DE RESPOSTA
 9. Privacidade: nunca revele nem peça chaves Pix, aniversários ou dados bancários pessoais. A ferramenta de pessoas fornece apenas nomes; encaminhe o usuário à aba Pessoas para dados pessoais. Telefone só pode ser recebido como campo opcional quando o usuário solicitar o cadastro de uma pessoa; não consulte nem exponha telefones pelo chat.
 `;
 
-async function discoverModels(apiKey) {
-  if (Date.now() < modelCache.expiresAt && modelCache.models.length > 0) {
-    return modelCache.models;
-  }
-
-  try {
-    const response = await fetch('https://generativelanguage.googleapis.com/v1beta/models?pageSize=100', {
-      headers: { 'x-goog-api-key': apiKey },
-      signal: AbortSignal.timeout(5000),
-    });
-    if (!response.ok) {
-      const error = new Error(`A API de modelos respondeu HTTP ${response.status}.`);
-      error.status = response.status;
-      throw error;
-    }
-
-    const data = await response.json();
-    const discovered = Array.isArray(data.models)
-      ? data.models
-        .filter((model) => model.supportedGenerationMethods?.includes('generateContent'))
-        .map((model) => model.name?.replace(/^models\//, ''))
-        .filter((name) => typeof name === 'string' && name.startsWith('gemini-'))
-      : [];
-    const ordered = [...new Set([...PREFERRED_MODELS, ...discovered])]
-      .filter((name) => discovered.includes(name) || DEFAULT_MODELS.includes(name))
-      .sort((a, b) => {
-        const aIndex = PREFERRED_MODELS.indexOf(a);
-        const bIndex = PREFERRED_MODELS.indexOf(b);
-        if (aIndex !== -1 || bIndex !== -1) {
-          return (aIndex === -1 ? Number.MAX_SAFE_INTEGER : aIndex)
-            - (bIndex === -1 ? Number.MAX_SAFE_INTEGER : bIndex);
-        }
-        return Number(a.includes('preview')) - Number(b.includes('preview'))
-          || Number(b.includes('flash')) - Number(a.includes('flash'));
-      })
-      .slice(0, MAX_DISCOVERED_MODELS);
-
-    if (ordered.length === 0) {
-      throw new Error('A API não retornou modelos Gemini compatíveis.');
-    }
-    modelCache = { models: ordered, expiresAt: Date.now() + MODEL_CACHE_TTL_MS };
-    return ordered;
-  } catch (error) {
-    if (error.status === 401 || error.status === 403) {
-      throw error;
-    }
-    console.warn('Não foi possível descobrir os modelos Gemini; usando a lista padrão:', error.message);
-    modelCache = {
-      models: DEFAULT_MODELS,
-      expiresAt: Date.now() + FALLBACK_CACHE_TTL_MS,
-    };
-    return DEFAULT_MODELS;
-  }
-}
-
-function createModel(genAI, modelName) {
-  return genAI.getGenerativeModel({
-    model: modelName,
-    systemInstruction: SYSTEM_INSTRUCTION,
-    tools: [{ functionDeclarations: toolsDeclaration }],
-  });
-}
-
 function normalizeHistory(history) {
   if (!Array.isArray(history) || history.length > MAX_HISTORY_MESSAGES) {
     throw new Error(`O histórico deve conter até ${MAX_HISTORY_MESSAGES} mensagens.`);
   }
-
   return history.map((item) => {
-    if (!item || !['user', 'assistant', 'model'].includes(item.role)) {
+    if (!item || !['user', 'assistant'].includes(item.role)) {
       throw new Error('O histórico contém uma mensagem com papel inválido.');
     }
-
     const text = item.text ?? item.content;
-    if (typeof text !== 'string') {
-      throw new Error('O histórico contém uma mensagem sem texto válido.');
-    }
-
-    return {
-      role: item.role === 'assistant' ? 'model' : item.role,
-      parts: [{ text }],
-    };
+    if (typeof text !== 'string') throw new Error('O histórico contém uma mensagem sem texto válido.');
+    return { role: item.role, content: text };
   });
 }
 
@@ -177,44 +90,18 @@ function normalizeImage(image) {
   return { base64: image.base64, mimeType: image.mimeType };
 }
 
-async function sendWithModel(genAI, modelName, { message, image, history, userId }, onToolCall) {
-  const model = createModel(genAI, modelName);
-  const chat = model.startChat({ history: normalizeHistory(history) });
-  const parts = [{ text: message.trim() || DEFAULT_IMAGE_PROMPT }];
-  if (image) parts.push({ inlineData: { data: image.base64, mimeType: image.mimeType } });
-  let result = await chat.sendMessage(parts);
-
-  for (let round = 0; round <= MAX_TOOL_ROUNDS; round += 1) {
-    const response = result.response;
-    const functionCalls = response.functionCalls() ?? [];
-    if (functionCalls.length === 0) {
-      return response.text();
-    }
-    if (round === MAX_TOOL_ROUNDS) {
-      throw new Error('O assistente excedeu o limite de chamadas de ferramentas nesta mensagem.');
-    }
-
-    const toolResults = [];
-    for (const call of functionCalls) {
-      onToolCall();
-      let toolResult;
-      try {
-        toolResult = await executarFerramenta(call.name, call.args ?? {}, userId);
-      } catch (error) {
-        toolResult = {
-          erro: error instanceof Error ? error.message : 'Não foi possível executar a ferramenta.',
-        };
-      }
-
-      toolResults.push(
-        `[Sistema - Resultado da consulta de ${call.name}]: ${JSON.stringify(toolResult)}`,
-      );
-    }
-
-    result = await chat.sendMessage(toolResults.join('\n'));
-  }
-
-  throw new Error('Não foi possível concluir a conversa com o assistente.');
+async function completeWithUserProvider({ userId, messages, document, systemInstruction, tools, json, generationConfig }) {
+  const config = await requireUserAiConfig(userId);
+  return config.adapter.complete({
+    apiKey: config.apiKey,
+    model: config.model,
+    systemInstruction,
+    messages,
+    document,
+    tools,
+    json,
+    generationConfig,
+  });
 }
 
 export async function processUserMessage({ message = '', image: rawImage, history = [], userId }) {
@@ -226,70 +113,62 @@ export async function processUserMessage({ message = '', image: rawImage, histor
   }
 
   const image = normalizeImage(rawImage);
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
-    throw new Error('A IA não está configurada no servidor (falta a GEMINI_API_KEY).');
-  }
+  const messages = normalizeHistory(history);
+  messages.push({ role: 'user', content: message.trim() || DEFAULT_IMAGE_PROMPT, ...(image && { image }) });
 
-  const genAI = new GoogleGenerativeAI(apiKey);
-  const models = await discoverModels(apiKey);
-  const modelCandidates = [...new Set([...PREFERRED_MODELS, modelInUse, ...models].filter(Boolean))];
-  let lastError;
+  for (let round = 0; round <= MAX_TOOL_ROUNDS; round += 1) {
+    const result = await completeWithUserProvider({
+      userId,
+      messages,
+      systemInstruction: SYSTEM_INSTRUCTION,
+      tools: toolsDeclaration,
+    });
+    if (result.toolCalls.length === 0) return { reply: result.text };
+    if (round === MAX_TOOL_ROUNDS) {
+      throw new Error('O assistente excedeu o limite de chamadas de ferramentas nesta mensagem.');
+    }
 
-  for (const modelName of modelCandidates) {
-    let toolWasCalled = false;
-    try {
-      const reply = await sendWithModel(
-        genAI,
-        modelName,
-        { message, image, history, userId },
-        () => { toolWasCalled = true; },
-      );
-      modelInUse = modelName;
-      return { reply };
-    } catch (error) {
-      modelInUse = null;
-      lastError = error;
-      if (error.status === 401 || error.status === 403) {
-        throw error;
+    messages.push({ role: 'assistant', content: result.text, toolCalls: result.toolCalls });
+    for (const call of result.toolCalls) {
+      let toolResult;
+      try {
+        toolResult = await executarFerramenta(call.name, call.arguments ?? {}, userId);
+      } catch (error) {
+        toolResult = {
+          erro: error instanceof Error ? error.message : 'Não foi possível executar a ferramenta.',
+        };
       }
-      if (toolWasCalled) {
-        throw error;
-      }
-      console.warn(`O modelo Gemini ${modelName} falhou; tentando o próximo modelo disponível:`, error.message);
+      messages.push({
+        role: 'tool',
+        name: call.name,
+        toolCallId: call.id,
+        content: JSON.stringify(toolResult),
+      });
     }
   }
-
-  throw new Error(
-    `Nenhum modelo Gemini disponível conseguiu responder. Último erro: ${lastError?.message ?? 'serviço indisponível.'}`,
-  );
+  throw new Error('Não foi possível concluir a conversa com o assistente.');
 }
 
-export async function generateGeminiContent({ parts, systemInstruction, generationConfig }) {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
-    throw new Error('A IA não está configurada no servidor (falta a GEMINI_API_KEY).');
+export async function generateUserContent({
+  userId,
+  prompt,
+  document,
+  systemInstruction,
+  generationConfig = {},
+}) {
+  if (typeof prompt !== 'string' || !prompt.trim()) {
+    throw new Error('A solicitação de análise da IA está vazia.');
   }
-  const genAI = new GoogleGenerativeAI(apiKey);
-  const models = await discoverModels(apiKey);
-  const modelCandidates = [...new Set([...PREFERRED_MODELS, modelInUse, ...models].filter(Boolean))];
-  let lastError;
-
-  for (const modelName of modelCandidates) {
-    try {
-      const model = genAI.getGenerativeModel({ model: modelName, systemInstruction, generationConfig });
-      const result = await model.generateContent(parts);
-      modelInUse = modelName;
-      return result.response.text();
-    } catch (error) {
-      modelInUse = null;
-      lastError = error;
-      if (error.status === 401 || error.status === 403) throw error;
-      console.warn(`O modelo Gemini ${modelName} falhou durante a análise do documento; tentando o próximo modelo disponível:`, error.message);
-    }
+  const result = await completeWithUserProvider({
+    userId,
+    messages: [{ role: 'user', content: prompt }],
+    document,
+    systemInstruction,
+    json: generationConfig.responseMimeType === 'application/json',
+    generationConfig,
+  });
+  if (result.toolCalls.length) {
+    throw new Error('O provedor retornou uma ferramenta inesperada durante a análise do documento.');
   }
-
-  throw new Error(
-    `Nenhum modelo Gemini disponível conseguiu analisar o documento. Último erro: ${lastError?.message ?? 'serviço indisponível.'}`,
-  );
+  return result.text;
 }

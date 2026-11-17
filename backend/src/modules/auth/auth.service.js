@@ -64,6 +64,7 @@ export async function loginWithGoogle(credential) {
   if (!payload || !payload.email) {
     throw new Error('Token do Google inválido ou sem e-mail');
   }
+  ensureGoogleEmailVerified(payload);
 
   const { sub: googleId, email, name, picture } = payload;
   const cleanEmail = email.toLowerCase().trim();
@@ -108,7 +109,7 @@ export async function loginWithGoogle(credential) {
       status: user.status || 'pending',
     },
     env.jwtSecret,
-    { expiresIn: '30d' }
+    { expiresIn: env.jwtExpiresIn }
   );
 
   return {
@@ -129,8 +130,14 @@ export function generateToken(user) {
       role: user.role || 'user',
     },
     env.jwtSecret,
-    { expiresIn: '30d' }
+    { expiresIn: env.jwtExpiresIn }
   );
+}
+
+export function ensureGoogleEmailVerified(payload) {
+  if (payload?.email_verified !== true) {
+    throw unauthorized('O Google não confirmou o e-mail desta conta.');
+  }
 }
 
 // 2. CADASTRO TRADICIONAL COM E-MAIL E SENHA

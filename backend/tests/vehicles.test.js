@@ -1,6 +1,7 @@
-import { test, before, after } from 'node:test';
+import { test, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import jwt from 'jsonwebtoken';
+import { clearMongoMemory, createApiClient, createTestAccount, startMongoMemory } from './helpers/mongo.js';
+import { Person } from '../src/models/Person.js';
 
 process.env.NODE_ENV = 'test';
 process.env.JWT_SECRET = 'test-secret-for-vehicles';
@@ -8,46 +9,29 @@ process.env.ENABLE_LOCAL_LOGIN = 'true';
 process.env.RATE_LIMIT_MAX = '100000';
 process.env.AUTH_RATE_LIMIT_MAX = '100000';
 
-const { openDb } = await import('../src/db/index.js');
 const { createApp } = await import('../src/app.js');
 
-let server, base, db;
+let server, base, stopMongo;
 before(async () => {
-  db = openDb(':memory:');
-  server = createApp(db).listen(0);
+  stopMongo = await startMongoMemory();
+  server = createApp().listen(0);
+  await new Promise((resolve) => server.once('listening', resolve));
   base = `http://127.0.0.1:${server.address().port}/api`;
 });
-after(() => {
-  server.close();
-  db.close();
+beforeEach(clearMongoMemory);
+after(async () => {
+  if (server) await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  if (stopMongo) await stopMongo();
 });
 
-function client(initialCookie = '') {
-  let cookie = initialCookie;
-  return async (method, path, body) => {
-    const res = await fetch(base + path, {
-      method,
-      headers: { 'Content-Type': 'application/json', ...(cookie && { Cookie: cookie }) },
-      body: body ? JSON.stringify(body) : undefined,
-    });
-    const set = res.headers.get('set-cookie');
-    if (set) cookie = set.split(';')[0];
-    const text = await res.text();
-    let json = null;
-    try { json = JSON.parse(text); } catch {}
-    return { status: res.status, json, text };
-  };
-}
-
-// usuário novo (workspace vazio) com 3 pessoas
 async function setup(email) {
-  const name = 'Teste';
-  const userId = Number(db.prepare('INSERT INTO users (name, email, password_hash) VALUES (?, ?, ?)').run(name, email, 'test').lastInsertRowid);
-  const token = jwt.sign({ id: userId, email, name }, process.env.JWT_SECRET);
-  const c = client(`caderno_token=${token}`);
+  const account = await createTestAccount({ email, name: 'Test' });
+  const people = await Person.create(
+    ['Pessoa 01', 'Pessoa 02', 'Pessoa 03'].map((name) => ({ userId: account.user._id, name })),
+  );
   const ids = {};
-  for (const n of ['Pessoa 01', 'Pessoa 02', 'Pessoa 03']) ids[n] = (await c('POST', '/people', { name: n })).json.data.id;
-  return { c, ids };
+  for (const person of people) ids[person.name] = String(person._id);
+  return { c: createApiClient(base, account.cookie), ids };
 }
 const car = { kind: 'car', model: 'Carro de demonstração', plate: 'demo-001', year: 2024, purchaseValue: 50000, status: 'active' };
 
@@ -210,7 +194,7 @@ test('isolamento: outro usuário não vê nem mexe nos veículos e gastos', asyn
 });
 
 test('exige login', async () => {
-  const c = client();
+  const c = createApiClient(base);
   assert.equal((await c('GET', '/vehicles')).status, 401);
   assert.equal((await c('GET', '/vehicles/expenses')).status, 401);
 });
@@ -247,7 +231,7 @@ test('gasto no cartão cria compra vinculada, parcelas e atualiza limite sem dup
   assert.equal(budget.json.data.monthly.purchases[0].amount, 33.34);
   assert.equal(budget.json.data.monthly.purchases[0].category, 'Vale combustível');
   const cards = await c('GET', '/cards?month=10&year=2026');
-  assert.equal(cards.json.data.find((item) => item.id === card.id).used, 100.01);
+  assert.equal(cards.json.data.find((item) => item.id === card.id).used, 66.67);
 
   assert.equal((await c('DELETE', `/purchases/${purchases.json.data[0].id}`)).status, 409);
   assert.equal((await c('PATCH', `/purchases/installments/${installments.json.data[0].id}`, { paid: true })).status, 200);
@@ -280,7 +264,7 @@ test('despesa compartilhada no cartão distribui cada parcela e não duplica o t
   assert.equal(installments.json.data.length, 2);
   assert.equal(installments.json.data.reduce((sum, row) => sum + row.amount, 0), 60);
   assert.ok(installments.json.data.every((row) => row.vehicleExpenseId === created.json.data.id));
-  assert.equal((await c('GET', '/cards?month=10&year=2026')).json.data.find((item) => item.id === card.id).used, 120);
+  assert.equal((await c('GET', '/cards?month=10&year=2026')).json.data.find((item) => item.id === card.id).used, 60);
   const allPurchases = await c('GET', '/purchases');
   assert.equal(allPurchases.json.total, 1);
   assert.equal(allPurchases.json.data[0].total, 120);

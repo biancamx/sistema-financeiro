@@ -13,7 +13,6 @@ import { CashReceipt } from '../src/models/CashReceipt.js';
 import { Category } from '../src/models/Category.js';
 import { Installment } from '../src/models/Installment.js';
 import { MonthStatus } from '../src/models/MonthStatus.js';
-import { MonthlyBudget } from '../src/models/MonthlyBudget.js';
 import { Person } from '../src/models/Person.js';
 import { Purchase } from '../src/models/Purchase.js';
 import { User } from '../src/models/User.js';
@@ -35,7 +34,7 @@ function cellsFromValues(values = []) {
 async function seedDemoWorkspace(userId) {
   const models = [
     CashReceipt, CashInstallment, CashEntry, VehicleExpense, Vehicle, Birthday,
-    BudgetSheet, MonthlyBudget, MonthStatus, Installment, Purchase, Card, Category, Person,
+    BudgetSheet, MonthStatus, Installment, Purchase, Card, Category, Person,
   ];
   await Promise.all(models.map((model) => model.deleteMany({ userId })));
 

@@ -24,6 +24,13 @@ export const dashboardApi = {
 export const assistantApi = {
   chat: (body) => post('/assistant/chat', body),
 };
+export const settingsAiApi = {
+  get: () => get('/settings/ai').then((r) => r.data),
+  save: (body) => put('/settings/ai', body).then((r) => r.data),
+  setConsent: (consent) => patch('/settings/ai/consent', { consent }).then((r) => r.data),
+  test: (body) => post('/settings/ai/test', body).then((r) => r.data),
+  remove: () => del('/settings/ai'),
+};
 
 export const purchasesApi = {
   installments: (q) => get('/purchases/installments', q),

@@ -1,148 +1,154 @@
-import { test } from 'node:test';
+import { test, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { openDb } from '../src/db/index.js';
-import { createPurchasesService } from '../src/modules/purchases/purchases.service.js';
+import { clearMongoMemory, startMongoMemory } from './helpers/mongo.js';
 
-test('bulk payment marks owned installments paid and releases card limit atomically', () => {
-  const db = openDb(':memory:');
-  try {
-    const userId = Number(db.prepare(
-      "INSERT INTO users (name, email) VALUES ('Bulk test', 'bulk-payment@example.com')",
-    ).run().lastInsertRowid);
-    const otherUserId = Number(db.prepare(
-      "INSERT INTO users (name, email) VALUES ('Other user', 'bulk-payment-other@example.com')",
-    ).run().lastInsertRowid);
-    const personId = Number(db.prepare(
-      "INSERT INTO people (user_id, name) VALUES (?, 'Person')",
-    ).run(userId).lastInsertRowid);
-    const cardId = Number(db.prepare(
-      "INSERT INTO cards (user_id, name, limit_amount) VALUES (?, 'Card', 1000)",
-    ).run(userId).lastInsertRowid);
-    const purchaseId = Number(db.prepare(
-      `INSERT INTO purchases (user_id, description, person_id, card_id, total, installments_count)
-       VALUES (?, 'Purchase', ?, ?, 300, 3)`,
-    ).run(userId, personId, cardId).lastInsertRowid);
-    const otherPurchaseId = Number(db.prepare(
-      `INSERT INTO purchases (user_id, description, person_id, card_id, total, installments_count)
-       VALUES (?, 'Other purchase', ?, ?, 100, 1)`,
-    ).run(otherUserId, Number(db.prepare(
-      "INSERT INTO people (user_id, name) VALUES (?, 'Other person')",
-    ).run(otherUserId).lastInsertRowid), Number(db.prepare(
-      "INSERT INTO cards (user_id, name, limit_amount) VALUES (?, 'Other card', 500)",
-    ).run(otherUserId).lastInsertRowid)).lastInsertRowid);
-    const insertInstallment = db.prepare(
-      `INSERT INTO installments (user_id, purchase_id, number, year, month, amount)
-       VALUES (?, ?, ?, 2026, ?, ?)`,
-    );
-    const firstId = Number(insertInstallment.run(userId, purchaseId, 1, 10, 100).lastInsertRowid);
-    const secondId = Number(insertInstallment.run(userId, purchaseId, 2, 11, 100).lastInsertRowid);
-    const otherId = Number(insertInstallment.run(otherUserId, otherPurchaseId, 1, 10, 100).lastInsertRowid);
-    db.prepare('UPDATE installments SET paid_amount = 25 WHERE id = ?').run(firstId);
-    const service = createPurchasesService(db);
+process.env.NODE_ENV = 'test';
+process.env.JWT_SECRET = 'test-secret-for-bulk-payments';
+process.env.ENABLE_LOCAL_LOGIN = 'true';
+process.env.RATE_LIMIT_MAX = '100000';
+process.env.AUTH_RATE_LIMIT_MAX = '100000';
 
-    const usedBefore = db.prepare(
-      `SELECT SUM(MAX(i.amount - i.paid_amount, 0)) AS used FROM installments i
-       JOIN purchases p ON p.id = i.purchase_id WHERE p.card_id = ?`,
-    ).get(cardId).used;
-    assert.equal(usedBefore, 175);
+const [
+  { createApp },
+  { User },
+  { Person },
+  { Card },
+  { Purchase },
+  { Installment },
+  { createPurchasesService },
+  { generateToken },
+] = await Promise.all([
+  import('../src/app.js'),
+  import('../src/models/User.js'),
+  import('../src/models/Person.js'),
+  import('../src/models/Card.js'),
+  import('../src/models/Purchase.js'),
+  import('../src/models/Installment.js'),
+  import('../src/modules/purchases/purchases.service.js'),
+  import('../src/modules/auth/auth.service.js'),
+]);
 
-    assert.throws(() => service.setManyPaid(userId, [firstId, otherId]), /não foram encontradas/);
-    assert.equal(db.prepare('SELECT paid FROM installments WHERE id = ?').get(firstId).paid, 0);
+let stopMongo;
+let server;
+let baseUrl;
 
-    assert.deepEqual(service.setManyPaid(userId, [firstId, secondId]), { updated: 2 });
-    assert.equal(db.prepare('SELECT SUM(paid) AS paid FROM installments WHERE purchase_id = ?').get(purchaseId).paid, 2);
-    assert.equal(db.prepare(
-      `SELECT SUM(MAX(i.amount - i.paid_amount, 0)) AS used FROM installments i
-       JOIN purchases p ON p.id = i.purchase_id WHERE p.card_id = ?`,
-    ).get(cardId).used, 0);
-
-    assert.deepEqual(service.setManyPaid(userId, [firstId, secondId], false), { updated: 2 });
-    assert.deepEqual(db.prepare(
-      'SELECT paid, paid_amount FROM installments WHERE purchase_id = ? ORDER BY number',
-    ).all(purchaseId).map((row) => [row.paid, row.paid_amount]), [[0, 0], [0, 0]]);
-    assert.equal(db.prepare(
-      `SELECT SUM(MAX(i.amount - i.paid_amount, 0)) AS used FROM installments i
-       JOIN purchases p ON p.id = i.purchase_id WHERE p.card_id = ?`,
-    ).get(cardId).used, 200);
-  } finally {
-    db.close();
-  }
+before(async () => {
+  stopMongo = await startMongoMemory();
+  server = createApp().listen(0);
+  await new Promise((resolve) => server.once('listening', resolve));
+  baseUrl = `http://127.0.0.1:${server.address().port}/api`;
 });
 
-test('bulk payment API requires a session and immediately restores available card limit', async () => {
-  process.env.NODE_ENV = 'test';
-  process.env.ENABLE_LOCAL_LOGIN = 'true';
-  process.env.RATE_LIMIT_MAX = '100000';
-  process.env.AUTH_RATE_LIMIT_MAX = '100000';
-  const [{ createApp }, { openDb: openTestDb }] = await Promise.all([
-    import('../src/app.js'),
-    import('../src/db/index.js'),
-  ]);
-  const db = openTestDb(':memory:');
-  const server = createApp(db).listen(0);
-  await new Promise((resolve) => server.once('listening', resolve));
-  const base = `http://127.0.0.1:${server.address().port}/api`;
-  try {
-    const anonymous = await fetch(`${base}/purchases/installments/pay-selected`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ids: [1] }),
-    });
-    assert.equal(anonymous.status, 401);
+beforeEach(clearMongoMemory);
 
-    const login = await fetch(`${base}/auth/local`, { method: 'POST' });
-    assert.equal(login.status, 200);
-    const cookie = login.headers.get('set-cookie').split(';')[0];
-    const profile = await fetch(`${base}/auth/me`, { headers: { Cookie: cookie } }).then((response) => response.json());
-    const userId = profile.data.user.id;
-    const personId = Number(db.prepare(
-      'INSERT INTO people (user_id, name) VALUES (?, ?)',
-    ).run(userId, 'API bulk person').lastInsertRowid);
-    const cardId = Number(db.prepare(
-      'INSERT INTO cards (user_id, name, limit_amount) VALUES (?, ?, ?)',
-    ).run(userId, 'API bulk card', 1000).lastInsertRowid);
-    const purchaseId = Number(db.prepare(
-      `INSERT INTO purchases (user_id, description, person_id, card_id, total, installments_count)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-    ).run(userId, 'API bulk purchase', personId, cardId, 200, 2).lastInsertRowid);
-    const insertInstallment = db.prepare(
-      `INSERT INTO installments (user_id, purchase_id, number, year, month, amount)
-       VALUES (?, ?, ?, 2026, 10, 100)`,
-    );
-    const ids = [
-      Number(insertInstallment.run(userId, purchaseId, 1).lastInsertRowid),
-      Number(insertInstallment.run(userId, purchaseId, 2).lastInsertRowid),
-    ];
+after(async () => {
+  if (server) await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  if (stopMongo) await stopMongo();
+});
 
-    const before = await fetch(`${base}/cards?month=10&year=2026`, { headers: { Cookie: cookie } }).then((response) => response.json());
-    assert.equal(before.data.find((card) => card.id === cardId).used, 200);
+async function createAccount(email) {
+  const user = await User.create({ name: email, email, status: 'active' });
+  const person = await Person.create({ userId: user._id, name: 'Person' });
+  const card = await Card.create({ userId: user._id, name: 'Card', limit: 1000 });
+  return { user, person, card, cookie: `caderno_token=${generateToken(user)}` };
+}
 
-    const response = await fetch(`${base}/purchases/installments/pay-selected`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Cookie: cookie },
-      body: JSON.stringify({ ids }),
-    });
-    assert.equal(response.status, 200);
-    assert.deepEqual((await response.json()).data, { updated: 2 });
+function installmentsFor(user, purchase, startMonth = 10) {
+  return Array.from({ length: 2 }, (_, index) => ({
+    userId: user._id,
+    purchaseId: purchase._id,
+    number: index + 1,
+    year: 2099,
+    month: startMonth + index,
+    amount: 100,
+  }));
+}
 
-    const after = await fetch(`${base}/cards?month=10&year=2026`, { headers: { Cookie: cookie } }).then((res) => res.json());
-    const card = after.data.find((item) => item.id === cardId);
-    assert.equal(card.used, 0);
-    assert.equal(card.available, 1000);
+test('bulk payment enforces user isolation and updates only owned installments', async () => {
+  const owner = await createAccount('bulk-owner@example.invalid');
+  const other = await createAccount('bulk-other@example.invalid');
+  const purchase = await Purchase.create({
+    userId: owner.user._id,
+    personId: owner.person._id,
+    cardId: owner.card._id,
+    description: 'Owner purchase',
+    totalAmount: 200,
+    totalInstallments: 2,
+  });
+  const otherPurchase = await Purchase.create({
+    userId: other.user._id,
+    personId: other.person._id,
+    cardId: other.card._id,
+    description: 'Other purchase',
+    totalAmount: 200,
+    totalInstallments: 2,
+  });
+  const [first, second] = await Installment.create(installmentsFor(owner.user, purchase));
+  const [foreign] = await Installment.create(installmentsFor(other.user, otherPurchase));
+  first.paidAmount = 25;
+  await first.save();
 
-    const unpayResponse = await fetch(`${base}/purchases/installments/unpay-selected`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Cookie: cookie },
-      body: JSON.stringify({ ids }),
-    });
-    assert.equal(unpayResponse.status, 200);
-    assert.deepEqual((await unpayResponse.json()).data, { updated: 2 });
-    const unpaidCard = await fetch(`${base}/cards?month=10&year=2026`, { headers: { Cookie: cookie } }).then((res) => res.json());
-    const restoredCard = unpaidCard.data.find((item) => item.id === cardId);
-    assert.equal(restoredCard.used, 200);
-    assert.equal(restoredCard.available, 800);
-  } finally {
-    await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
-    db.close();
-  }
+  const service = createPurchasesService();
+  await assert.rejects(
+    service.setManyPaid(owner.user._id, [first._id, foreign._id]),
+    (error) => error.status === 404,
+  );
+  const unchanged = await Installment.findById(first._id).lean();
+  assert.equal(unchanged.paid, false);
+  assert.equal(unchanged.paidAmount, 25);
+
+  assert.deepEqual(await service.setManyPaid(owner.user._id, [first._id, second._id]), { updated: 2 });
+  const paid = await Installment.find({ purchaseId: purchase._id }).sort({ number: 1 }).lean();
+  assert.deepEqual(paid.map(({ paid, paidAmount }) => [paid, paidAmount]), [[true, 100], [true, 100]]);
+
+  assert.deepEqual(await service.setManyPaid(owner.user._id, [first._id, second._id], false), { updated: 2 });
+  const unpaid = await Installment.find({ purchaseId: purchase._id }).sort({ number: 1 }).lean();
+  assert.deepEqual(unpaid.map(({ paid, paidAmount }) => [paid, paidAmount]), [[false, 0], [false, 0]]);
+  assert.equal((await Installment.findById(foreign._id).lean()).paid, false);
+});
+
+test('bulk payment API requires a session and restores available card limit', async () => {
+  const owner = await createAccount('bulk-api@example.invalid');
+  const purchase = await Purchase.create({
+    userId: owner.user._id,
+    personId: owner.person._id,
+    cardId: owner.card._id,
+    description: 'API purchase',
+    totalAmount: 200,
+    totalInstallments: 2,
+  });
+  const installments = await Installment.create(installmentsFor(owner.user, purchase));
+  const ids = installments.map(({ _id }) => String(_id));
+  const endpoint = `${baseUrl}/purchases/installments/pay-selected`;
+
+  const anonymous = await fetch(endpoint, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ids }),
+  });
+  assert.equal(anonymous.status, 401);
+
+  const headers = { 'Content-Type': 'application/json', Cookie: owner.cookie };
+  const before = await fetch(`${baseUrl}/cards?month=10&year=2099`, { headers }).then((response) => response.json());
+  assert.equal(before.data.find((card) => card.id === String(owner.card._id)).used, 200);
+
+  const paid = await fetch(endpoint, { method: 'POST', headers, body: JSON.stringify({ ids }) });
+  assert.equal(paid.status, 200);
+  assert.deepEqual((await paid.json()).data, { updated: 2 });
+
+  const afterPayment = await fetch(`${baseUrl}/cards?month=10&year=2099`, { headers }).then((response) => response.json());
+  const released = afterPayment.data.find((card) => card.id === String(owner.card._id));
+  assert.equal(released.used, 0);
+  assert.equal(released.available, 1000);
+
+  const unpaid = await fetch(`${baseUrl}/purchases/installments/unpay-selected`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ ids }),
+  });
+  assert.equal(unpaid.status, 200);
+  const afterUnpay = await fetch(`${baseUrl}/cards?month=10&year=2099`, { headers }).then((response) => response.json());
+  const restored = afterUnpay.data.find((card) => card.id === String(owner.card._id));
+  assert.equal(restored.used, 200);
+  assert.equal(restored.available, 800);
 });

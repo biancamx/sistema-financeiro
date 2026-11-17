@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { timingSafeEqual } from 'node:crypto';
+import jwt from 'jsonwebtoken';
 import { z } from 'zod';
 import { AppError, asyncHandler } from '../../lib/errors.js';
 import { env } from '../../config/env.js';
@@ -24,12 +25,21 @@ const loginBody = z.object({
   password: z.string().min(1, 'Informe sua senha').max(128),
 });
 
+const sessionCookieOptions = {
+  httpOnly: true,
+  secure: env.isProd,
+  sameSite: env.isProd ? 'lax' : env.cookieSameSite,
+  path: '/',
+};
+
 function setSessionCookie(res, token) {
+  const payload = jwt.decode(token);
+  if (!payload || typeof payload !== 'object' || typeof payload.exp !== 'number') {
+    throw new Error('Token de sessão sem expiração válida');
+  }
   res.cookie('caderno_token', token, {
-    httpOnly: true,
-    secure: env.isProd,
-    sameSite: env.isProd ? 'lax' : env.cookieSameSite,
-    maxAge: 30 * 24 * 60 * 60 * 1000,
+    ...sessionCookieOptions,
+    maxAge: Math.max(0, payload.exp * 1000 - Date.now()),
   });
 }
 
@@ -49,8 +59,7 @@ export function authRoutes() {
 
   // ROTA DE CONFIGURAÇÃO PÚBLICA (Consumida pelo LoginPage)
   router.get('/config', (req, res) => {
-    const googleClientId = process.env.GOOGLE_CLIENT_ID || null;
-    const isLocalAllowed = process.env.NODE_ENV !== 'production';
+    const googleClientId = env.googleClientId || null;
 
     res.json({
       google: {
@@ -58,7 +67,7 @@ export function authRoutes() {
         clientId: googleClientId,
       },
       local: {
-        enabled: isLocalAllowed,
+        enabled: env.localLoginEnabled,
       },
     });
   });
@@ -128,14 +137,17 @@ export function authRoutes() {
 
   // Logout
   router.post('/logout', (req, res) => {
-    res.clearCookie('caderno_token');
+    for (const name of ['caderno_token', 'fin_token']) {
+      res.clearCookie(name, sessionCookieOptions);
+      res.clearCookie(name, { ...sessionCookieOptions, path: '/api/auth' });
+    }
     res.json({ message: 'Desconectado com sucesso' });
   });
 
   // Modo local
   router.post('/local', async (req, res, next) => {
     try {
-      if (process.env.NODE_ENV === 'production' && process.env.ENABLE_LOCAL_LOGIN !== 'true') {
+      if (!env.localLoginEnabled) {
         return res.status(404).json({ error: 'Rota não encontrada' });
       }
       const user = await getOrCreateDemoUser();

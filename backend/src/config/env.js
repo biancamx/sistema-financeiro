@@ -10,6 +10,11 @@ function required(name, fallback, mandatory = isProd) {
   return fallback;
 }
 
+const aiKeySecret = required('AI_KEY_SECRET', '0'.repeat(64), nodeEnv !== 'test');
+if (!/^[\da-f]{64}$/i.test(aiKeySecret)) {
+  throw new Error('AI_KEY_SECRET deve conter exatamente 64 caracteres hexadecimais.');
+}
+
 const bool = (v, def) => (v === undefined || v === '' ? def : ['1', 'true', 'yes'].includes(String(v).toLowerCase()));
 
 export const env = {
@@ -19,6 +24,7 @@ export const env = {
   port: Number(process.env.PORT || 4000),
   frontendUrls: (process.env.FRONTEND_URL || 'http://localhost:5173,http://127.0.0.1:5173').split(',').map((s) => s.trim()),
   jwtSecret: required('JWT_SECRET', '', nodeEnv !== 'test'),
+  aiKeySecret,
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || '7d',
   adminEmail: (process.env.ADMIN_EMAIL || '').trim().toLowerCase(),
   allowedDomains: (process.env.ALLOWED_DOMAINS || '')

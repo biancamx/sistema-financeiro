@@ -224,8 +224,10 @@ export function getInvoiceDueDate(card, year, month) {
 }
 
 export function createCardBilling() {
-  function ownedCard(userId, cardId) {
-    return Card.findOne({ _id: cardId, userId }).lean().then((card) => {
+  function ownedCard(userId, cardId, session = null) {
+    let query = Card.findOne({ _id: cardId, userId });
+    if (session) query = query.session(session);
+    return query.lean().then((card) => {
       if (!card) throw notFound('Cartão não encontrado');
       return {
         id: String(card._id), name: card.name, limit: card.limit,
@@ -493,7 +495,7 @@ export function createCardBilling() {
   }
 
   async function rescheduleFutureUnpaid(userId, cardId, today = new Date(), session = null) {
-    const card = await ownedCard(userId, cardId);
+    const card = await ownedCard(userId, cardId, session);
     const purchases = await Purchase.find({ userId, cardId }).session(session).lean();
     const currentIndex = monthIndex(today.getFullYear(), today.getMonth() + 1);
     for (const purchase of purchases) {

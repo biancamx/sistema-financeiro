@@ -20,7 +20,7 @@ function withImportErrorHandling(handler) {
       const message = error instanceof Error ? error.message : 'Erro ao processar a importação.';
       console.error('[IMPORT ROUTE ERROR]', message);
       if (!res.headersSent) {
-        res.status(error?.statusCode ?? 500).json({ error: message, ok: false });
+        res.status(error?.statusCode ?? error?.status ?? 500).json({ error: message, ok: false });
       }
     }
   };

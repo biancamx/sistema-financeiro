@@ -1,166 +1,137 @@
-import { test } from 'node:test';
+import { test, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import * as XLSX from 'xlsx';
-import { openDb } from '../src/db/index.js';
+import { clearMongoMemory, createTestAccount, startMongoMemory } from './helpers/mongo.js';
+import { Person } from '../src/models/Person.js';
+import { Card } from '../src/models/Card.js';
+import { Purchase } from '../src/models/Purchase.js';
+import { Installment } from '../src/models/Installment.js';
 import { processSpreadsheetImport } from '../src/modules/import/import.service.js';
 
-test('importação usa as colunas do schema SQLite atual', async () => {
-  const db = openDb(':memory:');
-  try {
-    const userId = db.prepare('INSERT INTO users (email, name) VALUES (?, ?)').run('import@teste.com', 'Importação').lastInsertRowid;
-    const worksheet = XLSX.utils.json_to_sheet([{
-      Descrição: 'Compra teste',
-      Pessoa: 'Pessoa teste',
-      Cartão: 'Cartão teste',
-      'Valor da Parcela': 42.5,
-      'Qtd Parcelas': 1,
-      Mês: 'Janeiro',
-      Ano: 2026,
-    }]);
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, 'Banco De Dados');
-    const fileBuffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+process.env.NODE_ENV = 'test';
+process.env.JWT_SECRET = 'test-secret-for-import';
 
-    const result = await processSpreadsheetImport(db, userId, fileBuffer);
+let stopMongo;
 
-    assert.equal(result.peopleCreated, 1);
-    assert.equal(result.cardsCreated, 1);
-    assert.equal(result.purchasesCreated, 1);
-    assert.equal(result.installmentsCreated, 1);
-    assert.deepEqual(
-      { ...db.prepare('SELECT total, installments_count FROM purchases').get() },
-      { total: 42.5, installments_count: 1 },
-    );
-    assert.deepEqual(
-      { ...db.prepare('SELECT user_id, number, month, year, amount FROM installments').get() },
-      { user_id: userId, number: 1, month: 1, year: 2026, amount: 42.5 },
-    );
-  } finally {
-    db.close();
-  }
+before(async () => {
+  stopMongo = await startMongoMemory();
 });
 
-test('substituição remove compras antigas e importa a planilha na mesma transação', async () => {
-  const db = openDb(':memory:');
-  try {
-    const userId = db.prepare('INSERT INTO users (email, name) VALUES (?, ?)').run('replace@teste.com', 'Substituição').lastInsertRowid;
-    const personId = db.prepare('INSERT INTO people (user_id, name) VALUES (?, ?)').run(userId, 'Compra antiga').lastInsertRowid;
-    const cardId = db.prepare('INSERT INTO cards (user_id, name) VALUES (?, ?)').run(userId, 'Cartão antigo').lastInsertRowid;
-    const purchaseId = db.prepare(`
-      INSERT INTO purchases (user_id, person_id, card_id, description, total, installments_count)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(userId, personId, cardId, 'Lançamento antigo', 10, 1).lastInsertRowid;
-    db.prepare(`
-      INSERT INTO installments (user_id, purchase_id, number, year, month, amount)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(userId, purchaseId, 1, 2026, 1, 10);
+beforeEach(clearMongoMemory);
 
-    const worksheet = XLSX.utils.json_to_sheet([{
-      'Detalhe da compra': 'Compra nova',
-      Descrição: 'Categoria nova',
-      Pessoa: 'Pessoa nova',
-      Cartão: 'Cartão novo',
-      'Valor Total': 20,
-      'Qtd. Parcelas': 1,
-      'Valor da Parcela': 20,
-      Mês: 'Janeiro',
-      Ano: 2026,
-    }]);
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, 'Banco De Dados');
-    const fileBuffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
-
-    const result = await processSpreadsheetImport(db, userId, fileBuffer, { replaceExisting: true });
-
-    assert.equal(result.purchasesReplaced, 1);
-    assert.equal(db.prepare('SELECT COUNT(*) AS count FROM purchases WHERE user_id = ?').get(userId).count, 1);
-    assert.equal(db.prepare('SELECT COUNT(*) AS count FROM installments WHERE user_id = ?').get(userId).count, 1);
-    assert.equal(db.prepare('SELECT description FROM purchases WHERE user_id = ?').get(userId).description, 'Compra nova');
-  } finally {
-    db.close();
-  }
+after(async () => {
+  if (stopMongo) await stopMongo();
 });
 
-test('importa a aba Banco De Dados agrupando parcelas e preservando detalhe e categoria', async () => {
-  const db = openDb(':memory:');
-  try {
-    const userId = db.prepare('INSERT INTO users (email, name) VALUES (?, ?)').run('planilha@teste.com', 'Planilha').lastInsertRowid;
-    const rows = [];
-    for (const [person, total, amount] of [['Pessoa 01', 120, 30], ['Pessoa 02', 80, 20]]) {
-      for (let month = 1; month <= 4; month++) {
-        rows.push({
-          'Detalhe da compra': month === 1 ? 'Item de demonstração' : '',
-          Descrição: month === 1 ? 'Categoria de teste' : false,
-          Pessoa: month === 1 ? person : '',
-          'Valor Total': month === 1 ? total : '',
-          'Qtd. Parcelas': month === 1 ? 4 : '',
-          'Valor da Parcela': person === 'Pessoa 01' && month === 4 ? '' : amount,
-          Mês: month === 1
-            ? '01/2026'
-            : month === 2
-              ? 46054
-              : new Date(2026, month - 1).toLocaleString('pt-BR', { month: 'long' }),
-          Ano: 2026,
-          Cartão: month === 1 ? 'Cartão de demonstração' : '',
-          'Número correspondente ao mês': 2026 * 12 + month,
-        });
-      }
+function makeWorkbook(rows) {
+  const workbook = XLSX.utils.book_new();
+  const headers = [
+    'Detalhe da compra', 'Descrição', 'Pessoa', 'Valor Total', 'Qtd. Parcelas',
+    'Valor da Parcela', 'Mês', 'Ano', 'Cartão',
+  ];
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([headers, ...rows]), 'Banco De Dados');
+  return XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+}
+
+test('importação cria entidades e parcelas da planilha no MongoDB', async () => {
+  const account = await createTestAccount({ email: 'import@example.invalid' });
+  const fileBuffer = makeWorkbook([[
+    'Test purchase', 'Test category', 'Imported person', 42.5, 1, 42.5, 'Janeiro', 2026, 'Imported card',
+  ]]);
+
+  const result = await processSpreadsheetImport(String(account.user._id), fileBuffer);
+
+  assert.equal(result.peopleUpserted, 1);
+  assert.equal(result.cardsUpserted, 1);
+  assert.equal(result.purchasesUpserted, 1);
+  assert.equal(result.installmentsUpserted, 1);
+  const [person] = await Person.find({ userId: account.user._id, name: 'Imported person' }).lean();
+  const [card] = await Card.find({ userId: account.user._id, name: 'Imported card' }).lean();
+  const [purchase] = await Purchase.find({ userId: account.user._id }).lean();
+  const [installment] = await Installment.find({ userId: account.user._id }).lean();
+  assert.equal(purchase.totalAmount, 42.5);
+  assert.equal(purchase.totalInstallments, 1);
+  assert.equal(String(purchase.personId), String(person._id));
+  assert.equal(String(purchase.cardId), String(card._id));
+  assert.deepEqual(
+    { number: installment.number, month: installment.month, year: installment.year, amount: installment.amount },
+    { number: 1, month: 1, year: 2026, amount: 42.5 },
+  );
+});
+
+test('substituição remove compras antigas do usuário e importa a nova planilha', async () => {
+  const account = await createTestAccount({ email: 'replace@example.invalid' });
+  const oldPerson = await Person.create({ userId: account.user._id, name: 'Old purchase person' });
+  const oldCard = await Card.create({ userId: account.user._id, name: 'Old card' });
+  const oldPurchase = await Purchase.create({
+    userId: account.user._id, personId: oldPerson._id, cardId: oldCard._id,
+    description: 'Old record', totalAmount: 10, totalInstallments: 1,
+  });
+  await Installment.create({
+    userId: account.user._id, purchaseId: oldPurchase._id,
+    number: 1, year: 2026, month: 1, amount: 10,
+  });
+  const fileBuffer = makeWorkbook([[
+    'New purchase', 'New category', 'New person', 20, 1, 20, 'Janeiro', 2026, 'New card',
+  ]]);
+
+  const result = await processSpreadsheetImport(String(account.user._id), fileBuffer, { replaceExisting: true });
+
+  assert.equal(await Purchase.countDocuments({ userId: account.user._id }), 1);
+  assert.equal(await Installment.countDocuments({ userId: account.user._id }), 1);
+  assert.equal((await Purchase.findOne({ userId: account.user._id }).lean()).description, 'New purchase');
+  assert.equal(result.purchasesUpserted, 1);
+});
+
+test('importa parcelas agrupadas e preserva detalhe, categoria e valores calculados', async () => {
+  const account = await createTestAccount({ email: 'grouped-import@example.invalid' });
+  const rows = [];
+  for (const [person, total, amount] of [['Person 01', 120, 30], ['Person 02', 80, 20]]) {
+    for (let month = 1; month <= 4; month++) {
+      rows.push([
+        'Demonstration item',
+        'Test category',
+        person,
+        total,
+        4,
+        amount,
+        new Date(2026, month - 1).toLocaleString('pt-BR', { month: 'long' }),
+        2026,
+        'Demonstration card',
+      ]);
     }
-    rows.push({
-      'Detalhe da compra': '',
-      Descrição: 'Total',
-      Pessoa: '',
-      'Valor Total': '',
-      'Qtd. Parcelas': '',
-      'Valor da Parcela': '',
-      Mês: 'Total',
-      Ano: '',
-      Cartão: '',
-      'Número correspondente ao mês': '',
-    });
-    const worksheet = XLSX.utils.json_to_sheet(rows);
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, 'Banco De Dados');
-    const fileBuffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+  }
+  rows.push(['', 'Total', '', '', '', '', 'Total', '', '']);
 
-    const result = await processSpreadsheetImport(db, userId, fileBuffer);
+  const result = await processSpreadsheetImport(String(account.user._id), makeWorkbook(rows));
 
-    assert.equal(result.peopleCreated, 2);
-    assert.equal(result.cardsCreated, 1);
-    assert.equal(result.purchasesCreated, 2);
-    assert.equal(result.installmentsCreated, 8);
-    assert.equal(result.installmentAmountsCalculated, 1);
-    assert.equal(result.installmentAmountsCalculated, 1);
-
-    const purchases = db.prepare(`
-      SELECT p.description, p.total, p.installments_count, pe.name AS person, cat.name AS category
-      FROM purchases p
-      JOIN people pe ON pe.id = p.person_id
-      LEFT JOIN categories cat ON cat.id = p.category_id
-      ORDER BY pe.name
-    `).all();
-    assert.deepEqual(purchases.map((purchase) => ({ ...purchase })), [
-      { description: 'Item de demonstração', total: 120, installments_count: 4, person: 'Pessoa 01', category: 'Categoria de teste' },
-      { description: 'Item de demonstração', total: 80, installments_count: 4, person: 'Pessoa 02', category: 'Categoria de teste' },
-    ]);
-
-    const installments = db.prepare(`
-      SELECT i.number, i.month, i.year, i.amount, pe.name AS person
-      FROM installments i
-      JOIN purchases p ON p.id = i.purchase_id
-      JOIN people pe ON pe.id = p.person_id
-      ORDER BY pe.name, i.number
-    `).all();
-    assert.equal(installments.length, 8);
-    for (const person of ['Pessoa 01', 'Pessoa 02']) {
-      const personInstallments = installments.filter((installment) => installment.person === person);
-      assert.deepEqual(personInstallments.map((installment) => installment.number), Array.from({ length: 4 }, (_, i) => i + 1));
-      assert.deepEqual(personInstallments.map((installment) => installment.month), Array.from({ length: 4 }, (_, i) => i + 1));
-      assert.ok(personInstallments.every((installment) => installment.year === 2026));
-    }
-    assert.ok(installments.filter((installment) => installment.person === 'Pessoa 01').every((installment) => installment.amount === 30));
-    assert.ok(installments.filter((installment) => installment.person === 'Pessoa 02').every((installment) => installment.amount === 20));
-  } finally {
-    db.close();
+  assert.equal(result.peopleUpserted, 2);
+  assert.equal(result.cardsUpserted, 1);
+  assert.equal(result.purchasesUpserted, 2);
+  assert.equal(result.installmentsUpserted, 8);
+  const purchases = await Purchase.find({ userId: account.user._id })
+    .populate('personId', 'name')
+    .populate('categoryId', 'name')
+    .sort({ 'personId.name': 1 })
+    .lean();
+  assert.deepEqual(purchases.map((purchase) => ({
+    description: purchase.description,
+    totalAmount: purchase.totalAmount,
+    totalInstallments: purchase.totalInstallments,
+    person: purchase.personId.name,
+    category: purchase.categoryId?.name,
+  })), [
+    { description: 'Demonstration item', totalAmount: 120, totalInstallments: 4, person: 'Person 01', category: 'Test category' },
+    { description: 'Demonstration item', totalAmount: 80, totalInstallments: 4, person: 'Person 02', category: 'Test category' },
+  ]);
+  const installments = await Installment.find({ userId: account.user._id }).sort({ month: 1 }).lean();
+  assert.equal(installments.length, 8);
+  for (const person of ['Person 01', 'Person 02']) {
+    const purchase = purchases.find((item) => item.personId.name === person);
+    const rowsForPerson = installments.filter((item) => String(item.purchaseId) === String(purchase._id));
+    assert.deepEqual(rowsForPerson.map((item) => item.number), [1, 2, 3, 4]);
+    assert.deepEqual(rowsForPerson.map((item) => item.month), [1, 2, 3, 4]);
+    assert.ok(rowsForPerson.every((item) => item.year === 2026));
+    assert.ok(rowsForPerson.every((item) => item.amount === (person === 'Person 01' ? 30 : 20)));
   }
 });

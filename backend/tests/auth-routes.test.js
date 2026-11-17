@@ -1,14 +1,19 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import jwt from 'jsonwebtoken';
 
 process.env.NODE_ENV = 'development';
 process.env.JWT_SECRET = 'test-secret-for-auth-routes';
+process.env.AI_KEY_SECRET = 'a'.repeat(64);
+process.env.JWT_EXPIRES_IN = '2h';
 process.env.ALLOWED_DOMAINS = '';
+process.env.ENABLE_LOCAL_LOGIN = 'false';
 process.env.AUTH_RATE_LIMIT_MAX = '1000';
 
-const [{ createApp }, { User }] = await Promise.all([
+const [{ createApp }, { User }, { ensureGoogleEmailVerified }] = await Promise.all([
   import('../src/app.js'),
   import('../src/models/User.js'),
+  import('../src/modules/auth/auth.service.js'),
 ]);
 
 let server;
@@ -54,7 +59,14 @@ test('email registration creates a session that can log in and access authentica
   assert.equal(registration.status, 201);
   const registered = await registration.json();
   assert.equal(registered.data.user.email, 'login-test@example.com');
-  assert.ok(registration.headers.get('set-cookie')?.includes('caderno_token='));
+  const sessionCookie = registration.headers.get('set-cookie') || '';
+  assert.ok(sessionCookie.includes('caderno_token='));
+  assert.match(sessionCookie, /Path=\//);
+  const token = sessionCookie.match(/caderno_token=([^;]+)/)?.[1];
+  const claims = jwt.decode(token);
+  assert.equal(claims.exp - claims.iat, 2 * 60 * 60);
+  const cookieMaxAge = Number(sessionCookie.match(/Max-Age=(\d+)/i)?.[1]);
+  assert.ok(cookieMaxAge >= 7190 && cookieMaxAge <= 7200);
   assert.equal('passwordHash' in registered.data.user, false);
 
   const login = await fetch(`${baseUrl}/auth/login`, {
@@ -68,6 +80,29 @@ test('email registration creates a session that can log in and access authentica
   const currentUser = await fetch(`${baseUrl}/auth/me`, { headers: { Cookie: cookie } });
   assert.equal(currentUser.status, 200);
   assert.equal((await currentUser.json()).data.user.email, 'login-test@example.com');
+});
+
+test('local login config reports the same disabled policy enforced by its route', async () => {
+  const config = await fetch(`${baseUrl}/auth/config`);
+  assert.equal((await config.json()).local.enabled, false);
+
+  const localLogin = await fetch(`${baseUrl}/auth/local`, { method: 'POST' });
+  assert.equal(localLogin.status, 404);
+});
+
+test('Google login requires an explicitly verified email claim', () => {
+  assert.throws(() => ensureGoogleEmailVerified({ email_verified: false }), { status: 401 });
+  assert.throws(() => ensureGoogleEmailVerified({ email_verified: 'true' }), { status: 401 });
+  assert.doesNotThrow(() => ensureGoogleEmailVerified({ email_verified: true }));
+});
+
+test('logout clears current and legacy session cookies', async () => {
+  const logout = await fetch(`${baseUrl}/auth/logout`, { method: 'POST' });
+  assert.equal(logout.status, 200);
+  const clearedCookies = logout.headers.get('set-cookie') || '';
+  assert.match(clearedCookies, /caderno_token=;/);
+  assert.match(clearedCookies, /fin_token=;/);
+  assert.match(clearedCookies, /Path=\/api\/auth/);
 });
 
 test('email login rejects invalid credentials and registration validates input', async () => {

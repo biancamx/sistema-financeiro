@@ -367,7 +367,7 @@ export function createCashLedgerService() {
       if (!person) throw badRequest('Pessoa inválida');
       const entryIds = (await CashEntry.find({ userId, personId, kind: { $ne: 'expense' } }).select('_id').lean()).map((item) => item._id);
       const installments = await CashInstallment.find({ userId, entryId: { $in: entryIds } }).lean();
-      const totals = await receiptTotals(installments.map((item) => item._id));
+      const totals = await receiptTotals(userId, installments.map((item) => item._id));
       const today = new Date().toISOString().slice(0, 10);
       const rows = await Promise.all(installments.map(async (item) => {
         const entry = await CashEntry.findOne({ _id: item.entryId, userId }).lean();

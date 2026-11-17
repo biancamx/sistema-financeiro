@@ -34,6 +34,12 @@ export function budgetsRoutes() {
   r.put('/rows/:rowId/cells/:month', validate({ params: z.object({ rowId: id, month }), body: z.object({ value: money }) }), asyncHandler(async (req, res) =>
     res.json({ data: await svc.setCell(req.user._id, req.params.rowId, req.params.month, req.body.value) }),
   ));
+  r.patch('/rows/:rowId/cells/:month/paid', validate({
+    params: z.object({ rowId: id, month }),
+    body: z.object({ paid: z.boolean() }),
+  }), asyncHandler(async (req, res) =>
+    res.json({ data: await svc.setCellPaid(req.user._id, req.params.rowId, req.params.month, req.body.paid) }),
+  ));
   r.post('/rows/:rowId/fill', validate({ params: z.object({ rowId: id }), body: z.object({ fromMonth: month, value: money }) }), asyncHandler(async (req, res) =>
     res.json({ data: await svc.fillRow(req.user._id, req.params.rowId, req.body.fromMonth, req.body.value) }),
   ));

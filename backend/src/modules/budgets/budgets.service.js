@@ -53,11 +53,12 @@ export function createBudgetsService() {
       const rows = sheet.rows.slice().sort((a, b) => a.position - b.position || String(a._id).localeCompare(String(b._id)));
       const byRow = new Map(rows.map((row) => [strId(row._id), {
         id: strId(row._id), section: row.section, label: row.label, position: row.position,
-        receivableFrom: row.receivableFrom, obs: row.obs, values: zeros(), enteredValues: [],
+        receivableFrom: row.receivableFrom, obs: row.obs, values: zeros(), paidMonths: Array(12).fill(false), enteredValues: [],
       }]));
       for (const row of rows) for (const cell of row.cells) {
         const item = byRow.get(strId(row._id));
         item.values[cell.month - 1] = cell.value;
+        item.paidMonths[cell.month - 1] = Boolean(cell.paid);
         item.enteredValues.push(cell.value);
       }
 
@@ -83,7 +84,7 @@ export function createBudgetsService() {
           rows: list.map((row) => {
             const { enteredValues, ...item } = row;
             const extremes = section.computed || enteredValues.length === 0 ? item.values : enteredValues;
-            return { ...item, total: sum12(item.values), min: Math.min(...extremes), max: Math.max(...extremes) };
+            return { ...item, paidMonths: item.paidMonths ?? Array(12).fill(false), total: sum12(item.values), min: Math.min(...extremes), max: Math.max(...extremes) };
           }),
           totals: totals.map(round2),
         };
@@ -174,16 +175,32 @@ export function createBudgetsService() {
     async setCell(userId, rowId, month, value) {
       const { sheet, row } = await getRow(userId, rowId);
       const cell = row.cells.find((item) => item.month === month);
-      if (cell) cell.value = value;
+      if (cell) {
+        if (cell.value !== value) cell.paid = false;
+        cell.value = value;
+      }
       else row.cells.push({ month, value });
       await sheet.save();
       return { rowId: strId(rowId), month, value };
+    },
+    async setCellPaid(userId, rowId, month, paid) {
+      const { sheet, row } = await getRow(userId, rowId);
+      const section = SECTIONS.find((item) => item.key === row.section);
+      if (section?.kind !== 'expense' || section.computed) throw badRequest('Só é possível marcar despesas da planilha como pagas.');
+      const cell = row.cells.find((item) => item.month === month);
+      if (!cell || cell.value <= 0) throw badRequest('Informe um valor para a despesa antes de marcar como paga.');
+      cell.paid = paid;
+      await sheet.save();
+      return { rowId: strId(rowId), month, paid: cell.paid };
     },
     async fillRow(userId, rowId, fromMonth, value) {
       const { sheet, row } = await getRow(userId, rowId);
       for (let month = fromMonth; month <= 12; month++) {
         const cell = row.cells.find((item) => item.month === month);
-        if (cell) cell.value = value;
+        if (cell) {
+          if (cell.value !== value) cell.paid = false;
+          cell.value = value;
+        }
         else row.cells.push({ month, value });
       }
       await sheet.save();

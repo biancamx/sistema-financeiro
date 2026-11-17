@@ -40,9 +40,39 @@ export default function BudgetPage() {
 
   // Atualiza a célula na tela na hora; o resumo é recarregado em seguida (o servidor é a fonte dos totais).
   const saveCell = async (row, month, value) => {
-    sheet.setData((s) => ({ ...s, sections: s.sections.map((sec) => ({ ...sec, rows: sec.rows.map((r) => (r.id === row.id ? { ...r, values: r.values.map((v, i) => (i === month - 1 ? value : v)) } : r)) })) }));
+    sheet.setData((s) => ({
+      ...s,
+      sections: s.sections.map((sec) => ({
+        ...sec,
+        rows: sec.rows.map((r) => (r.id === row.id ? {
+          ...r,
+          values: r.values.map((v, i) => (i === month - 1 ? value : v)),
+          paidMonths: r.paidMonths.map((paid, i) => (i === month - 1 && r.values[i] !== value ? false : paid)),
+        } : r)),
+      })),
+    }));
     setLastEdit((l) => ({ ...l, [row.id]: { month, value } }));
     try { await budgetApi.setCell(row.id, month, value); sheet.reload(); } catch (e) { toast.error(e); sheet.reload(); }
+  };
+  const toggleCellPaid = async (row, month) => {
+    const paid = !row.paidMonths[month - 1];
+    sheet.setData((current) => ({
+      ...current,
+      sections: current.sections.map((sec) => ({
+        ...sec,
+        rows: sec.rows.map((item) => (item.id === row.id ? {
+          ...item,
+          paidMonths: item.paidMonths.map((value, index) => (index === month - 1 ? paid : value)),
+        } : item)),
+      })),
+    }));
+    try {
+      await budgetApi.setCellPaid(row.id, month, paid);
+      notifyFinanceChanged();
+    } catch (error) {
+      toast.error(error);
+      sheet.reload();
+    }
   };
   const fill = async (row) => {
     const le = lastEdit[row.id];
@@ -107,7 +137,7 @@ export default function BudgetPage() {
     <div className="budget-page w-full min-w-0">
       <PageHeader
         title="Planilha mensal"
-        subtitle="Receitas, descontos e despesas mês a mês. As linhas de cartão vêm sozinhas dos lançamentos."
+        subtitle="Receitas, descontos e despesas mês a mês. Marque cada despesa paga no mês correspondente."
         actions={<>
           <Select value={personId || ''} onChange={(v) => go(v, year)} options={people.data.map((p) => ({ value: p.id, label: p.name }))} aria-label="Pessoa" />
           <Select value={year} onChange={(v) => go(personId, v)} options={yearsAround(thisYear).map((y) => ({ value: y, label: y }))} aria-label="Ano" />
@@ -243,13 +273,13 @@ export default function BudgetPage() {
             <div className={`budget-month-table${showFullYearMobile ? ' is-hidden' : ''}`}>
               <table className="sheet budget-month-view">
                 <thead>
-                  <tr><th>Categoria</th><th className="num">{MONTHS_SHORT[selectedMonth - 1]}</th></tr>
+                  <tr><th>Categoria</th><th className="num">{MONTHS_SHORT[selectedMonth - 1]}</th><th>Pago</th></tr>
                 </thead>
                 {d.sections.map((sec) => (
                   <tbody key={sec.key}>
-                    <tr className="sec-head"><th colSpan={2}>{sec.label}{sec.computed && <span className="pill">automático</span>}</th></tr>
+                    <tr className="sec-head"><th colSpan={3}>{sec.label}{sec.computed && <span className="pill">automático</span>}</th></tr>
                     {sec.rows.map((r) => (
-                      <tr key={r.id}>
+                      <tr key={r.id} className={r.paidMonths[selectedMonth - 1] ? 'row-dim' : ''}>
                         <td className="budget-month-label">
                           {sec.computed
                             ? r.label
@@ -266,6 +296,17 @@ export default function BudgetPage() {
                             ? (r.values[selectedMonth - 1] ? moneyPlain(r.values[selectedMonth - 1]) : '')
                             : <MoneyCell value={r.values[selectedMonth - 1]} onSave={(value) => saveCell(r, selectedMonth, value)} />}
                         </td>
+                        <td className="budget-paid-cell">
+                          {sec.kind === 'expense' && !sec.computed && r.values[selectedMonth - 1] > 0 && (
+                            <input
+                              className="budget-paid-checkbox"
+                              type="checkbox"
+                              checked={r.paidMonths[selectedMonth - 1]}
+                              onChange={() => toggleCellPaid(r, selectedMonth)}
+                              aria-label={`Marcar ${r.label} de ${MONTHS[selectedMonth - 1]} como paga`}
+                            />
+                          )}
+                        </td>
                       </tr>
                     ))}
                     <tr className="sec-total">
@@ -278,17 +319,19 @@ export default function BudgetPage() {
                         {sec.computed && 'Total'}
                       </td>
                       <td className="num total">{moneyPlain(sec.totals[selectedMonth - 1])}</td>
+                      <td />
                     </tr>
                   </tbody>
                 ))}
                 <tbody className="summary">
-                  <tr className="sec-head"><th colSpan={2}>Resumo geral</th></tr>
+                  <tr className="sec-head"><th colSpan={3}>Resumo geral</th></tr>
                   {d.summary.lines.map((line) => (
                     <tr key={line.key} className={['spent', 'balance'].includes(line.key) ? `strong line-${line.key}` : ''}>
                       <td>{line.key === 'balance' ? 'Saldo final' : line.key === 'spent' ? 'Gasto final' : line.label}</td>
                       <td className={`num ${line.key === 'balance' && line.values[selectedMonth - 1] < 0 ? 'neg' : ''} ${line.key === 'balance' && line.values[selectedMonth - 1] > 0 ? 'pos' : ''}`}>
                         {moneyPlain(line.values[selectedMonth - 1])}
                       </td>
+                      <td />
                     </tr>
                   ))}
                 </tbody>
@@ -318,7 +361,21 @@ export default function BudgetPage() {
                           {sec.computed ? r.label : <input className="cell cell-label" defaultValue={r.label} title={r.label} onBlur={(e) => rename(r, e.target.value)} aria-label="Nome da linha" />}
                         </td>
                         {r.values.map((v, i) => (
-                          <td key={i} className="num">{sec.computed ? (v ? moneyPlain(v) : '') : <MoneyCell value={v} onSave={(n) => saveCell(r, i + 1, n)} />}</td>
+                          <td key={i} className="num">
+                            <div className="budget-sheet-cell">
+                              {sec.computed ? (v ? moneyPlain(v) : '') : <MoneyCell value={v} onSave={(n) => saveCell(r, i + 1, n)} />}
+                              {sec.kind === 'expense' && !sec.computed && v > 0 && (
+                                <input
+                                  className="budget-paid-checkbox"
+                                  type="checkbox"
+                                  checked={r.paidMonths[i]}
+                                  onChange={() => toggleCellPaid(r, i + 1)}
+                                  aria-label={`Marcar ${r.label} de ${MONTHS[i]} como paga`}
+                                  title={`Marcar ${r.label} de ${MONTHS[i]} como paga`}
+                                />
+                              )}
+                            </div>
+                          </td>
                         ))}
                         <td className="num total">{moneyPlain(r.total)}</td>
                         <td className="num muted">{moneyPlain(r.min)}</td>

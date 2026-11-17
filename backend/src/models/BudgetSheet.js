@@ -4,6 +4,7 @@ const budgetCellSchema = new mongoose.Schema(
   {
     month: { type: Number, required: true, min: 1, max: 12 },
     value: { type: Number, required: true, default: 0 },
+    paid: { type: Boolean, default: false },
   },
   { _id: false }
 );

@@ -115,6 +115,7 @@ export const budgetApi = {
   updateRow: (rowId, b) => patch(`/budgets/rows/${rowId}`, b),
   removeRow: (rowId) => del(`/budgets/rows/${rowId}`),
   setCell: (rowId, month, value) => put(`/budgets/rows/${rowId}/cells/${month}`, { value }),
+  setCellPaid: (rowId, month, paid) => patch(`/budgets/rows/${rowId}/cells/${month}/paid`, { paid }),
   fill: (rowId, fromMonth, value) => post(`/budgets/rows/${rowId}/fill`, { fromMonth, value }),
 };
 

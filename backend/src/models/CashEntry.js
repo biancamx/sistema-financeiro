@@ -21,6 +21,7 @@ const cashEntrySchema = new mongoose.Schema(
     expectedReturnDate: { type: String, default: null },
     refundStatus: { type: String, enum: ['requested', 'in_review', 'received', 'denied', null], default: null },
     vehicleId: { type: mongoose.Schema.Types.ObjectId, ref: 'Vehicle', default: null },
+    vehicleExpenseId: { type: mongoose.Schema.Types.ObjectId, ref: 'VehicleExpense', default: null },
     notes: { type: String, default: '' },
   },
   { timestamps: true }
@@ -29,5 +30,9 @@ const cashEntrySchema = new mongoose.Schema(
 cashEntrySchema.index({ userId: 1, entryDate: 1 });
 cashEntrySchema.index({ userId: 1, kind: 1, entryDate: 1 });
 cashEntrySchema.index({ userId: 1, personId: 1 });
+cashEntrySchema.index(
+  { userId: 1, vehicleExpenseId: 1 },
+  { unique: true, partialFilterExpression: { vehicleExpenseId: { $type: 'objectId' } } }
+);
 
 export const CashEntry = mongoose.model('CashEntry', cashEntrySchema);

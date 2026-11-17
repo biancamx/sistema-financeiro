@@ -5,6 +5,7 @@ import { round2 } from '../../lib/months.js';
 import { generateCardInstallments, splitWeighted } from '../../lib/cardBilling.js';
 import { Card } from '../../models/Card.js';
 import { Category } from '../../models/Category.js';
+import { CashEntry } from '../../models/CashEntry.js';
 import { Installment } from '../../models/Installment.js';
 import { Person } from '../../models/Person.js';
 import { Purchase } from '../../models/Purchase.js';
@@ -98,6 +99,40 @@ export function createVehiclesService() {
     if (existing) return existing._id;
     const [created] = await Category.create([{ userId, name: categoryNames(category, kind)[0] }], { session });
     return created._id;
+  };
+  const syncCashEntry = async (userId, expense, vehicle, session) => {
+    const filter = { userId, vehicleExpenseId: expense._id };
+    if (expense.paymentMethod !== 'cash') {
+      await CashEntry.deleteMany(filter, { session });
+      return;
+    }
+    if (!vehicle) throw notFound('Veículo associado ao gasto não foi encontrado.');
+    const categoryId = await linkedCategory(userId, expense.category, vehicle.kind, session);
+    const label = EXPENSE_CATEGORIES.find((item) => item.key === expense.category)?.label ?? expense.category;
+    await CashEntry.updateOne(filter, {
+      $set: {
+        kind: 'expense',
+        description: expense.description?.trim() || label,
+        totalCents: Math.round(expense.amount * 100),
+        categoryId,
+        personId: expense.payerId,
+        counterparty: null,
+        entryDate: expense.expenseDate,
+        paymentMethod: 'cash',
+        downPaymentCents: 0,
+        installmentCount: 1,
+        firstDueDate: null,
+        frequency: 'monthly',
+        loanTerm: null,
+        interestRateBps: 0,
+        protocol: null,
+        expectedReturnDate: null,
+        refundStatus: null,
+        vehicleId: expense.vehicleId,
+        notes: '',
+      },
+      $setOnInsert: { userId, vehicleExpenseId: expense._id },
+    }, { upsert: true, ...(session && { session }) });
   };
   const createLinkedPurchases = async (userId, expense, shares, vehicle, session, paidAmounts = new Map()) => {
     const card = await Card.findOne({ _id: expense.cardId, userId }).session(session).lean();
@@ -212,6 +247,27 @@ export function createVehiclesService() {
 
   return {
     categories: () => ({ groups: EXPENSE_GROUPS, categories: EXPENSE_CATEGORIES }),
+    async syncCashEntries(userId) {
+      const expenses = await VehicleExpense.find({ userId, paymentMethod: 'cash' }).lean();
+      if (!expenses.length) return;
+      const expenseIds = expenses.map((item) => item._id);
+      const linked = await CashEntry.find({ userId, vehicleExpenseId: { $in: expenseIds } }).select('vehicleExpenseId').lean();
+      const linkedIds = new Set(linked.map((item) => String(item.vehicleExpenseId)));
+      const vehicleIds = [...new Set(expenses.map((item) => String(item.vehicleId)))];
+      const vehicles = await Vehicle.find({ userId, _id: { $in: vehicleIds } }).select('model kind').lean();
+      const vehiclesById = new Map(vehicles.map((item) => [String(item._id), item]));
+      for (const expense of expenses) {
+        if (linkedIds.has(String(expense._id))) continue;
+        const vehicle = vehiclesById.get(String(expense.vehicleId));
+        if (!vehicle) throw notFound('Veículo associado a um gasto em dinheiro não foi encontrado.');
+        try {
+          await syncCashEntry(userId, expense, vehicle);
+        } catch (error) {
+          if (error?.code !== 11000) throw error;
+          if (!await CashEntry.exists({ userId, vehicleExpenseId: expense._id })) throw error;
+        }
+      }
+    },
     async listVehicles(userId) {
       const vehicles = await Vehicle.find({ userId }).populate('ownerId', 'name avatar').sort({ status: -1, model: 1 }).lean();
       return Promise.all(vehicles.map((vehicle) => getVehicle(userId, vehicle._id)));
@@ -321,6 +377,7 @@ export function createVehiclesService() {
           const purchases = await Purchase.find({ userId, vehicleExpenseId: { $in: expenseIds } }).select('_id').session(session);
           await Installment.deleteMany({ userId, purchaseId: { $in: purchases.map((item) => item._id) } }, { session });
           await Purchase.deleteMany({ userId, vehicleExpenseId: { $in: expenseIds } }, { session });
+          await CashEntry.deleteMany({ userId, vehicleExpenseId: { $in: expenseIds } }, { session });
           await VehicleExpense.deleteMany({ userId, vehicleId: id }, { session });
           await VehicleDocument.deleteMany({ userId, vehicleId: id }, { session });
           await VehicleReminder.deleteMany({ userId, vehicleId: id }, { session });
@@ -353,7 +410,14 @@ export function createVehiclesService() {
         await session.withTransaction(async () => {
           if (data.requestId) {
             const prior = await VehicleExpense.findOne({ userId, requestId: data.requestId }).session(session);
-            if (prior) { id = prior._id; return; }
+            if (prior) {
+              id = prior._id;
+              if (prior.paymentMethod === 'cash') {
+                const vehicle = await Vehicle.findOne({ _id: prior.vehicleId, userId }).session(session).lean();
+                await syncCashEntry(userId, prior, vehicle, session);
+              }
+              return;
+            }
           }
           const [expense] = await VehicleExpense.create([{
             userId, vehicleId: data.vehicleId, expenseDate: data.date, category: data.category,
@@ -365,8 +429,10 @@ export function createVehiclesService() {
           id = expense._id;
           await advanceVehicleMileage(userId, data.vehicleId, data.km ?? null, expense._id, session);
           if (data.reminderId) await completeReminderFromExpense(userId, data.reminderId, data, session);
-          if (data.paymentMethod === 'card') {
-            const vehicle = await Vehicle.findOne({ _id: data.vehicleId, userId }).session(session).lean();
+          const vehicle = await Vehicle.findOne({ _id: data.vehicleId, userId }).session(session).lean();
+          if (data.paymentMethod === 'cash') {
+            await syncCashEntry(userId, expense, vehicle, session);
+          } else {
             await createLinkedPurchases(userId, { ...data, amount, _id: expense._id }, shares, vehicle, session);
           }
         });
@@ -392,6 +458,7 @@ export function createVehiclesService() {
           await expense.save({ session });
           await advanceVehicleMileage(userId, data.vehicleId, data.km ?? null, expense._id, session);
           const vehicle = await Vehicle.findOne({ _id: data.vehicleId, userId }).session(session).lean();
+          await syncCashEntry(userId, { ...data, amount, _id: expense._id, expenseDate: data.date, payerId: data.payerId }, vehicle, session);
           await syncLinkedPurchases(userId, { ...data, amount, _id: expense._id }, shares, vehicle, session);
         });
       } finally { await session.endSession(); }
@@ -407,6 +474,7 @@ export function createVehiclesService() {
           const purchases = await Purchase.find({ userId, vehicleExpenseId: expense._id }).select('_id').session(session);
           await Installment.deleteMany({ userId, purchaseId: { $in: purchases.map((item) => item._id) } }, { session });
           await Purchase.deleteMany({ userId, vehicleExpenseId: expense._id }, { session });
+          await CashEntry.deleteMany({ userId, vehicleExpenseId: expense._id }, { session });
           await expense.deleteOne({ session });
         });
       } finally { await session.endSession(); }

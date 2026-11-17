@@ -6,14 +6,14 @@ import { Person } from '../../models/Person.js';
 import { BudgetSheet } from '../../models/BudgetSheet.js';
 import { Purchase } from '../../models/Purchase.js';
 import { Installment } from '../../models/Installment.js';
-import { CashEntry } from '../../models/CashEntry.js';
-import { CashReceipt } from '../../models/CashReceipt.js';
+import { createCashLedgerService } from '../cashLedger/cashLedger.service.js';
 
 const zeros = () => Array(12).fill(0);
 const sum12 = (arr) => round2(arr.reduce((a, b) => a + b, 0));
 const strId = (value) => String(value);
 
 export function createBudgetsService() {
+  const cashLedger = createCashLedgerService();
   async function ensureBudgetSheet(userId, personId, year) {
     if (!await Person.exists({ _id: personId, userId })) throw badRequest('Pessoa inválida');
     let sheet = await BudgetSheet.findOne({ userId, personId, year });
@@ -35,17 +35,7 @@ export function createBudgetsService() {
     return { sheet, row };
   }
   async function cashYear(userId, year) {
-    const from = `${year}-01-01`;
-    const to = `${year}-12-31`;
-    const [expenseRows, receipts] = await Promise.all([
-      CashEntry.find({ userId, kind: 'expense', entryDate: { $gte: from, $lte: to } }).select('entryDate totalCents').lean(),
-      CashReceipt.find({ userId, receivedOn: { $gte: from, $lte: to } }).select('receivedOn amountCents').lean(),
-    ]);
-    const expenses = zeros();
-    const receiptTotals = zeros();
-    for (const item of expenseRows) expenses[Number(item.entryDate.slice(5, 7)) - 1] += item.totalCents / 100;
-    for (const item of receipts) receiptTotals[Number(item.receivedOn.slice(5, 7)) - 1] += item.amountCents / 100;
-    return { expenses: expenses.map(round2), receipts: receiptTotals.map(round2) };
+    return cashLedger.yearSummary(userId, year);
   }
   return {
     async ensureSheet(userId, personId, year) {

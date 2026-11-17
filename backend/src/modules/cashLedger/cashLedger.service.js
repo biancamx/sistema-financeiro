@@ -6,9 +6,11 @@ import { CashReceipt } from '../../models/CashReceipt.js';
 import { Category } from '../../models/Category.js';
 import { Person } from '../../models/Person.js';
 import { Vehicle } from '../../models/Vehicle.js';
+import { createVehiclesService } from '../vehicles/vehicles.service.js';
 
 const cents = (value) => Math.round(Number(value) * 100);
 const money = (value) => value / 100;
+const vehicleCashSyncs = new Map();
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const validDate = (value, label) => {
   if (value == null || value === '') return null;
@@ -52,6 +54,18 @@ export function generateCashSchedule({ totalCents, count, firstDueDate, frequenc
 }
 
 export function createCashLedgerService() {
+  const vehiclesService = createVehiclesService();
+  const ensureVehicleCashEntries = async (userId) => {
+    const key = String(userId);
+    if (vehicleCashSyncs.has(key)) return vehicleCashSyncs.get(key);
+    const sync = vehiclesService.syncCashEntries(userId);
+    vehicleCashSyncs.set(key, sync);
+    try {
+      await sync;
+    } finally {
+      if (vehicleCashSyncs.get(key) === sync) vehicleCashSyncs.delete(key);
+    }
+  };
   const assertReferences = async (userId, data) => {
     if (data.personId && !await Person.exists({ _id: data.personId, userId })) throw badRequest('Pessoa inválida');
     if (data.categoryId && !await Category.exists({ _id: data.categoryId, userId })) throw badRequest('Categoria inválida');
@@ -160,7 +174,9 @@ export function createCashLedgerService() {
       personId: entry.personId ? String(entry.personId._id ?? entry.personId) : null,
       person: entry.personId?.name ?? null,
       vehicleId: entry.vehicleId ? String(entry.vehicleId._id ?? entry.vehicleId) : null,
-      vehicleName: entry.vehicleId?.model ?? null, notes: entry.notes,
+      vehicleName: entry.vehicleId?.model ?? null,
+      vehicleExpenseId: entry.vehicleExpenseId ? String(entry.vehicleExpenseId) : null,
+      notes: entry.notes,
       late: status === 'overdue', status,
     };
   }
@@ -211,6 +227,7 @@ export function createCashLedgerService() {
   return {
     generateCashSchedule,
     async list(userId, query = {}) {
+      await ensureVehicleCashEntries(userId);
       const entries = await CashEntry.find({ userId }).populate('categoryId', 'name').populate('personId', 'name').populate('vehicleId', 'model').sort({ entryDate: 1 }).lean();
       const installments = await CashInstallment.find({ userId }).sort({ dueDate: 1, number: 1 }).lean();
       const receiptsMap = await receiptTotals(userId, installments.map((item) => item._id));
@@ -245,6 +262,7 @@ export function createCashLedgerService() {
       return { data };
     },
     async summary(userId, month, year) {
+      await ensureVehicleCashEntries(userId);
       const from = `${year}-${String(month).padStart(2, '0')}-01`; const to = `${year}-${String(month).padStart(2, '0')}-31`;
       const [all, installments] = await Promise.all([
         CashEntry.find({ userId }).lean(), CashInstallment.find({ userId }).lean(),
@@ -262,6 +280,7 @@ export function createCashLedgerService() {
       return { spent: money(spent), receivable: money(monthDue), received: money(received), totalReceivable: money(totalDue), overdue: money(overdue.reduce((sum, i) => sum + i.amountCents - (totals.get(String(i._id)) ?? 0), 0)), overdueCount: overdue.length };
     },
     async dashboard(userId, { period = 'month', month, year } = {}) {
+      await ensureVehicleCashEntries(userId);
       const [entries, installments, receipts] = await Promise.all([
         CashEntry.find({ userId }).populate('categoryId', 'name').populate('personId', 'name').lean(),
         CashInstallment.find({ userId }).lean(), CashReceipt.find({ userId }).lean(),
@@ -352,6 +371,7 @@ export function createCashLedgerService() {
       };
     },
     async yearSummary(userId, year) {
+      await ensureVehicleCashEntries(userId);
       const from = `${year}-01-01`; const to = `${year}-12-31`;
       const [expenseRows, receipts] = await Promise.all([
         CashEntry.find({ userId, kind: 'expense', entryDate: { $gte: from, $lte: to } }).select('entryDate totalCents').lean(),
@@ -424,6 +444,7 @@ export function createCashLedgerService() {
     },
     async update(userId, entryId, input) {
       const current = await entryOwned(userId, entryId); const data = normalize(input); await assertReferences(userId, data);
+      if (current.vehicleExpenseId) throw conflict('Este gasto é gerenciado na aba Gestão de Veículos. Edite-o por lá para manter os dados sincronizados.');
       if (current.kind !== data.kind && await CashInstallment.exists({ userId, entryId }).then(async (exists) => exists && await CashReceipt.exists({ userId, installmentId: { $in: (await CashInstallment.find({ userId, entryId }).distinct('_id')) } }))) {
         throw conflict('Não é possível trocar o tipo de um registro que já tem recebimentos');
       }
@@ -464,6 +485,7 @@ export function createCashLedgerService() {
     },
     async remove(userId, entryId, confirmed = false) {
       const entry = await entryOwned(userId, entryId);
+      if (entry.vehicleExpenseId) throw conflict('Este gasto é gerenciado na aba Gestão de Veículos. Exclua-o por lá para manter os dados sincronizados.');
       const installments = await CashInstallment.find({ userId, entryId }).select('_id').lean();
       const hasReceipts = await CashReceipt.exists({ userId, installmentId: { $in: installments.map((item) => item._id) } });
       if (hasReceipts && !confirmed) throw conflict('Este registro tem recebimentos; confirme a exclusão antes de tentar novamente');
@@ -532,6 +554,7 @@ export function createCashLedgerService() {
       return loadEntry(userId, entryId);
     },
     async exportCsv(userId) {
+      await ensureVehicleCashEntries(userId);
       const entries = await CashEntry.find({ userId }).populate('personId', 'name').sort({ entryDate: 1 }).lean();
       const installments = await CashInstallment.find({ userId }).sort({ dueDate: 1, number: 1 }).lean();
       const totals = await receiptTotals(userId, installments.map((item) => item._id));

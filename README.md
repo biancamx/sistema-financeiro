@@ -9,7 +9,7 @@ Aplicação web para organizar as finanças de pessoas e grupos. Acompanhe cart�
 - **Caixa Avulso:** despesas, recebimentos, empréstimos e reembolsos, com histórico e vencimentos.
 - **Planilha mensal e visão por pessoa:** receitas, despesas, parcelas e saldos por mês.
 - **Cartões:** limites, faturas, fechamento e vencimento.
-- **Veículos:** cadastro, fotos, gastos, consumo, manutenção, lembretes e documentos.
+- **Veículos:** cadastro, fotos, gastos, consumo, manutenção, lembretes e documentos. Gastos pagos em dinheiro também aparecem em Avulsos, vinculados ao histórico do veículo e gerenciados pela tela de Veículos.
 - **Assistente de IA:** Gemini, OpenAI ou Claude; consulta dados atuais da conta autenticada, planilhas por pessoa, compras, parcelas, categorias, contas e recebimentos, e compara períodos.
 - **Pessoas, aniversários, acessos e calculadora de rescisão.**
 

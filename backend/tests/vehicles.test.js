@@ -2,6 +2,7 @@ import { test, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { clearMongoMemory, createApiClient, createTestAccount, startMongoMemory } from './helpers/mongo.js';
 import { Person } from '../src/models/Person.js';
+import { CashEntry } from '../src/models/CashEntry.js';
 
 process.env.NODE_ENV = 'test';
 process.env.JWT_SECRET = 'test-secret-for-vehicles';
@@ -78,6 +79,48 @@ test('gasto individual: valor mínimo R$ 1, categoria válida, km e fatia do pag
   assert.equal(got.totalSpent, 251.5);
   assert.equal(got.expensesCount, 2);
   assert.equal(got.currentKm, 12000);
+});
+
+test('despesas de veículo em dinheiro aparecem em Avulsos e permanecem sincronizadas', async () => {
+  const { c, ids } = await setup('vehicle-cash-ledger@teste.com');
+  const vehicle = (await c('POST', '/vehicles', car)).json.data;
+  const body = {
+    vehicleId: vehicle.id, date: '2026-03-10', category: 'fuel', description: 'Abastecimento',
+    amount: 125.5, payerId: ids['Pessoa 01'],
+  };
+  const created = await c('POST', '/vehicles/expenses', body);
+  assert.equal(created.status, 201, created.text);
+  const expenseId = created.json.data.id;
+
+  const list = await c('GET', '/cash-ledger/entries?all=true');
+  const mirrored = list.json.data.find((item) => item.vehicleExpenseId === expenseId);
+  assert.ok(mirrored);
+  assert.equal(mirrored.kind, 'expense');
+  assert.equal(mirrored.amount, 125.5);
+  assert.equal(mirrored.paymentMethod, 'cash');
+  assert.equal(mirrored.personId, ids['Pessoa 01']);
+  assert.equal(mirrored.vehicleName, car.model);
+  assert.equal((await c('GET', '/cash-ledger/summary?month=3&year=2026')).json.data.spent, 125.5);
+  const budget = await c('GET', `/budgets?personId=${ids['Pessoa 01']}&year=2026&month=3`);
+  assert.equal(budget.json.data.monthly.cash.expense, 125.5);
+
+  const rejectedDelete = await c('DELETE', `/cash-ledger/entries/${mirrored.id}`);
+  assert.equal(rejectedDelete.status, 409);
+
+  await CashEntry.deleteOne({ userId: (await Person.findById(ids['Pessoa 01'])).userId, vehicleExpenseId: expenseId });
+  const backfilled = await c('GET', '/cash-ledger/entries?all=true');
+  assert.equal(backfilled.json.data.filter((item) => item.vehicleExpenseId === expenseId).length, 1);
+
+  const updated = await c('PUT', `/vehicles/expenses/${expenseId}`, { ...body, amount: 200, description: 'Abastecimento atualizado' });
+  assert.equal(updated.status, 200, updated.text);
+  const afterUpdate = await c('GET', '/cash-ledger/entries?all=true');
+  const updatedMirror = afterUpdate.json.data.find((item) => item.vehicleExpenseId === expenseId);
+  assert.equal(updatedMirror.amount, 200);
+  assert.match(updatedMirror.description, /Abastecimento atualizado/);
+  assert.equal(await CashEntry.countDocuments({ vehicleExpenseId: expenseId }), 1);
+
+  assert.equal((await c('DELETE', `/vehicles/expenses/${expenseId}`)).status, 204);
+  assert.equal((await c('GET', '/cash-ledger/entries?all=true')).json.data.some((item) => item.vehicleExpenseId === expenseId), false);
 });
 
 test('KM atual avança sem reduzir e litros são aceitos somente em combustível', async () => {
@@ -427,6 +470,8 @@ test('gasto no cartão cria compra vinculada, parcelas e atualiza limite sem dup
   assert.equal(purchases.json.total, 1);
   assert.equal(purchases.json.data[0].vehicleExpenseId, created.json.data.id);
   assert.equal(purchases.json.data[0].count, 3);
+  const cashEntries = await c('GET', '/cash-ledger/entries?all=true');
+  assert.equal(cashEntries.json.data.some((item) => item.vehicleExpenseId === created.json.data.id), false);
   const installments = await c('GET', '/purchases/installments?month=10&year=2026');
   assert.deepEqual(installments.json.data.map((item) => item.amount), [33.34]);
   const budget = await c(`GET`, `/budgets?personId=${ids['Pessoa 01']}&year=2026&month=10`);

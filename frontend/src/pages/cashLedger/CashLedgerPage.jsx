@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { ChevronDown, Download, Pencil, Plus, SlidersHorizontal, Trash2 } from 'lucide-react';
 import { usePeriod } from '../../context/PeriodContext.jsx';
 import { useToast } from '../../context/ToastContext.jsx';
@@ -7,6 +7,7 @@ import { useFetch } from '../../hooks/useFetch.js';
 import { useFinanceRefresh, notifyFinanceChanged } from '../../hooks/useFinanceRefresh.js';
 import { useLookups } from '../../hooks/useLookups.js';
 import { cashLedgerApi, vehiclesApi } from '../../services/api.js';
+import { PATHS } from '../../app/paths.js';
 import { Button, Card, EmptyState, ErrorState, Field, Modal, Money, PageHeader, Select, Spinner } from '../../components/ui/ui.jsx';
 import { dateTimeLabel, money, parseMoney } from '../../lib/format.js';
 import CashEntryForm, { cashEntryToForm, emptyCashEntry } from './CashEntryForm.jsx';
@@ -201,7 +202,7 @@ export default function CashLedgerPage() {
     <div className="cash-page">
       <PageHeader
         title="Avulsos"
-        subtitle={<span className="cash-page-subtitle">Entradas e saídas fora dos cartões de crédito</span>}
+        subtitle={<span className="cash-page-subtitle">Entradas e saídas fora dos cartões de crédito. Gastos em dinheiro dos veículos também aparecem aqui.</span>}
         actions={<>
           <a className="btn btn-ghost cash-export" href={cashLedgerApi.exportUrl()} aria-label="Exportar CSV">
             <Download size={16} aria-hidden="true" /><span>Exportar CSV</span>
@@ -294,22 +295,24 @@ export default function CashLedgerPage() {
                   return (
                     <tr key={`${row.id}-${row.installmentId ?? 'expense'}-${index}`} className={`cash-row cash-row-${row.status}`}>
                       <td>{selectable && <input type="checkbox" checked={selected.includes(row.installmentId)} onChange={() => toggleOne(row.installmentId)} aria-label={`Selecionar ${row.description} ${row.number}/${row.count}`} />}</td>
-                      <td>{kindLabels[row.kind]}</td>
-                      <td><button className="link-btn cash-description" onClick={() => openDetails(row.id)}>{row.description}</button>{row.category && <small className="muted cash-subline">{row.category}</small>}<small className="muted cash-subline">Registrado: {dateTimeLabel(row.createdAt)}</small></td>
+                      <td>{row.vehicleExpenseId ? 'Gasto de veículo' : kindLabels[row.kind]}</td>
+                      <td><button className="link-btn cash-description" onClick={() => openDetails(row.id)}>{row.description}</button>{row.category && <small className="muted cash-subline">{row.category}</small>}{row.vehicleName && <small className="muted cash-subline">Veículo: {row.vehicleName}</small>}<small className="muted cash-subline">Registrado: {dateTimeLabel(row.createdAt)}</small></td>
                       <td>{row.personId ? <button className="link-btn" onClick={() => { setPersonId(row.personId); setFilters((current) => ({ ...current, personId: String(row.personId) })); }}>{person}</button> : person || '—'}</td>
                       <td>{dateLabel(row.entryDate)}</td><td>{dateLabel(row.dueDate)}</td>
                       <td>{row.number ? `${row.number}/${row.count}` : '—'}</td>
                       <td className="num"><Money value={row.amount} /></td>
                       <td><span className={`cash-status cash-status-${row.status}`}>{row.kind === 'refund' ? refundLabels[row.refundStatus] || statusLabels[row.status] : statusLabels[row.status]}</span></td>
                       <td className="cash-row-actions">
-                        <div className="cash-action-group">
-                          <Button className="cash-icon-action" variant="ghost" title="Editar" aria-label={`Editar ${row.description}`} onClick={() => openEdit(row.id)}>
-                            <Pencil size={16} aria-hidden="true" />
-                          </Button>
-                          <Button className="cash-icon-action is-destructive" variant="ghost" title="Excluir" aria-label={`Excluir ${row.description}`} onClick={() => removeEntry(row)}>
-                            <Trash2 size={16} aria-hidden="true" />
-                          </Button>
-                        </div>
+                        {row.vehicleExpenseId
+                          ? <Link className="link-btn" to={`${PATHS.vehicles}/${row.vehicleId}`}>Gerenciar em Veículos</Link>
+                          : <div className="cash-action-group">
+                            <Button className="cash-icon-action" variant="ghost" title="Editar" aria-label={`Editar ${row.description}`} onClick={() => openEdit(row.id)}>
+                              <Pencil size={16} aria-hidden="true" />
+                            </Button>
+                            <Button className="cash-icon-action is-destructive" variant="ghost" title="Excluir" aria-label={`Excluir ${row.description}`} onClick={() => removeEntry(row)}>
+                              <Trash2 size={16} aria-hidden="true" />
+                            </Button>
+                          </div>}
                         {selectable && <Button size="sm" variant="primary" onClick={() => openReceive(row)}>Receber</Button>}
                       </td>
                     </tr>
@@ -328,13 +331,14 @@ export default function CashLedgerPage() {
                 <article key={`${row.id}-${row.installmentId ?? 'expense'}-${index}`} className={`mobile-record-card cash-mobile-card cash-mobile-card-${row.status}`}>
                   <div className="mobile-record-heading">
                     <div className="mobile-record-title">
-                      <span className={`cash-kind-badge cash-kind-${row.kind}`}>{kindLabels[row.kind]}</span>
+                      <span className={`cash-kind-badge cash-kind-${row.kind}`}>{row.vehicleExpenseId ? 'Gasto de veículo' : kindLabels[row.kind]}</span>
                       <span className="cash-kind-badge">{methodLabels[row.paymentMethod] || 'Forma não informada'}</span>
                     </div>
                     <span className={`cash-status cash-status-${row.status}`}>{status}</span>
                   </div>
                   <button className="link-btn cash-description" onClick={() => openDetails(row.id)}>{row.description}</button>
                   {row.category && <span className="tag tag-flush">{row.category}</span>}
+                  {row.vehicleName && <span className="muted small">Veículo: {row.vehicleName}</span>}
                   <p className="muted small">
                     Data: {dateLabel(row.entryDate)}
                     {row.dueDate && row.dueDate !== row.entryDate && <> · Vencimento: {dateLabel(row.dueDate)}</>}
@@ -352,14 +356,16 @@ export default function CashLedgerPage() {
                       </label>
                     )}
                     {selectable && <Button size="sm" variant="primary" onClick={() => openReceive(row)}>Receber</Button>}
-                    <div className="cash-action-group">
-                      <Button className="cash-icon-action" variant="ghost" title="Editar" aria-label={`Editar ${row.description}`} onClick={() => openEdit(row.id)}>
-                        <Pencil size={16} aria-hidden="true" />
-                      </Button>
-                      <Button className="cash-icon-action is-destructive" variant="ghost" title="Excluir" aria-label={`Excluir ${row.description}`} onClick={() => removeEntry(row)}>
-                        <Trash2 size={16} aria-hidden="true" />
-                      </Button>
-                    </div>
+                    {row.vehicleExpenseId
+                      ? <Link className="link-btn" to={`${PATHS.vehicles}/${row.vehicleId}`}>Gerenciar em Veículos</Link>
+                      : <div className="cash-action-group">
+                        <Button className="cash-icon-action" variant="ghost" title="Editar" aria-label={`Editar ${row.description}`} onClick={() => openEdit(row.id)}>
+                          <Pencil size={16} aria-hidden="true" />
+                        </Button>
+                        <Button className="cash-icon-action is-destructive" variant="ghost" title="Excluir" aria-label={`Excluir ${row.description}`} onClick={() => removeEntry(row)}>
+                          <Trash2 size={16} aria-hidden="true" />
+                        </Button>
+                      </div>}
                   </div>
                 </article>
               );
@@ -384,10 +390,12 @@ export default function CashLedgerPage() {
 
       {details && (
         <Modal open title={details.entry?.description ?? 'Detalhe do registro'} wide
-          footer={<><Button variant="ghost" onClick={() => setDetails(null)}>Fechar</Button><Button onClick={() => openEdit(details.entry.id)}>Editar registro</Button></>}>
+          footer={<><Button variant="ghost" onClick={() => setDetails(null)}>Fechar</Button>{details.entry?.vehicleExpenseId
+            ? <Link className="btn btn-primary" to={`${PATHS.vehicles}/${details.entry.vehicleId}`}>Gerenciar em Veículos</Link>
+            : <Button onClick={() => openEdit(details.entry.id)}>Editar registro</Button>}</>}>
           {details.entry && <>
             <div className="cash-detail-grid">
-              <div><span className="muted">Tipo</span><strong>{kindLabels[details.entry.kind]}</strong></div>
+              <div><span className="muted">Tipo</span><strong>{details.entry.vehicleExpenseId ? 'Gasto de veículo' : kindLabels[details.entry.kind]}</strong></div>
               <div><span className="muted">Valor</span><strong><Money value={details.entry.total} /></strong></div>
               {details.entry.kind !== 'expense' && <>
                 <div><span className="muted">Total previsto</span><strong><Money value={details.entry.totalScheduled} /></strong></div>
@@ -401,7 +409,8 @@ export default function CashLedgerPage() {
               {details.entry.category && <div><span className="muted">Categoria</span><strong>{details.entry.category}</strong></div>}
               {details.entry.paymentMethod && <div><span className="muted">Forma</span><strong>{methodLabels[details.entry.paymentMethod]}</strong></div>}
               {details.entry.expectedReturnDate && <div><span className="muted">Previsão de devolução</span><strong>{dateLabel(details.entry.expectedReturnDate)}</strong></div>}
-              {details.entry.vehicleName && <div><span className="muted">Veículo vendido</span><strong>{details.entry.vehicleName}</strong></div>}
+              {details.entry.vehicleName && <div><span className="muted">{details.entry.vehicleExpenseId ? 'Veículo' : 'Veículo vendido'}</span><strong>{details.entry.vehicleName}</strong></div>}
+              {details.entry.vehicleExpenseId && <p className="field-hint">Este gasto continua vinculado ao histórico do veículo. Edite ou exclua pela tela de Veículos.</p>}
               {details.entry.interestRate > 0 && <div><span className="muted">Juros simples</span><strong>{details.entry.interestRate}% ao mês</strong></div>}
               {details.entry.kind === 'refund' && <Field label="Status do reembolso">{(id) => <Select id={id} value={details.entry.refundStatus} onChange={(status) => changeRefundStatus(details.entry.id, status)} options={Object.entries(refundLabels).map(([value, label]) => ({ value, label }))} />}</Field>}
               {details.entry.protocol && <div><span className="muted">Protocolo</span><strong>{details.entry.protocol}</strong></div>}

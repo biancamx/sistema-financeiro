@@ -4,10 +4,11 @@ import { providerRequestError } from './shared.js';
 function toGeminiContents(messages, document) {
   return messages.map((message, index) => {
     const parts = [];
-    if (message.content) parts.push({ text: message.content });
-
-    if (message.role === 'assistant' && message.toolCalls?.length) {
-      parts.push(...message.toolCalls.map(({ name, arguments: args }) => ({
+    if (message.role === 'assistant' && message.providerParts) {
+      parts.push(...message.providerParts);
+    } else if (message.role === 'assistant') {
+      if (message.content) parts.push({ text: message.content });
+      parts.push(...(message.toolCalls ?? []).map(({ name, arguments: args }) => ({
         functionCall: { name, args },
       })));
     } else if (message.role === 'tool') {
@@ -18,6 +19,8 @@ function toGeminiContents(messages, document) {
         result = { result: message.content };
       }
       parts.push({ functionResponse: { name: message.name, response: { result } } });
+    } else if (message.content) {
+      parts.push({ text: message.content });
     }
 
     if (message.image) {
@@ -65,6 +68,7 @@ export const geminiProvider = {
     if (toolCalls.length) {
       return {
         text: '',
+        providerParts: response.candidates?.[0]?.content?.parts ?? [],
         toolCalls: toolCalls.map((call, index) => ({
           id: `${call.name}-${index}`,
           name: call.name,

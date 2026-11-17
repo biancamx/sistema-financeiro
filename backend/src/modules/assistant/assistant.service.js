@@ -128,7 +128,12 @@ export async function processUserMessage({ message = '', image: rawImage, histor
       throw new Error('O assistente excedeu o limite de chamadas de ferramentas nesta mensagem.');
     }
 
-    messages.push({ role: 'assistant', content: result.text, toolCalls: result.toolCalls });
+    messages.push({
+      role: 'assistant',
+      content: result.text,
+      toolCalls: result.toolCalls,
+      ...(result.providerParts && { providerParts: result.providerParts }),
+    });
     for (const call of result.toolCalls) {
       let toolResult;
       try {

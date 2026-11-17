@@ -100,6 +100,15 @@ test('modelos Gemini atuais ficam disponíveis para seleção e teste', async ()
   });
   assert.equal(tested.status, 200, tested.text);
   assert.ok(requestedUrl.includes('gemini-3.5-flash-lite'));
+
+  mockProviderFetch(async () => new Response(JSON.stringify({ error: { message: 'invalid model turn' } }), { status: 400 }));
+  const failedChat = await api('POST', '/assistant/chat', { message: 'Resumo deste mês' });
+  assert.equal(failedChat.status, 422);
+  const persisted = await api('GET', '/settings/ai');
+  assert.equal(persisted.json.data.configured, true);
+  assert.equal(persisted.json.data.provider, 'gemini');
+  assert.equal(persisted.json.data.model, 'gemini-4-hydrogen');
+  assert.equal(persisted.json.data.last4, '-key');
 });
 
 test('salva Gemini, OpenAI e Claude criptografados e troca provedor/modelo', async () => {
@@ -222,8 +231,10 @@ test('adapta chamadas de ferramentas do assistente nos três provedores', async 
 
   for (const [provider, model, apiKey] of PROVIDERS) {
     const api = createApiClient(baseUrl, account.cookie);
-    await saveConfig(api, [provider, model, apiKey]);
+    await saveConfig(api, [provider, provider === 'gemini' ? 'gemini-4-hydrogen' : model, apiKey]);
     let requests = 0;
+    let geminiModelTurn;
+    let geminiToolReply;
     mockProviderFetch(async (_url, options) => {
       requests += 1;
       const request = JSON.parse(options.body);
@@ -231,12 +242,19 @@ test('adapta chamadas de ferramentas do assistente nos três provedores', async 
         if (requests === 1) {
           return new Response(JSON.stringify({
             candidates: [{
-              content: { role: 'model', parts: [{ functionCall: { name: 'listarPessoas', args: {} } }] },
+              content: {
+                role: 'model',
+                parts: [{
+                  functionCall: { name: 'listarPessoas', args: {} },
+                  thoughtSignature: 'opaque-gemini-thought-signature',
+                }],
+              },
               finishReason: 'STOP',
             }],
           }), { status: 200 });
         }
-        assert.ok(JSON.stringify(request.contents).includes('functionResponse'));
+        geminiModelTurn = request.contents.find((content) => content.role === 'model');
+        geminiToolReply = request.contents.find((content) => content.parts.some((part) => part.functionResponse));
         return providerResponse(provider, 200, 'Pessoas consultadas.');
       }
       if (provider === 'openai') {
@@ -263,6 +281,16 @@ test('adapta chamadas de ferramentas do assistente nos três provedores', async 
     });
     assert.equal(result.reply, 'Pessoas consultadas.');
     assert.equal(requests, 2);
+    if (provider === 'gemini') {
+      assert.equal(geminiModelTurn.parts[0].thoughtSignature, 'opaque-gemini-thought-signature');
+      assert.equal(geminiToolReply.parts.length, 1);
+      assert.equal(geminiToolReply.parts[0].functionResponse.name, 'listarPessoas');
+      assert.ok(Array.isArray(geminiToolReply.parts[0].functionResponse.response.result));
+      const saved = await api('GET', '/settings/ai');
+      assert.equal(saved.json.data.configured, true);
+      assert.equal(saved.json.data.model, 'gemini-4-hydrogen');
+      assert.equal(saved.json.data.last4, apiKey.slice(-4));
+    }
   }
 });
 

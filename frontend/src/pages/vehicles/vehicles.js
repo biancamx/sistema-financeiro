@@ -12,7 +12,7 @@ export const STATUSES = [
 export const kindLabel = (k) => KINDS.find((x) => x.value === k)?.label ?? k;
 export const statusLabel = (s) => STATUSES.find((x) => x.value === s)?.label ?? s;
 
-/** ABC1D23 → ABC-1D23 (só para exibir; no banco fica sem hífen) */
+/** DEMO001 → DEMO-001 (só para exibir; no banco fica sem hífen) */
 export const showPlate = (p) => (p && p.length === 7 ? `${p.slice(0, 3)}-${p.slice(3)}` : p || '');
 export const vehicleLabel = (v) => `${v.model} · ${showPlate(v.plate)}`;
 

@@ -39,3 +39,19 @@ test('analyzeSpreadsheet continua lendo planilhas válidas sem depender do banco
   assert.ok(Array.isArray(analyzed.purchasesGrouped));
   assert.ok(typeof analyzed.summaryCounts === 'object');
 });
+
+test('analyzeSpreadsheet preserva caracteres acentuados em arquivos XLS legados', () => {
+  const workbook = XLSX.utils.book_new();
+  const dataSheet = XLSX.utils.aoa_to_sheet([
+    ['ID', 'Cartão', 'Pessoa', 'Outro', 'Categoria'],
+    [1, 'Cartão de demonstração', 'Pessoa 01', '', 'Alimentação'],
+  ]);
+  XLSX.utils.book_append_sheet(workbook, dataSheet, 'Dados');
+  const fileBuffer = XLSX.write(workbook, { type: 'buffer', bookType: 'biff8' });
+
+  const analyzed = analyzeSpreadsheet(fileBuffer);
+
+  assert.deepEqual(analyzed.cards, ['Cartão de demonstração']);
+  assert.deepEqual(analyzed.people, ['Pessoa 01']);
+  assert.deepEqual(analyzed.categories, ['Alimentação']);
+});

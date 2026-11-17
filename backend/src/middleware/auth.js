@@ -19,7 +19,7 @@ export function requireAuth() {
 
     let decoded;
     try {
-      decoded = jwt.verify(token, process.env.JWT_SECRET || 'REDACTED_SECRET');
+      decoded = jwt.verify(token, env.jwtSecret);
     } catch (err) {
       if (err.name === 'JsonWebTokenError' || err.name === 'TokenExpiredError') {
         return next(unauthorized('Sessão expirada ou inválida'));

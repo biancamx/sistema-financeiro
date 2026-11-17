@@ -24,6 +24,9 @@ export function errorHandler(err, req, res, _next) {
   } else if (err.type === 'entity.parse.failed') {
     status = 400;
     body = { code: 'BAD_JSON', message: 'JSON inválido' };
+  } else if (err.type === 'entity.too.large') {
+    status = 413;
+    body = { code: 'PAYLOAD_TOO_LARGE', message: 'Corpo da requisição excede o limite permitido' };
   } else if (err.code === 'SQLITE_CONSTRAINT_UNIQUE') {
     status = 409;
     body = { code: 'CONFLICT', message: 'Já existe um registro com esses dados' };

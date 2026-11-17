@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { asyncHandler } from '../../lib/errors.js';
 import { validate } from '../../middleware/validate.js';
+import { assistantLimiter } from '../../middleware/rateLimit.js';
 import { processUserMessage } from './assistant.service.js';
 
 const historyItem = z.object({
@@ -28,7 +29,7 @@ const chatBody = z.object({
 export function assistantRoutes() {
   const router = Router();
 
-  router.post('/chat', validate({ body: chatBody }), asyncHandler(async (req, res) => {
+  router.post('/chat', assistantLimiter, validate({ body: chatBody }), asyncHandler(async (req, res) => {
     const result = await processUserMessage({
       message: req.body.message,
       image: req.body.image,

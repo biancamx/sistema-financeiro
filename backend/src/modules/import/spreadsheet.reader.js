@@ -1,4 +1,7 @@
 import * as XLSX from 'xlsx';
+import * as cpexcel from 'xlsx/dist/cpexcel.full.mjs';
+
+XLSX.set_cptable(cpexcel);
 
 // 1. Normalização universal obrigatória (Item 1.1)
 export function normalizeText(str) {
@@ -356,7 +359,7 @@ export function analyzeSpreadsheet(fileBuffer) {
   report.openQuestions.push(
     {
       id: 'carro_divisao',
-      question: 'Carro 421 / IPVA / Seguro aparecem nas abas de Pessoa 01, Pessoa 06 e Pessoa 05. É despesa rateada ou cada um paga a sua?',
+      question: 'Despesas do mesmo veículo aparecem em abas de pessoas diferentes. O valor deve ser rateado ou cada pessoa paga a sua parte?',
       options: ['Despesas individuais de cada um', 'Despesa única compartilhada'],
       default: 'Despesas individuais de cada um',
     },

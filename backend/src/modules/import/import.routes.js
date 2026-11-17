@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import multer from 'multer';
 import { requireAuth } from '../../middleware/auth.js';
+import { importPreviewLimiter } from '../../middleware/rateLimit.js';
 import { analyzeSpreadsheet } from './spreadsheet.reader.js';
 import { executeSpreadsheetImport } from './spreadsheet.writer.js';
 import { analyzePdfDocument } from './pdf.reader.js';
@@ -30,7 +31,7 @@ export function importRoutes() {
   router.use(requireAuth());
 
   // POST /api/import/preview - Analisa e devolve a prévia
-  router.post('/preview', upload.single('file'), withImportErrorHandling(async (req, res) => {
+  router.post('/preview', importPreviewLimiter, upload.single('file'), withImportErrorHandling(async (req, res) => {
     if (!req.file) {
       return res.status(400).json({ error: 'Nenhum arquivo enviado.' });
     }

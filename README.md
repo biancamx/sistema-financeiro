@@ -37,7 +37,7 @@ Cadastre estas variáveis na área de configuração do provedor. Se for usar Do
 | `NODE_ENV` | `production` |
 | `ENABLE_LOCAL_LOGIN` | `false` |
 
-Gere uma chave `JWT_SECRET` que não seja usada em outro sistema. Em Linux, por exemplo, use `openssl rand -hex 32`; com Node.js, use `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`. Não compartilhe nem publique essa chave.
+O servidor não inicia sem `JWT_SECRET` em nenhum ambiente que não seja de teste. Na hospedagem, confirme `NODE_ENV=production` e gere uma chave `JWT_SECRET` nova, aleatória e exclusiva para esta instalação. Em Linux, use `openssl rand -hex 32`; com Node.js, use `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`. Não compartilhe nem publique essa chave.
 
 ### 3. Publique a aplicação
 

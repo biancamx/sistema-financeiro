@@ -98,7 +98,6 @@ export async function loginWithGoogle(credential) {
   await promoteConfiguredAdmin(user);
 
   // 3. Emite o JWT de sessão assinado
-  const jwtSecret = process.env.JWT_SECRET || 'REDACTED_SECRET';
   const token = jwt.sign(
     {
       sub: user._id.toString(),
@@ -108,7 +107,7 @@ export async function loginWithGoogle(credential) {
       role: user.role || 'user',
       status: user.status || 'pending',
     },
-    jwtSecret,
+    env.jwtSecret,
     { expiresIn: '30d' }
   );
 
@@ -120,7 +119,6 @@ export async function loginWithGoogle(credential) {
 
 // Gera o token JWT da sessão
 export function generateToken(user) {
-  const jwtSecret = process.env.JWT_SECRET || 'REDACTED_SECRET';
   return jwt.sign(
     {
       sub: user._id ? user._id.toString() : user.id,
@@ -130,7 +128,7 @@ export function generateToken(user) {
       status: user.status || 'pending',
       role: user.role || 'user',
     },
-    jwtSecret,
+    env.jwtSecret,
     { expiresIn: '30d' }
   );
 }

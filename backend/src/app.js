@@ -8,6 +8,7 @@ import { isAllowedOrigin, setupSecurity } from './middleware/security.js';
 import { requireActiveAccount, requireAuth } from './middleware/auth.js';
 import { cacheControl } from './middleware/cacheControl.js';
 import { errorHandler } from './middleware/errorHandler.js';
+import { globalLimiter } from './middleware/rateLimit.js';
 
 import { authRoutes } from './modules/auth/auth.routes.js';
 import { systemRoutes } from './modules/system/system.routes.js';
@@ -48,8 +49,11 @@ export function createApp() {
     })
   );
 
-  app.use(express.json({ limit: '25mb' }));
-  app.use(express.urlencoded({ extended: true, limit: '25mb' }));
+  app.use('/api', globalLimiter);
+  app.use('/api/import', express.json({ limit: '25mb' }));
+  app.use('/api/import', express.urlencoded({ extended: true, limit: '25mb' }));
+  app.use(express.json({ limit: '1mb' }));
+  app.use(express.urlencoded({ extended: true, limit: '1mb' }));
   app.use(cookieParser());
 
   // ROTA PÚBLICA DO PORTAL

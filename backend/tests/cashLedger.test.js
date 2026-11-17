@@ -140,7 +140,7 @@ test('compra avulsa, venda, pagamentos parciais, empréstimo, reembolso, atrasos
     assert.equal(service.summary(userId, Number(today().slice(5, 7)), Number(today().slice(0, 4))).overdueCount, 0);
 
     const refund = service.create(userId, {
-      kind: 'refund', description: 'Enel em duplicidade', total: 180, counterparty: 'Enel',
+      kind: 'refund', description: 'Conta de energia em duplicidade', total: 180, counterparty: 'Fornecedor de energia',
       entryDate: today(), paymentMethod: 'transfer', expectedReturnDate: offsetDate(5),
       refundStatus: 'requested', protocol: 'PROTO-123', notes: '',
     });
@@ -220,7 +220,7 @@ test('dashboard avulso agrega período, pagamentos, saldos, parcelas em atraso e
       amount: 400, receivedOn: current, paymentMethod: 'pix',
     });
     service.create(userId, {
-      kind: 'refund', description: 'Enel paga em duplicidade', total: 180, counterparty: 'Enel',
+      kind: 'refund', description: 'Conta de energia paga em duplicidade', total: 180, counterparty: 'Fornecedor de energia',
       entryDate: current, expectedReturnDate: offsetDate(50), refundStatus: 'requested',
       protocol: 'ENEL-180', notes: '',
     });

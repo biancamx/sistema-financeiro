@@ -147,7 +147,7 @@ export default function OverviewPage() {
                 <tr>
                   <td className="budget-month-label">
                     {newLabel === null ? <button className="link-btn" onClick={() => setNewLabel('')}>+ conta fixa</button>
-                      : <form onSubmit={addRow}><input className="cell cell-label" autoFocus placeholder="Ex.: Enel, Cagece…" value={newLabel} onChange={(e) => setNewLabel(e.target.value)} onBlur={addRow} /></form>}
+                      : <form onSubmit={addRow}><input className="cell cell-label" autoFocus placeholder="Ex.: Energia, água…" value={newLabel} onChange={(e) => setNewLabel(e.target.value)} onBlur={addRow} /></form>}
                   </td>
                   <td />
                 </tr>
@@ -216,7 +216,7 @@ export default function OverviewPage() {
                 <tr>
                   <td className="sticky-col" colSpan={1}>
                     {newLabel === null ? <button className="link-btn" onClick={() => setNewLabel('')}>+ conta fixa</button>
-                      : <form onSubmit={addRow}><input className="cell cell-label" autoFocus placeholder="Ex.: Enel, Cagece…" value={newLabel} onChange={(e) => setNewLabel(e.target.value)} onBlur={addRow} /></form>}
+                      : <form onSubmit={addRow}><input className="cell cell-label" autoFocus placeholder="Ex.: Energia, água…" value={newLabel} onChange={(e) => setNewLabel(e.target.value)} onBlur={addRow} /></form>}
                   </td>
                   <td colSpan={14} />
                 </tr>

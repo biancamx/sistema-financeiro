@@ -2,6 +2,7 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 
 process.env.NODE_ENV = 'development';
+process.env.JWT_SECRET = 'test-secret-for-auth-routes';
 process.env.ALLOWED_DOMAINS = '';
 process.env.AUTH_RATE_LIMIT_MAX = '1000';
 

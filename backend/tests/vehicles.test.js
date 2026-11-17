@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import jwt from 'jsonwebtoken';
 
 process.env.NODE_ENV = 'test';
+process.env.JWT_SECRET = 'test-secret-for-vehicles';
 process.env.ENABLE_LOCAL_LOGIN = 'true';
 process.env.RATE_LIMIT_MAX = '100000';
 process.env.AUTH_RATE_LIMIT_MAX = '100000';
@@ -42,33 +43,33 @@ function client(initialCookie = '') {
 async function setup(email) {
   const name = 'Teste';
   const userId = Number(db.prepare('INSERT INTO users (name, email, password_hash) VALUES (?, ?, ?)').run(name, email, 'test').lastInsertRowid);
-  const token = jwt.sign({ id: userId, email, name }, process.env.JWT_SECRET || 'REDACTED_SECRET');
+  const token = jwt.sign({ id: userId, email, name }, process.env.JWT_SECRET);
   const c = client(`caderno_token=${token}`);
   const ids = {};
-  for (const n of ['Ana', 'Beto', 'Caio']) ids[n] = (await c('POST', '/people', { name: n })).json.data.id;
+  for (const n of ['Pessoa 01', 'Pessoa 02', 'Pessoa 03']) ids[n] = (await c('POST', '/people', { name: n })).json.data.id;
   return { c, ids };
 }
-const car = { kind: 'car', model: 'Chevrolet Ônix', plate: 'abc-1d23', year: 2021, purchaseValue: 62000, status: 'active' };
+const car = { kind: 'car', model: 'Carro de demonstração', plate: 'demo-001', year: 2024, purchaseValue: 50000, status: 'active' };
 
 test('cadastra veículos, normaliza a placa e bloqueia placa repetida', async () => {
   const { c, ids } = await setup('v1@teste.com');
-  await c('PUT', `/people/${ids.Ana}`, { name: 'Ana', avatar: 'data:image/jpeg;base64,aGVsbG8=' });
-  const v = await c('POST', '/vehicles', { ...car, ownerId: ids.Ana });
+  await c('PUT', `/people/${ids['Pessoa 01']}`, { name: 'Pessoa 01', avatar: 'data:image/jpeg;base64,aGVsbG8=' });
+  const v = await c('POST', '/vehicles', { ...car, ownerId: ids['Pessoa 01'] });
   assert.equal(v.status, 201, v.text);
-  assert.equal(v.json.data.plate, 'ABC1D23');
+  assert.equal(v.json.data.plate, 'DEMO001');
   assert.equal(v.json.data.totalSpent, 0);
-  assert.equal(v.json.data.ownerId, ids.Ana);
-  assert.equal(v.json.data.ownerName, 'Ana');
+  assert.equal(v.json.data.ownerId, ids['Pessoa 01']);
+  assert.equal(v.json.data.ownerName, 'Pessoa 01');
   assert.equal(v.json.data.ownerAvatar, 'data:image/jpeg;base64,aGVsbG8=');
-  assert.equal((await c('POST', '/vehicles', { ...car, plate: 'ABC 1D23' })).status, 409);
+  assert.equal((await c('POST', '/vehicles', { ...car, plate: 'DEMO 001' })).status, 409);
   assert.equal((await c('POST', '/vehicles', { ...car, plate: '!!' })).status, 400);
-  assert.equal((await c('POST', '/vehicles', { ...car, plate: 'DEF1A23', ownerId: 99999 })).status, 400);
-  const moto = await c('POST', '/vehicles', { kind: 'motorcycle', model: 'Honda CG 160', plate: 'XYZ9A87', year: 2020, purchaseValue: 14000 });
+  assert.equal((await c('POST', '/vehicles', { ...car, plate: 'DEMO003', ownerId: 99999 })).status, 400);
+  const moto = await c('POST', '/vehicles', { kind: 'motorcycle', model: 'Motocicleta de demonstração', plate: 'DEMO002', year: 2024, purchaseValue: 12000 });
   assert.equal(moto.status, 201);
   const list = (await c('GET', '/vehicles')).json.data;
-  assert.deepEqual(list.map((x) => x.model).sort(), ['Chevrolet Ônix', 'Honda CG 160']);
-  assert.equal(list.find((x) => x.model === car.model).ownerName, 'Ana');
-  const up = await c('PUT', `/vehicles/${v.json.data.id}`, { ...car, plate: 'ABC1D23', ownerId: null, status: 'sold' });
+  assert.deepEqual(list.map((x) => x.model).sort(), ['Carro de demonstração', 'Motocicleta de demonstração']);
+  assert.equal(list.find((x) => x.model === car.model).ownerName, 'Pessoa 01');
+  const up = await c('PUT', `/vehicles/${v.json.data.id}`, { ...car, plate: 'DEMO001', ownerId: null, status: 'sold' });
   assert.equal(up.json.data.status, 'sold');
   assert.equal(up.json.data.ownerId, null);
 });
@@ -76,12 +77,12 @@ test('cadastra veículos, normaliza a placa e bloqueia placa repetida', async ()
 test('gasto individual: valor mínimo R$ 1, categoria válida, km e fatia do pagador', async () => {
   const { c, ids } = await setup('v2@teste.com');
   const v = (await c('POST', '/vehicles', car)).json.data;
-  const base = { vehicleId: v.id, date: '2026-03-10', category: 'fuel', description: 'Gasolina', amount: 250.5, km: 41200, payerId: ids.Ana };
+  const base = { vehicleId: v.id, date: '2026-03-10', category: 'fuel', description: 'Combustível', amount: 250.5, km: 12000, payerId: ids['Pessoa 01'] };
   const ok = await c('POST', '/vehicles/expenses', base);
   assert.equal(ok.status, 201, ok.text);
   assert.equal(ok.json.data.shared, false);
   assert.equal((await c('GET', '/purchases')).json.total, 0);
-  assert.deepEqual(ok.json.data.shares.map((s) => [s.person, s.amount]), [['Ana', 250.5]]);
+  assert.deepEqual(ok.json.data.shares.map((s) => [s.person, s.amount]), [['Pessoa 01', 250.5]]);
   assert.equal(ok.json.data.group, 'operational');
   assert.equal((await c('POST', '/vehicles/expenses', { ...base, amount: 1 })).status, 201); // limite: R$ 1,00 vale
   assert.equal((await c('POST', '/vehicles/expenses', { ...base, amount: 0.99 })).status, 400);
@@ -92,44 +93,44 @@ test('gasto individual: valor mínimo R$ 1, categoria válida, km e fatia do pag
   const got = (await c('GET', `/vehicles/${v.id}`)).json.data;
   assert.equal(got.totalSpent, 251.5);
   assert.equal(got.expensesCount, 2);
-  assert.equal(got.currentKm, 41200);
+  assert.equal(got.currentKm, 12000);
 });
 
 test('rateio: iguais fecham no centavo, por % e por R$; erros de soma', async () => {
   const { c, ids } = await setup('v3@teste.com');
   const v = (await c('POST', '/vehicles', car)).json.data;
-  const sh = { vehicleId: v.id, date: '2026-04-01', category: 'insurance', description: 'Seguro anual', amount: 100, payerId: ids.Ana, shared: true };
-  const eq = (await c('POST', '/vehicles/expenses', { ...sh, splitMode: 'equal', participantIds: [ids.Ana, ids.Beto, ids.Caio] })).json.data;
+  const sh = { vehicleId: v.id, date: '2026-04-01', category: 'insurance', description: 'Seguro anual', amount: 100, payerId: ids['Pessoa 01'], shared: true };
+  const eq = (await c('POST', '/vehicles/expenses', { ...sh, splitMode: 'equal', participantIds: [ids['Pessoa 01'], ids['Pessoa 02'], ids['Pessoa 03']] })).json.data;
   const total = (s) => Math.round(s.reduce((a, x) => a + x.amount * 100, 0));
   assert.equal(total(eq.shares), 10000);
   assert.deepEqual(eq.shares.map((s) => s.amount).sort(), [33.33, 33.33, 33.34]);
 
-  const pct = await c('POST', '/vehicles/expenses', { ...sh, splitMode: 'percent', participants: [{ personId: ids.Ana, value: 50 }, { personId: ids.Beto, value: 30 }, { personId: ids.Caio, value: 20 }] });
-  assert.deepEqual(pct.json.data.shares.map((s) => [s.person, s.amount]), [['Ana', 50], ['Beto', 30], ['Caio', 20]]);
+  const pct = await c('POST', '/vehicles/expenses', { ...sh, splitMode: 'percent', participants: [{ personId: ids['Pessoa 01'], value: 50 }, { personId: ids['Pessoa 02'], value: 30 }, { personId: ids['Pessoa 03'], value: 20 }] });
+  assert.deepEqual(pct.json.data.shares.map((s) => [s.person, s.amount]), [['Pessoa 01', 50], ['Pessoa 02', 30], ['Pessoa 03', 20]]);
 
-  const amt = await c('POST', '/vehicles/expenses', { ...sh, splitMode: 'amount', participants: [{ personId: ids.Ana, value: 70 }, { personId: ids.Beto, value: 30 }] });
+  const amt = await c('POST', '/vehicles/expenses', { ...sh, splitMode: 'amount', participants: [{ personId: ids['Pessoa 01'], value: 70 }, { personId: ids['Pessoa 02'], value: 30 }] });
   assert.equal(amt.status, 201, amt.text);
 
-  assert.equal((await c('POST', '/vehicles/expenses', { ...sh, splitMode: 'percent', participants: [{ personId: ids.Ana, value: 50 }, { personId: ids.Beto, value: 30 }] })).status, 400);
-  assert.equal((await c('POST', '/vehicles/expenses', { ...sh, splitMode: 'amount', participants: [{ personId: ids.Ana, value: 70 }, { personId: ids.Beto, value: 20 }] })).status, 400);
-  assert.equal((await c('POST', '/vehicles/expenses', { ...sh, participantIds: [ids.Ana] })).status, 400);
-  assert.equal((await c('POST', '/vehicles/expenses', { ...sh, participantIds: [ids.Ana, ids.Ana] })).status, 400);
+  assert.equal((await c('POST', '/vehicles/expenses', { ...sh, splitMode: 'percent', participants: [{ personId: ids['Pessoa 01'], value: 50 }, { personId: ids['Pessoa 02'], value: 30 }] })).status, 400);
+  assert.equal((await c('POST', '/vehicles/expenses', { ...sh, splitMode: 'amount', participants: [{ personId: ids['Pessoa 01'], value: 70 }, { personId: ids['Pessoa 02'], value: 20 }] })).status, 400);
+  assert.equal((await c('POST', '/vehicles/expenses', { ...sh, participantIds: [ids['Pessoa 01']] })).status, 400);
+  assert.equal((await c('POST', '/vehicles/expenses', { ...sh, participantIds: [ids['Pessoa 01'], ids['Pessoa 01']] })).status, 400);
 
   // editar troca o rateio por completo; virar individual deixa só o pagador
   const id = eq.id;
   const ed = await c('PUT', `/vehicles/expenses/${id}`, { ...sh, shared: false });
-  assert.deepEqual(ed.json.data.shares.map((s) => [s.person, s.amount]), [['Ana', 100]]);
+  assert.deepEqual(ed.json.data.shares.map((s) => [s.person, s.amount]), [['Pessoa 01', 100]]);
 });
 
 test('painel: totais, categorias, meses e saldo de quem pagou × quem deve', async () => {
   const { c, ids } = await setup('v4@teste.com');
   const a = (await c('POST', '/vehicles', car)).json.data;
-  const b = (await c('POST', '/vehicles', { ...car, kind: 'motorcycle', model: 'Honda', plate: 'HND1A11' })).json.data;
+  const b = (await c('POST', '/vehicles', { ...car, kind: 'motorcycle', model: 'Motocicleta demonstrativa', plate: 'DEMO002' })).json.data;
   const mk = (o) => c('POST', '/vehicles/expenses', { date: '2026-01-15', description: '', ...o });
-  await mk({ vehicleId: a.id, category: 'ipva', amount: 900, payerId: ids.Ana }); // individual da Ana
-  await mk({ vehicleId: a.id, category: 'fuel', amount: 200, payerId: ids.Ana, shared: true, participantIds: [ids.Ana, ids.Beto], km: 1000 });
-  await mk({ vehicleId: b.id, category: 'oil', amount: 100, payerId: ids.Beto, date: '2025-12-02', km: 500 });
-  await mk({ vehicleId: a.id, category: 'tires', amount: 400, payerId: ids.Caio, km: 3000 });
+  await mk({ vehicleId: a.id, category: 'ipva', amount: 900, payerId: ids['Pessoa 01'] }); // individual
+  await mk({ vehicleId: a.id, category: 'fuel', amount: 200, payerId: ids['Pessoa 01'], shared: true, participantIds: [ids['Pessoa 01'], ids['Pessoa 02']], km: 1000 });
+  await mk({ vehicleId: b.id, category: 'oil', amount: 100, payerId: ids['Pessoa 02'], date: '2025-12-02', km: 500 });
+  await mk({ vehicleId: a.id, category: 'tires', amount: 400, payerId: ids['Pessoa 03'], km: 3000 });
 
   const fleet = (await c('GET', '/vehicles/summary?year=2026')).json.data;
   assert.equal(fleet.total, 1500);
@@ -137,9 +138,9 @@ test('painel: totais, categorias, meses e saldo de quem pagou × quem deve', asy
   assert.equal(fleet.byMonth[0].total, 1500);
   assert.deepEqual(fleet.byGroup.map((g) => [g.key, g.total]), [['fixed', 900], ['maintenance', 400], ['operational', 200]]);
   const pessoa = (n) => fleet.people.find((p) => p.name === n);
-  assert.deepEqual([pessoa('Ana').paid, pessoa('Ana').owes, pessoa('Ana').balance], [1100, 1000, 100]);
-  assert.deepEqual([pessoa('Beto').paid, pessoa('Beto').owes, pessoa('Beto').balance], [0, 100, -100]);
-  assert.equal(pessoa('Caio').balance, 0);
+  assert.deepEqual([pessoa('Pessoa 01').paid, pessoa('Pessoa 01').owes, pessoa('Pessoa 01').balance], [1100, 1000, 100]);
+  assert.deepEqual([pessoa('Pessoa 02').paid, pessoa('Pessoa 02').owes, pessoa('Pessoa 02').balance], [0, 100, -100]);
+  assert.equal(pessoa('Pessoa 03').balance, 0);
 
   const one = (await c('GET', `/vehicles/summary?vehicleId=${a.id}`)).json.data;
   assert.equal(one.total, 1500);
@@ -155,7 +156,7 @@ test('painel: totais, categorias, meses e saldo de quem pagou × quem deve', asy
   assert.equal((await q(`vehicleId=${b.id}`)).total, 1);
   assert.equal((await q('group=fixed')).sum, 900);
   assert.equal((await q('shared=true')).total, 1);
-  assert.equal((await q(`personId=${ids.Beto}`)).total, 2); // pagou o óleo + divide o combustível
+  assert.equal((await q(`personId=${ids['Pessoa 02']}`)).total, 2); // pagou o óleo + divide o combustível
   assert.equal((await q('year=2025')).total, 1);
   assert.equal((await q('from=2026-01-01&to=2026-01-31')).total, 3);
   const csv = (await c('GET', '/vehicles/expenses/export.csv')).text;
@@ -166,7 +167,7 @@ test('resumo do veículo inclui gastos recentes com suas datas em ordem decresce
   const { c, ids } = await setup('v-recent-expenses@teste.com');
   const vehicle = (await c('POST', '/vehicles', car)).json.data;
   const addExpense = (date, description) => c('POST', '/vehicles/expenses', {
-    vehicleId: vehicle.id, date, category: 'oil', description, amount: 150, payerId: ids.Ana,
+    vehicleId: vehicle.id, date, category: 'oil', description, amount: 150, payerId: ids['Pessoa 01'],
   });
   await addExpense('2026-05-02', 'Troca de óleo');
   await addExpense('2026-07-14', 'Revisão');
@@ -181,12 +182,12 @@ test('resumo do veículo inclui gastos recentes com suas datas em ordem decresce
 test('excluir: veículo com histórico exige force; pessoa com gasto não pode ser apagada', async () => {
   const { c, ids } = await setup('v5@teste.com');
   const v = (await c('POST', '/vehicles', car)).json.data;
-  const e = (await c('POST', '/vehicles/expenses', { vehicleId: v.id, date: '2026-05-05', category: 'wash', amount: 30, payerId: ids.Caio })).json.data;
-  assert.equal((await c('DELETE', `/people/${ids.Caio}`)).status, 409);
+  const e = (await c('POST', '/vehicles/expenses', { vehicleId: v.id, date: '2026-05-05', category: 'wash', amount: 30, payerId: ids['Pessoa 03'] })).json.data;
+  assert.equal((await c('DELETE', `/people/${ids['Pessoa 03']}`)).status, 409);
   assert.equal((await c('DELETE', `/vehicles/${v.id}`)).status, 409);
   assert.equal((await c('DELETE', `/vehicles/expenses/${e.id}`)).status, 204);
-  assert.equal((await c('DELETE', `/people/${ids.Caio}`)).status, 204);
-  await c('POST', '/vehicles/expenses', { vehicleId: v.id, date: '2026-05-05', category: 'wash', amount: 30, payerId: ids.Ana });
+  assert.equal((await c('DELETE', `/people/${ids['Pessoa 03']}`)).status, 204);
+  await c('POST', '/vehicles/expenses', { vehicleId: v.id, date: '2026-05-05', category: 'wash', amount: 30, payerId: ids['Pessoa 01'] });
   assert.equal((await c('DELETE', `/vehicles/${v.id}?force=true`)).status, 204);
   assert.equal((await c('GET', '/vehicles/expenses')).json.total, 0); // histórico foi junto
 });
@@ -195,14 +196,14 @@ test('isolamento: outro usuário não vê nem mexe nos veículos e gastos', asyn
   const a = await setup('iso-a@teste.com');
   const b = await setup('iso-b@teste.com');
   const v = (await a.c('POST', '/vehicles', car)).json.data;
-  const e = (await a.c('POST', '/vehicles/expenses', { vehicleId: v.id, date: '2026-06-06', category: 'fuel', amount: 80, payerId: a.ids.Ana })).json.data;
+  const e = (await a.c('POST', '/vehicles/expenses', { vehicleId: v.id, date: '2026-06-06', category: 'fuel', amount: 80, payerId: a.ids['Pessoa 01'] })).json.data;
   assert.equal((await b.c('GET', '/vehicles')).json.data.length, 0);
   assert.equal((await b.c('GET', `/vehicles/${v.id}`)).status, 404);
   assert.equal((await b.c('GET', `/vehicles/expenses/${e.id}`)).status, 404);
-  assert.equal((await b.c('PUT', `/vehicles/expenses/${e.id}`, { vehicleId: v.id, date: '2026-06-06', category: 'fuel', amount: 1, payerId: b.ids.Ana })).status, 404);
+  assert.equal((await b.c('PUT', `/vehicles/expenses/${e.id}`, { vehicleId: v.id, date: '2026-06-06', category: 'fuel', amount: 1, payerId: b.ids['Pessoa 01'] })).status, 404);
   assert.equal((await b.c('DELETE', `/vehicles/expenses/${e.id}`)).status, 404);
-  assert.equal((await b.c('POST', '/vehicles/expenses', { vehicleId: v.id, date: '2026-06-06', category: 'fuel', amount: 5, payerId: b.ids.Ana })).status, 400);
-  assert.equal((await b.c('POST', '/vehicles/expenses', { vehicleId: (await b.c('POST', '/vehicles', car)).json.data.id, date: '2026-06-06', category: 'fuel', amount: 5, payerId: a.ids.Ana })).status, 400);
+  assert.equal((await b.c('POST', '/vehicles/expenses', { vehicleId: v.id, date: '2026-06-06', category: 'fuel', amount: 5, payerId: b.ids['Pessoa 01'] })).status, 400);
+  assert.equal((await b.c('POST', '/vehicles/expenses', { vehicleId: (await b.c('POST', '/vehicles', car)).json.data.id, date: '2026-06-06', category: 'fuel', amount: 5, payerId: a.ids['Pessoa 01'] })).status, 400);
   assert.equal((await b.c('GET', `/vehicles/summary?vehicleId=${v.id}`)).status, 404);
   assert.equal((await b.c('GET', '/vehicles/summary')).json.data.total, 0);
   assert.equal((await a.c('GET', '/vehicles')).json.data[0].totalSpent, 80);
@@ -217,10 +218,10 @@ test('exige login', async () => {
 test('gasto no cartão cria compra vinculada, parcelas e atualiza limite sem duplicar', async () => {
   const { c, ids } = await setup('v6@teste.com');
   const vehicle = (await c('POST', '/vehicles', car)).json.data;
-  const card = (await c('POST', '/cards', { name: 'Cartão Ana', limit: 2000, ownerId: ids.Ana, closingDay: 22, dueDay: 5 })).json.data;
+  const card = (await c('POST', '/cards', { name: 'Cartão de demonstração', limit: 2000, ownerId: ids['Pessoa 01'], closingDay: 22, dueDay: 5 })).json.data;
   const expenseBody = {
     vehicleId: vehicle.id, date: '2026-10-20', category: 'fuel', description: 'Abastecimento',
-    amount: 100.01, payerId: ids.Ana, paymentMethod: 'card', cardId: card.id, installmentCount: 3,
+    amount: 100.01, payerId: ids['Pessoa 01'], paymentMethod: 'card', cardId: card.id, installmentCount: 3,
     startMonth: 10, startYear: 2026,
     requestId: 'b9a75845-3675-4f1e-9bf7-09c23e17a71f',
   };
@@ -241,7 +242,7 @@ test('gasto no cartão cria compra vinculada, parcelas e atualiza limite sem dup
   assert.equal(purchases.json.data[0].count, 3);
   const installments = await c('GET', '/purchases/installments?month=10&year=2026');
   assert.deepEqual(installments.json.data.map((item) => item.amount), [33.34]);
-  const budget = await c(`GET`, `/budgets?personId=${ids.Ana}&year=2026&month=10`);
+  const budget = await c(`GET`, `/budgets?personId=${ids['Pessoa 01']}&year=2026&month=10`);
   assert.equal(budget.json.data.monthly.purchases.length, 1);
   assert.equal(budget.json.data.monthly.purchases[0].amount, 33.34);
   assert.equal(budget.json.data.monthly.purchases[0].category, 'Vale combustível');
@@ -268,10 +269,10 @@ test('gasto no cartão cria compra vinculada, parcelas e atualiza limite sem dup
 test('despesa compartilhada no cartão distribui cada parcela e não duplica o total', async () => {
   const { c, ids } = await setup('v7@teste.com');
   const vehicle = (await c('POST', '/vehicles', car)).json.data;
-  const card = (await c('POST', '/cards', { name: 'Cartão compartilhado', limit: 2000, ownerId: ids.Ana, closingDay: 22, dueDay: 5 })).json.data;
+  const card = (await c('POST', '/cards', { name: 'Cartão compartilhado', limit: 2000, ownerId: ids['Pessoa 01'], closingDay: 22, dueDay: 5 })).json.data;
   const created = await c('POST', '/vehicles/expenses', {
     vehicleId: vehicle.id, date: '2026-10-20', category: 'insurance', description: 'Seguro',
-    amount: 120, payerId: ids.Ana, shared: true, participantIds: [ids.Ana, ids.Beto],
+    amount: 120, payerId: ids['Pessoa 01'], shared: true, participantIds: [ids['Pessoa 01'], ids['Pessoa 02']],
     paymentMethod: 'card', cardId: card.id, installmentCount: 2, startMonth: 10, startYear: 2026,
   });
   assert.equal(created.status, 201, created.text);
@@ -295,11 +296,11 @@ test('gasto de veículo em 2x ocupa R$ 200 e pagar a primeira parcela libera R$ 
   const year = today.getFullYear();
   const closingDay = today.getDate();
   const card = (await c('POST', '/cards', {
-    name: 'Cartão óleo', limit: 500, ownerId: ids.Ana, closingDay, dueDay: 5, closingDayEqual: 'current',
+    name: 'Cartão óleo', limit: 500, ownerId: ids['Pessoa 01'], closingDay, dueDay: 5, closingDayEqual: 'current',
   })).json.data;
   const expense = await c('POST', '/vehicles/expenses', {
     vehicleId: vehicle.id, date, category: 'oil', description: 'Troca de óleo',
-    amount: 200, payerId: ids.Ana, paymentMethod: 'card', cardId: card.id, installmentCount: 2,
+    amount: 200, payerId: ids['Pessoa 01'], paymentMethod: 'card', cardId: card.id, installmentCount: 2,
   });
   assert.equal(expense.status, 201, expense.text);
   assert.equal((await c('GET', `/cards?month=${month}&year=${year}`)).json.data.find((item) => item.id === card.id).used, 200);

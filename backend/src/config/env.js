@@ -3,10 +3,10 @@ import 'dotenv/config';
 const nodeEnv = process.env.NODE_ENV || 'development';
 const isProd = nodeEnv === 'production';
 
-function required(name, fallback) {
+function required(name, fallback, mandatory = isProd) {
   const value = process.env[name];
   if (value) return value;
-  if (isProd) throw new Error(`Variável de ambiente obrigatória ausente: ${name}`);
+  if (mandatory) throw new Error(`Variável de ambiente obrigatória ausente: ${name}`);
   return fallback;
 }
 
@@ -18,7 +18,7 @@ export const env = {
   isTest: nodeEnv === 'test',
   port: Number(process.env.PORT || 4000),
   frontendUrls: (process.env.FRONTEND_URL || 'http://localhost:5173,http://127.0.0.1:5173').split(',').map((s) => s.trim()),
-  jwtSecret: required('JWT_SECRET', 'dev-only-secret-nao-use-em-producao'),
+  jwtSecret: required('JWT_SECRET', '', nodeEnv !== 'test'),
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || '7d',
   adminEmail: (process.env.ADMIN_EMAIL || '').trim().toLowerCase(),
   allowedDomains: (process.env.ALLOWED_DOMAINS || '')

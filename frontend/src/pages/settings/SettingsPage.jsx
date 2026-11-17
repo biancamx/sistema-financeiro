@@ -42,9 +42,11 @@ const PDF_IMPORT_COUNT_CARDS = [
   ['Novas compras', (data) => data.deduplication?.newCount ?? data.summaryCounts.purchasesCount],
   ['Já existentes', (data) => data.deduplication?.existingCount ?? 0],
 ];
+const SETTINGS_TABS = ['categories', 'import', 'ai', 'danger'];
 const pdfPeriodLabel = (month, year) => `${MONTHS_SHORT[month - 1]}/${year}`;
 
 export default function SettingsPage() {
+  const [activeSection, setActiveSection] = useState('categories');
   const [previewData, setPreviewData] = useState(null);
   const [confirmation, setConfirmation] = useState(null);
   const [resetPhrase, setResetPhrase] = useState('');
@@ -147,7 +149,7 @@ export default function SettingsPage() {
     if (file.name.toLowerCase().endsWith('.pdf')
       && (!aiSettings?.configured || !aiSettings.consentGiven)) {
       toast.error(new Error('Configure sua chave e confirme o envio de dados na seção Inteligência artificial antes de analisar PDFs.'));
-      document.getElementById('settings-ai')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      setActiveSection('ai');
       return;
     }
 
@@ -324,6 +326,21 @@ export default function SettingsPage() {
   const resetAllConfirmed = confirmation?.kind !== 'all' || resetPhrase === 'RESETAR';
   const aiEnabled = aiSettings?.configured && aiSettings?.consentGiven;
 
+  function handleSettingsTabKeyDown(event) {
+    if (!['ArrowRight', 'ArrowLeft', 'Home', 'End'].includes(event.key)) return;
+    event.preventDefault();
+
+    const currentIndex = SETTINGS_TABS.indexOf(activeSection);
+    const nextIndex = event.key === 'Home'
+      ? 0
+      : event.key === 'End'
+        ? SETTINGS_TABS.length - 1
+        : (currentIndex + (event.key === 'ArrowRight' ? 1 : -1) + SETTINGS_TABS.length) % SETTINGS_TABS.length;
+    const nextSection = SETTINGS_TABS[nextIndex];
+    setActiveSection(nextSection);
+    document.getElementById(`settings-tab-${nextSection}`)?.focus();
+  }
+
   return (
     <div className="settings-page">
       <PageHeader
@@ -332,16 +349,61 @@ export default function SettingsPage() {
       />
 
       <div className="settings-layout">
-        <nav className="settings-nav" aria-label="Seções das configurações">
-          <a href="#settings-categories"><Tag aria-hidden="true" /> Categorias</a>
-          <a href="#settings-import"><FileSpreadsheet aria-hidden="true" /> Importação</a>
-          <a href="#settings-ai"><Sparkles aria-hidden="true" /> Inteligência artificial
+        <nav
+          className="settings-nav"
+          role="tablist"
+          aria-label="Seções das configurações"
+          onKeyDown={handleSettingsTabKeyDown}
+        >
+          <button
+            id="settings-tab-categories"
+            type="button"
+            role="tab"
+            aria-selected={activeSection === 'categories'}
+            aria-controls="settings-categories"
+            tabIndex={activeSection === 'categories' ? 0 : -1}
+            onClick={() => setActiveSection('categories')}
+          ><Tag aria-hidden="true" /> Categorias</button>
+          <button
+            id="settings-tab-import"
+            type="button"
+            role="tab"
+            aria-selected={activeSection === 'import'}
+            aria-controls="settings-import"
+            tabIndex={activeSection === 'import' ? 0 : -1}
+            onClick={() => setActiveSection('import')}
+          ><FileSpreadsheet aria-hidden="true" /> Importação</button>
+          <button
+            id="settings-tab-ai"
+            type="button"
+            role="tab"
+            aria-selected={activeSection === 'ai'}
+            aria-controls="settings-ai"
+            tabIndex={activeSection === 'ai' ? 0 : -1}
+            onClick={() => setActiveSection('ai')}
+          ><Sparkles aria-hidden="true" /> Inteligência artificial
             {aiEnabled && <span className="settings-nav-dot" aria-label="Configurada" />}
-          </a>
-          <a href="#settings-danger" className="settings-nav-danger"><Trash2 aria-hidden="true" /> Zona de perigo</a>
+          </button>
+          <button
+            id="settings-tab-danger"
+            type="button"
+            role="tab"
+            className="settings-nav-danger"
+            aria-selected={activeSection === 'danger'}
+            aria-controls="settings-danger"
+            tabIndex={activeSection === 'danger' ? 0 : -1}
+            onClick={() => setActiveSection('danger')}
+          ><Trash2 aria-hidden="true" /> Zona de perigo</button>
         </nav>
         <main className="settings-sections">
-      <section id="settings-categories" className="settings-section">
+      <section
+        id="settings-categories"
+        className="settings-section"
+        role="tabpanel"
+        aria-labelledby="settings-tab-categories"
+        tabIndex="0"
+        hidden={activeSection !== 'categories'}
+      >
       <Card className="settings-card">
         <header className="settings-card-head">
           <div className="settings-icon"><Tag aria-hidden="true" /></div>
@@ -357,7 +419,14 @@ export default function SettingsPage() {
       </Card>
       </section>
 
-      <section id="settings-import" className="settings-section">
+      <section
+        id="settings-import"
+        className="settings-section"
+        role="tabpanel"
+        aria-labelledby="settings-tab-import"
+        tabIndex="0"
+        hidden={activeSection !== 'import'}
+      >
       <Card className="settings-card">
         <header className="settings-card-head">
           <div className="settings-icon"><FileSpreadsheet aria-hidden="true" /></div>
@@ -400,7 +469,14 @@ export default function SettingsPage() {
       </Card>
       </section>
 
-      <section id="settings-ai" className="settings-section">
+      <section
+        id="settings-ai"
+        className="settings-section"
+        role="tabpanel"
+        aria-labelledby="settings-tab-ai"
+        tabIndex="0"
+        hidden={activeSection !== 'ai'}
+      >
       <Card className="settings-card">
         <header className="settings-card-head">
           <div className="settings-icon"><Sparkles aria-hidden="true" /></div>
@@ -496,7 +572,14 @@ export default function SettingsPage() {
       </Card>
       </section>
 
-      <section id="settings-danger" className="settings-section">
+      <section
+        id="settings-danger"
+        className="settings-section"
+        role="tabpanel"
+        aria-labelledby="settings-tab-danger"
+        tabIndex="0"
+        hidden={activeSection !== 'danger'}
+      >
       <Card className="settings-card settings-danger">
         <header className="settings-card-head">
           <div className="settings-icon settings-icon-danger"><Trash2 aria-hidden="true" /></div>

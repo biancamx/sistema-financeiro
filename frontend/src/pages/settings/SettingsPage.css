@@ -652,26 +652,35 @@
   gap: 5px;
 }
 
-.settings-nav a {
+.settings-nav button {
   display: flex;
+  width: 100%;
   min-width: 0;
   align-items: center;
   gap: 10px;
   padding: 11px 12px;
   border: 1px solid transparent;
   border-radius: 9px;
+  background: transparent;
   color: var(--muted);
-  text-decoration: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
 }
 
-.settings-nav a:hover,
-.settings-nav a:focus-visible {
+.settings-nav button:hover,
+.settings-nav button:focus-visible,
+.settings-nav button[aria-selected="true"] {
   border-color: var(--line);
   background: var(--surface);
   color: var(--text);
 }
 
-.settings-nav a svg {
+.settings-nav button[aria-selected="true"] {
+  font-weight: 600;
+}
+
+.settings-nav button svg {
   width: 18px;
   height: 18px;
   flex: 0 0 auto;
@@ -701,6 +710,10 @@
 .settings-section {
   min-width: 0;
   scroll-margin-top: 20px;
+}
+
+.settings-section[hidden] {
+  display: none;
 }
 
 .settings-ai-status {
@@ -883,7 +896,8 @@
     background: var(--bg);
   }
 
-  .settings-nav a {
+  .settings-nav button {
+    width: auto;
     flex: 0 0 auto;
     gap: 7px;
     padding: 8px 11px;
@@ -892,7 +906,7 @@
     white-space: nowrap;
   }
 
-  .settings-nav a svg {
+  .settings-nav button svg {
     width: 16px;
     height: 16px;
   }

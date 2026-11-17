@@ -20,7 +20,7 @@ test('rotas do sistema existem somente sob /api/system', async (t) => {
   assert.match(csp, /script-src[^;]*'self'[^;]*https:\/\/accounts\.google\.com\/gsi\/client/);
   assert.match(csp, /frame-src[^;]*'self'[^;]*https:\/\/accounts\.google\.com\/gsi\//);
   assert.match(csp, /connect-src[^;]*'self'[^;]*https:\/\/accounts\.google\.com\/gsi\//);
-  assert.match(csp, /img-src[^;]*https:\/\/lh3\.googleusercontent\.com[^;]*https:\/\/\*\.googleusercontent\.com/);
+  assert.match(csp, /img-src[^;]*blob:[^;]*https:\/\/lh3\.googleusercontent\.com[^;]*https:\/\/\*\.googleusercontent\.com/);
 
   const unauthenticated = await fetch(`${baseUrl}/health`);
   const unauthenticatedBody = await unauthenticated.json();

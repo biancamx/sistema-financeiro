@@ -6,6 +6,7 @@ import {
 import { Link, useNavigate } from 'react-router-dom';
 import { useFetch } from '../../hooks/useFetch.js';
 import { useFinanceRefresh } from '../../hooks/useFinanceRefresh.js';
+import { usePeriod } from '../../context/PeriodContext.jsx';
 import { cashLedgerApi } from '../../services/api.js';
 import { Button, Card, EmptyState, ErrorState, Money, Select, Spinner } from '../../components/ui/ui.jsx';
 import { money } from '../../lib/format.js';
@@ -18,19 +19,18 @@ const monthNow = () => {
   const now = new Date();
   return { month: now.getMonth() + 1, year: now.getFullYear() };
 };
-function initialPeriod() {
-  const current = monthNow();
+function initialMode() {
   try {
     const value = JSON.parse(localStorage.getItem(STORAGE_KEY));
-    if (['month', 'last3', 'year', 'all'].includes(value?.mode) && value?.month >= 1 && value?.month <= 12 && value?.year >= 2000) return value;
+    if (['month', 'last3', 'year', 'all'].includes(value?.mode)) return value.mode;
   } catch { /* use default period */ }
-  return { mode: 'month', ...current };
+  return 'month';
 }
 const fromCents = (value) => money((value || 0) / 100);
 const dateLabel = (value) => value ? new Date(`${value}T00:00:00`).toLocaleDateString('pt-BR') : 'Sem vencimento';
 const rangeLabel = ({ mode, month, year }) => {
   if (mode === 'all') return 'Todo o período';
-  if (mode === 'last3') return 'Últimos 3 meses';
+  if (mode === 'last3') return `Últimos 3 meses até ${new Date(year, month - 1, 1).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}`;
   if (mode === 'year') return String(year);
   return new Date(year, month - 1, 1).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
 };
@@ -63,18 +63,23 @@ function MetricCard({ title, cents, tone, aside, href, emptyMessage, isEmpty }) 
 
 export default function CashDashboard() {
   const navigate = useNavigate();
-  const [selected, setSelected] = useState(initialPeriod);
+  const { month, year, setMonth, setYear, shift: shiftMonth } = usePeriod();
+  const [mode, setMode] = useState(initialMode);
+  const selected = useMemo(() => ({ mode, month, year }), [mode, month, year]);
   const params = useMemo(() => ({ period: selected.mode, month: selected.month, year: selected.year }), [selected]);
   const { data, loading, error, reload } = useFetch(() => cashLedgerApi.dashboard(params), [params]);
   useFinanceRefresh(reload);
-  const setPeriod = (value) => setSelected((current) => {
-    const next = { ...current, ...value };
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(next)); } catch { /* storage is optional */ }
-    return next;
-  });
+  const setPeriod = ({ mode: nextMode, month: nextMonth, year: nextYear }) => {
+    if (nextMode !== undefined) {
+      setMode(nextMode);
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ mode: nextMode })); } catch { /* storage is optional */ }
+    }
+    if (nextMonth !== undefined) setMonth(nextMonth);
+    if (nextYear !== undefined) setYear(nextYear);
+  };
   const shift = (amount) => {
-    const date = new Date(selected.year, selected.month - 1 + amount, 1);
-    setPeriod({ month: date.getMonth() + 1, year: date.getFullYear() });
+    if (selected.mode === 'year') setYear(year + amount);
+    else shiftMonth(amount);
   };
   const rows = data;
   const evolution = useMemo(() => (rows?.evolution || []).map((item) => ({

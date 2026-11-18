@@ -1,11 +1,14 @@
 import { Router } from 'express';
+import multer from 'multer';
 import { z } from 'zod';
 import { Category } from '../../models/Category.js';
 import { CashEntry } from '../../models/CashEntry.js';
 import { Purchase } from '../../models/Purchase.js';
 import { User } from '../../models/User.js';
-import { asyncHandler, conflict, notFound } from '../../lib/errors.js';
+import { AppError, asyncHandler, conflict, notFound } from '../../lib/errors.js';
+import { importPreviewLimiter } from '../../middleware/rateLimit.js';
 import { validate } from '../../middleware/validate.js';
+import { importCategoryNames, previewCategoriesPdf } from './category-import.service.js';
 
 const DEFAULT_CATEGORIES = [
   ...['Alimentação', 'Moradia', 'Transporte', 'Saúde', 'Educação', 'Lazer', 'Compras', 'Contas e serviços', 'Veículo', 'Outros']
@@ -21,6 +24,23 @@ const body = z.object({
   icon: z.string().trim().min(1).max(40).default('Tag'),
 });
 const idParam = z.object({ id: z.string().regex(/^[\da-f]{24}$/i) });
+const importNamesBody = z.object({
+  names: z.array(z.string().trim().min(1).max(80)).min(1).max(100),
+});
+const pdfUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 14 * 1024 * 1024 },
+});
+
+function uploadCategoryPdf(req, res, next) {
+  pdfUpload.single('file')(req, res, (error) => {
+    if (error instanceof multer.MulterError && error.code === 'LIMIT_FILE_SIZE') {
+      return next(new AppError(413, 'CATEGORY_PDF_TOO_LARGE', 'O PDF deve ter no máximo 14 MB.'));
+    }
+    if (error) return next(error);
+    return next();
+  });
+}
 
 function serialize(category) {
   return {
@@ -62,6 +82,17 @@ export function categoriesRoutes() {
     await ensureDefaultCategories(req.user._id);
     const categories = await Category.find({ userId: req.user._id }).sort({ name: 1 }).lean();
     res.json({ data: categories.map(serialize) });
+  }));
+  r.post('/import/preview', importPreviewLimiter, uploadCategoryPdf, asyncHandler(async (req, res) => {
+    if (!req.file) throw new AppError(400, 'CATEGORY_PDF_REQUIRED', 'Selecione um arquivo PDF.');
+    await ensureDefaultCategories(req.user._id);
+    const data = await previewCategoriesPdf(req.user._id, req.file.buffer);
+    res.json({ data });
+  }));
+  r.post('/import', validate({ body: importNamesBody }), asyncHandler(async (req, res) => {
+    await ensureDefaultCategories(req.user._id);
+    const summary = await importCategoryNames(req.user._id, req.body.names);
+    res.status(201).json({ data: summary });
   }));
   r.post('/', validate({ body }), asyncHandler(async (req, res) => {
     const category = await Category.create({ userId: req.user._id, ...req.body });

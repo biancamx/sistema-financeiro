@@ -95,17 +95,25 @@ function MonthStatement({ month }) {
 
 function PrintStatement({ data, month, format }) {
   const isMonthly = format === 'monthly';
-  const months = isMonthly ? (month ? [month] : []) : data.months;
+  const now = new Date();
+  const currentPeriod = now.getFullYear() * 12 + now.getMonth() + 1;
+  const detailedMonths = data.months.filter((item) => periodValue(item) >= currentPeriod);
+  const months = isMonthly ? (month ? [month] : []) : detailedMonths;
   const futurePending = isMonthly && month
     ? data.months.filter((item) => periodValue(item) > periodValue(month))
       .reduce((total, item) => total + item.pending, 0)
-    : data.totals.future;
+    : detailedMonths.filter((item) => periodValue(item) > currentPeriod)
+      .reduce((total, item) => total + item.pending, 0);
   const totals = isMonthly && month
     ? { paid: month.paid, pending: month.pending, future: futurePending }
-    : { paid: data.totals.paid, pending: data.totals.pending, future: data.totals.future };
+    : {
+      paid: detailedMonths.reduce((total, item) => total + item.paid, 0),
+      pending: detailedMonths.reduce((total, item) => total + item.pending, 0),
+      future: futurePending,
+    };
   const period = isMonthly && month
     ? `${month.monthName} / ${month.year}`
-    : 'Todos os períodos disponíveis';
+    : `De ${now.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })} em diante`;
 
   return (
     <article className="participant-print-document">
@@ -200,7 +208,7 @@ export default function ParticipantPrint({ data, currentMonth }) {
             <PrintOption
               icon={FileText}
               title="Demonstrativo detalhado"
-              description="Todos os períodos disponíveis, organizados por mês e cartão."
+              description="Do mês atual em diante, com lançamentos pagos e pendentes."
               onClick={() => selectFormat('detailed')}
             />
           </div>

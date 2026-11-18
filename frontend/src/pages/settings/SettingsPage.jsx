@@ -74,6 +74,7 @@ export default function SettingsPage({ initialSection = 'categories', standalone
   const [categories, setCategories] = useState([]);
   const [categoriesLoading, setCategoriesLoading] = useState(true);
   const [categoryManagerOpen, setCategoryManagerOpen] = useState(false);
+  const [categoryPdfPreview, setCategoryPdfPreview] = useState(null);
   const [categoryForm, setCategoryForm] = useState(null);
   const [categoryToDelete, setCategoryToDelete] = useState(null);
   const [fileDragging, setFileDragging] = useState(false);
@@ -92,6 +93,7 @@ export default function SettingsPage({ initialSection = 'categories', standalone
   const [vehicleReminderSettingsLoading, setVehicleReminderSettingsLoading] = useState(true);
   const [vehicleReminderSettingsBusy, setVehicleReminderSettingsBusy] = useState(false);
   const fileInput = useRef(null);
+  const categoryPdfInput = useRef(null);
   const { begin, end } = useAppBusy();
   const toast = useToast();
 
@@ -186,6 +188,50 @@ export default function SettingsPage({ initialSection = 'categories', standalone
       await categoriesApi.remove(categoryToDelete.id);
       setCategoryToDelete(null);
       toast.success('Categoria excluída.');
+    } catch (error) {
+      toast.error(error);
+    } finally {
+      end();
+    }
+  }
+
+  async function handleCategoryPdfSelected(event) {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    if (!file.name.toLowerCase().endsWith('.pdf')) {
+      toast.error(new Error('Selecione um arquivo PDF.'));
+      return;
+    }
+    if (!aiSettings?.configured || !aiSettings.consentGiven) {
+      toast.error(new Error('Configure sua chave e confirme o envio de dados na seção Inteligência artificial antes de analisar PDFs.'));
+      if (!standaloneImport) setActiveSection('ai');
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append('file', file);
+    begin('Analisando categorias no PDF com sua IA');
+    try {
+      const result = await categoriesApi.previewPdfImport(formData);
+      if (!Array.isArray(result?.data?.newCategories) || !Array.isArray(result?.data?.alreadyExists)) {
+        throw new Error('A API retornou uma prévia inválida para este PDF.');
+      }
+      setCategoryPdfPreview(result.data);
+    } catch (error) {
+      toast.error(error);
+    } finally {
+      end();
+    }
+  }
+
+  async function handleConfirmCategoryPdfImport() {
+    if (!categoryPdfPreview?.newCategories?.length) return;
+    begin('Importando categorias');
+    try {
+      const result = await categoriesApi.importNames(categoryPdfPreview.newCategories);
+      setCategoryPdfPreview(null);
+      toast.success(`${result.createdCount} ${result.createdCount === 1 ? 'categoria importada' : 'categorias importadas'}.`);
     } catch (error) {
       toast.error(error);
     } finally {
@@ -726,9 +772,23 @@ export default function SettingsPage({ initialSection = 'categories', standalone
             <p>Gerencie as categorias usadas nos lançamentos e filtros.</p>
           </div>
           {!categoriesLoading && <span className="settings-category-count">{categories.length} cadastradas</span>}
-          <Button variant="primary" onClick={() => setCategoryManagerOpen(true)}>
-            <Tag aria-hidden="true" /> Gerenciar
-          </Button>
+          <div className="settings-category-actions">
+            <Button onClick={() => categoryPdfInput.current?.click()}>
+              <Upload aria-hidden="true" /> Importar do PDF
+            </Button>
+            <Button variant="primary" onClick={() => setCategoryManagerOpen(true)}>
+              <Tag aria-hidden="true" /> Gerenciar
+            </Button>
+          </div>
+          <input
+            ref={categoryPdfInput}
+            className="settings-category-pdf-input"
+            type="file"
+            accept="application/pdf,.pdf"
+            onChange={handleCategoryPdfSelected}
+            tabIndex="-1"
+            aria-hidden="true"
+          />
         </header>
       </Card>
       </section>
@@ -932,6 +992,42 @@ export default function SettingsPage({ initialSection = 'categories', standalone
         )}
       >
         <p>Deseja excluir a categoria <strong>{categoryToDelete?.name}</strong>? Categorias vinculadas a lançamentos não podem ser excluídas.</p>
+      </Modal>
+
+      <Modal
+        open={Boolean(categoryPdfPreview)}
+        title="Importar categorias do PDF"
+        className="settings-category-import-modal"
+        onClose={() => setCategoryPdfPreview(null)}
+        dismissible
+        footer={(
+          <>
+            <Button onClick={() => setCategoryPdfPreview(null)}>Cancelar</Button>
+            {categoryPdfPreview?.newCategories?.length > 0 && (
+              <Button variant="primary" onClick={handleConfirmCategoryPdfImport}>
+                Importar {categoryPdfPreview.newCategories.length} {categoryPdfPreview.newCategories.length === 1 ? 'categoria' : 'categorias'}
+              </Button>
+            )}
+          </>
+        )}
+      >
+        {categoryPdfPreview && (
+          <div className="settings-category-import-preview">
+            <p className="muted">Confira as categorias identificadas pela IA. Somente as que ainda não existem serão adicionadas; nada será salvo sem sua confirmação.</p>
+            <section>
+              <h3>Novas categorias ({categoryPdfPreview.newCategories.length})</h3>
+              {categoryPdfPreview.newCategories.length
+                ? <ul>{categoryPdfPreview.newCategories.map((name) => <li key={name}>{name}</li>)}</ul>
+                : <p className="muted">Nenhuma categoria nova foi encontrada.</p>}
+            </section>
+            {categoryPdfPreview.alreadyExists.length > 0 && (
+              <section>
+                <h3>Já cadastradas — não serão duplicadas ({categoryPdfPreview.alreadyExists.length})</h3>
+                <ul>{categoryPdfPreview.alreadyExists.map((name) => <li key={name}>{name}</li>)}</ul>
+              </section>
+            )}
+          </div>
+        )}
       </Modal>
 
       <Modal

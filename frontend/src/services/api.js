@@ -161,6 +161,11 @@ export const cardsApi = {
 };
 export const categoriesApi = {
   list: (q) => get('/categories', q).then((r) => r.data),
+  previewPdfImport: (formData) => postFormData('/categories/import/preview', formData),
+  importNames: (names) => post('/categories/import', { names }).then((r) => {
+    refreshLookup('categories');
+    return r.data;
+  }),
   async create(body) {
     const result = await post('/categories', body).then((r) => r.data);
     refreshLookup('categories');

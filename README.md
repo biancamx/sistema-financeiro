@@ -1,107 +1,191 @@
 # Caderno de Contas
 
-Aplicação web para organizar as finanças de pessoas e grupos. Acompanhe cartões, compras parceladas, movimentações avulsas, orçamento mensal e gastos de veículos em um só lugar.
+Aplicação web para organizar as finanças do dia a dia, acompanhar compras e parcelas, controlar contas a receber e manter os dados financeiros de cada usuário separados. O sistema também pode ser instalado como PWA e enviar notificações push para o próprio usuário.
 
-## Recursos
+## Funcionalidades
 
-- **Painel:** resumo mensal de cartões e movimentações avulsas, com filtros por período.
-- **Lançamentos:** compras, parcelas, pagamentos e rateios entre pessoas.
-- **Caixa Avulso:** despesas, recebimentos, empréstimos e reembolsos, com histórico e vencimentos.
-- **Planilha mensal e visão por pessoa:** receitas, despesas, parcelas e saldos por mês.
-- **Cartões:** limites, faturas, fechamento e vencimento.
-- **Veículos:** cadastro, fotos, gastos, consumo, manutenção, lembretes e documentos. Gastos pagos em dinheiro também aparecem em Avulsos, vinculados ao histórico do veículo e gerenciados pela tela de Veículos.
-- **Assistente de IA:** Gemini, OpenAI ou Claude; consulta dados atuais da conta autenticada, planilhas por pessoa, compras, parcelas, categorias, contas e recebimentos, e compara períodos.
-- **Pessoas, aniversários, acessos e calculadora de rescisão.**
+- **Painel financeiro:** resumo mensal de cartões e movimentações em dinheiro, com filtros por período.
+- **Lançamentos e compras:** compras, parcelas, pagamentos e rateios entre pessoas.
+- **Pessoas:** planilha mensal, extrato, cobrança, aniversários e portal para consultar informações compartilhadas.
+- **Dinheiro e empréstimos:** despesas, recebimentos, empréstimos, reembolsos e parcelas em dinheiro.
+- **Cartões:** limites, faturas, datas de fechamento e vencimento.
+- **Veículos:** cadastro, documentos e fotos, gastos, consumo, manutenção e lembretes. Gastos pagos em dinheiro também podem ser acompanhados no histórico do veículo.
+- **Assistente de IA:** integração configurável com provedores compatíveis, usando a chave do usuário e os dados da conta conforme o consentimento apresentado no app.
+- **Outras ferramentas:** calculadora de rescisão, categorias, importação e gerenciamento de acessos.
+- **PWA e notificações:** instalação na tela inicial e alertas push de faturas para o usuário autenticado.
+
+Os registros financeiros são associados ao usuário da sessão. As notificações push são destinadas ao dono da conta; não fazem parte do fluxo de cobrança por WhatsApp de pessoas cadastradas.
+
+## Tecnologias
+
+| Área | Tecnologias |
+| --- | --- |
+| Frontend | React 18, React Router 7, Vite 6, CSS, Lucide e Recharts |
+| Backend | Node.js, Express 4, Mongoose e Zod |
+| Dados | MongoDB |
+| Autenticação e segurança | JWT, bcrypt, Helmet, CORS e limitação de requisições |
+| Integrações | Google OAuth, Web Push (`web-push`) e importação de planilhas |
+| Testes | `node:test` e `mongodb-memory-server` |
+| CI | GitHub Actions com Node.js 22 |
+
+## Como o sistema funciona
+
+O frontend React é uma aplicação de página única. Durante o desenvolvimento, o Vite serve a interface e encaminha as chamadas de API ao backend. Em produção, o backend Express pode servir os arquivos compilados em `frontend/dist`.
+
+O backend conecta ao MongoDB antes de começar a aceitar requisições. As rotas privadas da API ficam sob `/api` e verificam a sessão do usuário. O portal compartilhado de pessoas fica em `/api/portal`; os endpoints de notificações agendadas ficam em `/jobs` e exigem um token secreto.
+
+```text
+Navegador / PWA
+       │
+       ├── Interface React (Vite em desenvolvimento; frontend/dist em produção)
+       │
+       └── API Express (/api) ── MongoDB
+                    ├── Portal compartilhado (/api/portal)
+                    └── Jobs protegidos (/jobs)
+```
+
+### Estrutura do repositório
+
+```text
+backend/
+  src/
+    config/       configuração e validação do ambiente
+    middleware/   autenticação, validação e segurança
+    models/       modelos MongoDB/Mongoose
+    modules/      rotas e serviços por funcionalidade
+  scripts/        tarefas administrativas e dados de demonstração
+frontend/
+  public/         manifest, ícones e service worker
+  src/            páginas, componentes e estilos da interface
+tools/            utilitários auxiliares
+```
 
 ## Requisitos
 
-- Node.js 22.x é a versão usada pelo CI e recomendada para desenvolvimento e hospedagem.
-- Um banco MongoDB acessível pela aplicação, por exemplo, MongoDB Atlas.
+- Node.js 22 (versão usada no CI; o backend declara compatibilidade a partir de Node.js 18.17).
+- npm.
+- MongoDB local ou uma instância acessível pela rede.
 
-## Desenvolvimento local
+## Executar localmente
 
-1. Crie `backend/.env` com base em `backend/.env.example`.
-2. Preencha `MONGODB_URI`, `JWT_SECRET` e `AI_KEY_SECRET`. Para usar login com Google, configure também `GOOGLE_CLIENT_ID`. Não compartilhe o arquivo `.env`.
-3. Na raiz do projeto, instale as dependências e inicie a aplicação:
+1. Clone o repositório e entre na pasta do projeto.
+2. Crie o arquivo de ambiente do backend:
+
+   ```powershell
+   Copy-Item backend\.env.example backend\.env
+   ```
+
+3. Configure `MONGODB_URI`, `JWT_SECRET` e `AI_KEY_SECRET` em `backend/.env`. Gere segredos fortes e exclusivos para o ambiente; mantenha `AI_KEY_SECRET` estável, pois ela é necessária para descriptografar chaves de IA já armazenadas. Para gerar cada valor hexadecimal de 32 bytes, pode-se usar `openssl rand -hex 32`; gere valores diferentes para cada segredo.
+4. Instale as dependências:
+
+   ```bash
+   npm run setup
+   ```
+
+5. Inicie backend e frontend em modo de desenvolvimento:
+
+   ```bash
+   npm run dev
+   ```
+
+O frontend é servido pelo Vite e o backend, por padrão, na porta `4000`. Consulte os valores de `PORT` e `VITE_API_URL` nos arquivos de ambiente para ajustar portas ou separar os serviços.
+
+### Comandos principais
+
+| Comando | Ação |
+| --- | --- |
+| `npm run setup` | Instala as dependências do projeto, frontend e backend |
+| `npm run dev` | Inicia frontend e backend para desenvolvimento |
+| `npm test` | Executa os testes do backend |
+| `npm run build` | Gera a versão de produção do frontend |
+| `npm start` | Inicia o backend; serve `frontend/dist` quando a pasta compilada existe |
+| `npm run seed` | Recria os dados da conta de demonstração `demo@local.dev` |
+
+> **Atenção:** `npm run seed` apaga e recria os registros financeiros da conta de demonstração. Não execute em uma base que contenha dados que você queira preservar.
+
+## Variáveis de ambiente
+
+O arquivo `backend/.env.example` contém a lista atualizada e os valores ilustrativos. Configure os valores reais em `backend/.env` e nunca publique esse arquivo.
+
+| Variável | Finalidade |
+| --- | --- |
+| `NODE_ENV` | Ambiente de execução (`development` ou `production`) |
+| `PORT` | Porta HTTP do backend |
+| `MONGODB_URI` | URI de conexão com o MongoDB |
+| `FRONTEND_URL` | Origem ou origens permitidas para o frontend |
+| `JWT_SECRET` | Segredo usado para assinar tokens de sessão |
+| `AI_KEY_SECRET` | Segredo persistente usado para proteger chaves de IA armazenadas |
+| `JWT_EXPIRES_IN` | Duração da sessão |
+| `GOOGLE_CLIENT_ID` | Habilita a autenticação Google quando configurado |
+| `ADMIN_EMAIL` | E-mail autorizado como administrador |
+| `ALLOWED_DOMAINS` | Domínios de e-mail permitidos, quando aplicável |
+| `ENABLE_LOCAL_LOGIN` | Habilita ou desabilita o login local |
+| `COOKIE_SAMESITE` | Política `SameSite` dos cookies de sessão |
+| `RATE_LIMIT_MAX`, `AUTH_RATE_LIMIT_MAX` | Limites de requisições gerais e de autenticação |
+| `LOG_LEVEL` | Nível de detalhamento dos logs |
+| `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | Configuração do Web Push |
+| `JOBS_TOKEN` | Token secreto para proteger os endpoints `/jobs` |
+
+`VITE_API_URL` é uma variável do frontend, não do backend: configure-a no ambiente usado para compilar o frontend quando a API estiver em outra origem. Em produção, defina explicitamente `ENABLE_LOCAL_LOGIN=false` se o login local não for desejado. Configure `FRONTEND_URL` com as origens reais e use HTTPS.
+
+## Login e acesso
+
+O login Google é habilitado por `GOOGLE_CLIENT_ID`. No console do Google, configure a origem do frontend e o URI de callback do backend:
+
+```text
+https://SEU_DOMINIO/api/auth/google/callback
+```
+
+O valor de `ADMIN_EMAIL` identifica a conta administradora. Contas novas podem depender de aprovação, conforme o fluxo de acessos do sistema.
+
+## PWA e notificações Web Push
+
+O frontend inclui um manifest PWA com modo `standalone` e um service worker que recebe e exibe notificações. Para usar no iPhone/iPad, publique o sistema em HTTPS, abra-o no Safari e adicione-o à Tela de Início. O suporte a Web Push no iOS/iPadOS requer a versão 16.4 ou posterior e o uso do app instalado.
+
+As notificações push atuais avisam o usuário autenticado sobre faturas de cartão que vencem no dia ou estão atrasadas. Elas não são enviadas às pessoas cadastradas nem acionam a cobrança por WhatsApp.
+
+1. Gere as chaves VAPID:
+
+   ```bash
+   npm --prefix backend run generate:vapid
+   ```
+
+2. Configure `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` e `VAPID_SUBJECT` no ambiente do backend. Gere também um valor forte e privado para `JOBS_TOKEN`.
+3. No app instalado, entre em **Configurações** e toque em **Ativar notificações no celular**. A permissão do navegador é solicitada somente após essa ação.
+4. Configure um agendador externo (por exemplo, cron ou o agendador do provedor) para chamar `POST /jobs/notificar` com o header `x-jobs-token` igual ao `JOBS_TOKEN`. Não há agendador interno no backend.
+5. Para enviar uma notificação de teste, chame `POST /jobs/teste` com o mesmo header e um JSON contendo o identificador do usuário ativo:
+
+   ```json
+   { "userId": "ID_DE_24_CARACTERES_DO_USUARIO" }
+   ```
+
+As assinaturas são associadas ao usuário autenticado. Assinaturas inválidas ou expiradas são removidas quando o serviço de push retorna os erros correspondentes.
+
+## Testes, build e publicação
+
+Antes de publicar, execute:
+
+```bash
+npm test
+npm run build
+```
+
+O workflow do GitHub Actions também executa os testes do backend e o build do frontend. Para uma instalação em um único serviço Node:
 
 ```bash
 npm run setup
-npm run dev
+npm run build
+npm start
 ```
 
-O frontend fica disponível pelo Vite e a API usa `http://localhost:4000`. Em desenvolvimento, o Vite encaminha as chamadas `/api` para a API local.
+O backend serve o frontend compilado quando `frontend/dist` existe. Se frontend e API forem publicados separadamente, configure `VITE_API_URL` para o endereço da API antes de executar o build e ajuste `FRONTEND_URL` no backend.
 
-Comandos adicionais, executados na raiz:
+O endpoint de saúde da API é `/api/system/health`. Para backup do MongoDB, o backend disponibiliza `npm --prefix backend run backup`; verifique se as ferramentas do MongoDB estão instaladas e se o destino do backup está configurado antes de executar.
 
-```bash
-npm test       # testes do backend com MongoDB em memória
-npm run build  # build de produção do frontend
-npm start      # inicia o backend e serve o frontend compilado
-```
+## Segurança e operação
 
-## Hospedagem Node.js
-
-Configure o serviço para executar a partir da raiz do repositório:
-
-| Configuração | Valor |
-|---|---|
-| Build | `npm run setup && npm run build` |
-| Início | `npm start` |
-| Porta | A variável `PORT` fornecida pelo provedor |
-| Saúde | `GET /api/system/health` |
-
-O processo Node serve a API e os arquivos compilados do frontend. Defina `NODE_ENV=production` no painel da hospedagem.
-
-### Variáveis de ambiente
-
-Configure os valores no painel do provedor. Não os grave no repositório.
-
-| Variável | Uso |
-|---|---|
-| `MONGODB_URI` | URI privada de conexão com o MongoDB; obrigatória |
-| `NODE_ENV` | Use `production` na hospedagem |
-| `PORT` | Porta informada pelo provedor |
-| `FRONTEND_URL` | Origem pública autorizada, sem barra final; origens adicionais podem ser separadas por vírgula |
-| `JWT_SECRET` | Segredo exclusivo da instalação, com pelo menos 32 bytes aleatórios; obrigatório fora de testes |
-| `AI_KEY_SECRET` | Segredo exclusivo de 32 bytes em hexadecimal (64 caracteres); obrigatório fora de testes e usado para criptografar as chaves de IA |
-| `ADMIN_EMAIL` | E-mail que deve receber acesso de administrador |
-| `GOOGLE_CLIENT_ID` | ID OAuth do Google; necessário para habilitar o login Google |
-| `ENABLE_LOCAL_LOGIN` | Em produção, mantenha `false` se o login local não for desejado |
-| `JWT_EXPIRES_IN` | Duração da sessão; padrão `7d` |
-| `ALLOWED_DOMAINS` | Restrição opcional de cadastros por domínio ou e-mail, separados por vírgula |
-| `COOKIE_SAMESITE` | Política do cookie; padrão `lax`. Para front e API em sites diferentes, configure `none` e use HTTPS |
-| `VITE_API_URL` | Só precisa ser definida durante o build quando o frontend e a API estão em origens diferentes |
-
-Gere segredos diferentes para `JWT_SECRET` e `AI_KEY_SECRET`, por exemplo:
-
-```bash
-openssl rand -hex 32
-```
-
-Guarde `AI_KEY_SECRET` de forma permanente e segura: sem ela, as chaves de IA já salvas não poderão ser descriptografadas. Cada usuário fornece sua própria chave de provedor na aba **Configurações**; a aplicação não usa uma chave global como alternativa.
-
-Para backups, prefira os backups automáticos do MongoDB Atlas. O script `npm --prefix backend run backup` depende do programa `mongodump`, que pode não estar instalado no provedor. Se executá-lo localmente, use uma máquina com MongoDB Database Tools e mantenha os arquivos gerados fora do repositório.
-
-## Login com Google
-
-No Google Cloud Console:
-
-1. Configure a tela de consentimento OAuth e, se necessário, cadastre as contas de teste.
-2. Crie uma credencial OAuth do tipo **ID do cliente OAuth para aplicativo da Web**.
-3. Cadastre a origem do site em **Origens JavaScript autorizadas**.
-4. Cadastre `https://SEU-DOMINIO/api/auth/google/callback` em **URIs de redirecionamento autorizados**.
-5. Informe o ID do cliente em `GOOGLE_CLIENT_ID`.
-
-Use o domínio HTTPS real da aplicação e mantenha a origem consistente com `FRONTEND_URL`. Reinicie ou publique novamente o serviço após alterar variáveis.
-
-## Primeiro acesso e usuários
-
-Faça login com o endereço definido em `ADMIN_EMAIL` para receber acesso de administrador. Novas contas podem precisar de aprovação na área **Acessos**. Se `ALLOWED_DOMAINS` estiver definido, o cadastro fica limitado aos domínios ou endereços informados.
-
-## Segurança e dados
-
-- Não envie arquivos `.env`, chaves, credenciais, dados pessoais ou backups para o Git.
-- As chaves de IA dos usuários são armazenadas criptografadas no servidor e não são devolvidas ao frontend.
-- Com consentimento, a mensagem e os dados necessários às consultas do assistente são enviados ao provedor de IA escolhido. Consultas respeitam o usuário autenticado; alterações só são disponibilizadas após um pedido explícito do usuário.
-- As imagens e documentos de veículos são associados aos registros e protegidos pelas permissões do usuário.
-- Mantenha o acesso ao MongoDB restrito ao necessário para o serviço.
+- Não versione `.env`, chaves VAPID, tokens, credenciais OAuth ou backups.
+- Mantenha `JWT_SECRET`, `AI_KEY_SECRET` e `JOBS_TOKEN` fortes e fora do código. Preserve uma cópia segura de `AI_KEY_SECRET`; trocá-la pode impedir o acesso às chaves de IA já criptografadas.
+- Use HTTPS em produção, especialmente para autenticação, PWA e Web Push.
+- O token dos jobs deve ser enviado apenas pelo servidor/agendador, nunca pelo frontend público.
+- Restrinja origens e domínios permitidos às necessidades da implantação.

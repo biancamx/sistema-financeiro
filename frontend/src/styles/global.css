@@ -1297,7 +1297,9 @@ img, canvas { max-width: 100%; }
 .participant-month-section { padding: 22px; border: 1px solid var(--border-color); border-radius: 18px; background: color-mix(in srgb, var(--bg-card) 94%, transparent); box-shadow: 0 18px 60px rgb(0 0 0 / .08); }
 .participant-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 17px; }
 .participant-section-heading h2 { margin: 0; color: var(--text-primary); font-size: 18px; }
+.participant-section-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }
 .participant-contact { display: inline-flex; align-items: center; gap: 7px; }
+.participant-print-trigger { display: inline-flex; width: 42px; height: 42px; flex: 0 0 42px; align-items: center; justify-content: center; padding: 0; }
 .participant-contact-note { color: var(--text-secondary); font-size: 11px; }
 .participant-month-nav { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px; border: 1px solid var(--border-color); border-radius: 12px; background: color-mix(in srgb, var(--bg-app) 65%, var(--bg-surface)); }
 .participant-month-nav > div { display: grid; justify-items: center; gap: 2px; text-align: center; }
@@ -1338,6 +1340,53 @@ img, canvas { max-width: 100%; }
 .participant-question { display: grid; place-items: center; width: 44px; height: 44px; border: 1px solid var(--border-color); border-radius: 9px; background: var(--bg-surface); color: var(--text-secondary); cursor: pointer; }
 .participant-question:hover { border-color: var(--accent); color: var(--accent); }
 .participant-message-modal .modal-foot { flex-wrap: wrap; }
+.participant-print-options { display: grid; gap: 12px; }
+.participant-print-options > p { margin: 0 0 4px; color: var(--text-secondary); font-size: 13px; }
+.participant-print-option { display: flex; width: 100%; align-items: center; gap: 12px; padding: 14px; border: 1px solid var(--border-color); border-radius: 12px; background: var(--bg-surface); color: var(--text-primary); text-align: left; cursor: pointer; }
+.participant-print-option:hover:not(:disabled) { border-color: var(--primary); background: var(--hover); }
+.participant-print-option:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.participant-print-option:disabled { cursor: not-allowed; opacity: .55; }
+.participant-print-option-icon { display: grid; width: 40px; height: 40px; flex: 0 0 40px; place-items: center; border-radius: 11px; background: var(--primary-soft); color: var(--primary); }
+.participant-print-option > span:last-child { display: grid; gap: 4px; }
+.participant-print-option small { color: var(--text-secondary); font-size: 11px; }
+.participant-print-modal .modal-content:has(.participant-print-preview-frame) { max-height: 72vh; }
+.participant-print-preview-frame { overflow: auto; max-height: 62vh; padding: 12px; border: 1px solid var(--border-color); border-radius: 10px; background: #e8eeeb; -webkit-overflow-scrolling: touch; }
+.participant-print-preview-frame .participant-print-document { width: min(100%, 210mm); min-height: 297mm; margin: 0 auto; padding: 18mm 15mm 22mm; background: #fff; color: #17262b; box-shadow: 0 4px 24px rgb(0 0 0 / .14); font-family: var(--font-sans, Arial, sans-serif); font-size: 10px; line-height: 1.45; }
+.participant-print-modal-actions { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; margin-top: 12px; }
+.participant-print-root { display: none; }
+.participant-print-header { padding-bottom: 18px; border-bottom: 2px solid #0f6b66; }
+.participant-print-brand { display: flex; align-items: center; gap: 8px; color: #0f6b66; font-size: 12px; font-weight: 700; }
+.participant-print-mark { display: grid; width: 25px; height: 25px; place-items: center; border-radius: 7px; background: #0f6b66; color: #fff; font-size: 14px; }
+.participant-print-kind { display: block; margin-top: 15px; color: #5d6e70; font-size: 9px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
+.participant-print-header h1 { margin: 5px 0 2px; color: #17262b; font-size: 22px; }
+.participant-print-header p { margin: 0; color: #5d6e70; font-size: 10px; }
+.participant-print-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; margin: 16px 0 20px; }
+.participant-print-summary > div { display: grid; gap: 4px; padding: 10px; border: 1px solid #dce3df; border-radius: 7px; background: #f5f8f6; }
+.participant-print-summary span { color: #5d6e70; font-size: 9px; }
+.participant-print-summary strong { color: #17262b; font-size: 13px; }
+.participant-print-month { margin: 0 0 18px; }
+.participant-print-month-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-bottom: 8px; border-bottom: 1px solid #aebdb6; }
+.participant-print-month-header h2 { margin: 0; color: #0f6b66; font-size: 15px; }
+.participant-print-month-header p { margin: 2px 0 0; color: #5d6e70; font-size: 9px; }
+.participant-print-month-header > strong { color: #17262b; font-size: 11px; white-space: nowrap; }
+.participant-print-section { margin-top: 12px; }
+.participant-print-section > h3 { margin: 0 0 7px; color: #344a4b; font-size: 10px; letter-spacing: .06em; text-transform: uppercase; }
+.participant-print-card { margin: 0 0 9px; overflow: hidden; border: 1px solid #dce3df; border-radius: 6px; break-inside: avoid; page-break-inside: avoid; }
+.participant-print-card-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 9px; background: #f1f6f3; }
+.participant-print-card-header h4 { margin: 0; color: #17262b; font-size: 10px; }
+.participant-print-card-header p { margin: 2px 0 0; color: #5d6e70; font-size: 8px; }
+.participant-print-card-totals { display: grid; justify-items: end; gap: 2px; color: #17262b; font-size: 9px; white-space: nowrap; }
+.participant-print-card-totals span { color: #7a5a18; }
+.participant-print-table { width: 100%; border-collapse: collapse; font-size: 8px; }
+.participant-print-table th, .participant-print-table td { padding: 5px 6px; border-bottom: 1px solid #e2e8e4; text-align: left; vertical-align: top; }
+.participant-print-table th { background: #fafcfb; color: #526461; font-size: 7px; font-weight: 700; text-transform: uppercase; }
+.participant-print-table tbody tr:last-child td { border-bottom: 0; }
+.participant-print-number { text-align: right !important; white-space: nowrap; }
+.participant-print-fixed { padding-top: 2px; }
+.participant-print-empty { padding: 8px; color: #687a76; font-size: 9px; }
+.participant-print-month-totals { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 15px; margin-top: 9px; padding: 8px 0; border-top: 1px solid #aebdb6; color: #5d6e70; font-size: 9px; }
+.participant-print-month-totals strong { margin-left: 4px; color: #17262b; }
+.participant-print-footer { display: none; }
 .participant-empty, .participant-error { display: grid; justify-items: center; gap: 9px; padding: 44px 16px; color: var(--text-secondary); text-align: center; }
 .participant-empty strong, .participant-error h1 { margin: 0; color: var(--text-primary); }
 .participant-error { min-height: 70vh; align-content: center; }
@@ -1359,7 +1408,9 @@ img, canvas { max-width: 100%; }
   .participant-total strong { font-size: 15px; }
   .participant-month-section { padding: 15px 12px; }
   .participant-section-heading { align-items: flex-start; flex-direction: column; }
-  .participant-contact { width: 100%; justify-content: center; }
+  .participant-section-actions { width: 100%; flex-direction: row; align-items: center; justify-content: flex-start; }
+  .participant-contact { width: auto; min-width: 0; min-height: 40px; flex: 1 1 auto; justify-content: center; padding: 7px 10px; font-size: 12px; }
+  .participant-print-trigger { width: 42px; flex: 0 0 42px; }
   .participant-card-toggle { gap: 8px; padding: 10px 8px; }
   .participant-card-icon { width: 31px; height: 31px; flex-basis: 31px; }
   .participant-card-info strong, .participant-card-totals strong { font-size: 10px; }
@@ -1372,6 +1423,22 @@ img, canvas { max-width: 100%; }
   .participant-question { grid-column: 3; grid-row: 1; width: 44px; height: 44px; justify-self: end; align-self: start; margin-bottom: 39px; }
   .participant-item-value { grid-column: 2 / 4; grid-row: 2; display: flex; align-items: center; justify-content: space-between; width: 100%; }
   .participant-footer { align-items: flex-start; line-height: 1.5; }
+}
+@media print {
+  @page { size: A4 portrait; margin: 13mm 12mm 18mm; }
+  html, body { width: auto !important; height: auto !important; min-height: 0 !important; overflow: visible !important; background: #fff !important; }
+  body * { visibility: hidden !important; }
+  .participant-print-root, .participant-print-root * { visibility: visible !important; }
+  .participant-print-root { position: absolute !important; top: 0 !important; left: 0 !important; display: block !important; width: 100% !important; margin: 0 !important; padding: 0 !important; background: #fff !important; }
+  .participant-print-document { width: 100% !important; min-height: 0 !important; margin: 0 !important; padding: 0 0 14mm !important; background: #fff !important; color: #17262b !important; box-shadow: none !important; font-family: Arial, sans-serif !important; font-size: 9pt !important; line-height: 1.4 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .participant-print-header, .participant-print-summary, .participant-print-month-header, .participant-print-card-header, .participant-print-table thead { break-inside: avoid; page-break-inside: avoid; }
+  .participant-print-table { width: 100% !important; border-collapse: collapse !important; }
+  .participant-print-table thead { display: table-header-group; }
+  .participant-print-table tfoot { display: table-footer-group; }
+  .participant-print-table tr { break-inside: avoid; page-break-inside: avoid; }
+  .participant-print-card { break-inside: avoid; page-break-inside: avoid; }
+  .participant-print-footer { position: fixed; right: 0; bottom: -13mm; left: 0; display: flex; justify-content: space-between; padding-top: 4px; border-top: 1px solid #b9c5bf; color: #687a76; font-size: 8pt; }
+  .participant-print-page-number::after { content: "Página " counter(page) " de " counter(pages); }
 }
 .sheet .pos { color: var(--pos); } .sheet .neg { color: var(--neg); }
 .cell { font: inherit; width: 100%; border: 1px solid transparent; background: transparent; color: var(--ink); text-align: right; padding: 4px 6px; border-radius: 5px; font-variant-numeric: tabular-nums; }

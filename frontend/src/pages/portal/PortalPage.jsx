@@ -5,6 +5,7 @@ import { CalendarDays, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, Che
 import { useToast } from '../../context/ToastContext.jsx';
 import { portalApi } from '../../services/api.js';
 import { Button, Field, Modal, Spinner } from '../../components/ui/ui.jsx';
+import ParticipantPrint from './ParticipantPrint.jsx';
 
 const brl = (value) => Number(value || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const confettiColors = ['#45b8ae', '#e0b04f', '#73bce3', '#f4faf8', '#ff7b89', '#a88bfa'];
@@ -206,14 +207,17 @@ export default function PortalPage() {
               <p className="participant-eyebrow">Seu demonstrativo</p>
               <h2>Meses e lançamentos</h2>
             </div>
-            <button
-              type="button"
-              className="btn btn-primary participant-contact"
-              disabled={!currentMessage}
-              onClick={() => currentMessage && openMessagePreview(currentMessage)}
-            >
-              <CircleHelp size={16} aria-hidden="true" /> Questionar no WhatsApp
-            </button>
+            <div className="participant-section-actions">
+              <ParticipantPrint data={data} currentMonth={currentMonth} />
+              <button
+                type="button"
+                className="btn btn-primary participant-contact"
+                disabled={!currentMessage}
+                onClick={() => currentMessage && openMessagePreview(currentMessage)}
+              >
+                <CircleHelp size={16} aria-hidden="true" /> Questionar no WhatsApp
+              </button>
+            </div>
           </div>
 
           {data.months.length === 0 ? (

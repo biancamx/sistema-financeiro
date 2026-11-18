@@ -28,6 +28,8 @@ import { cashLedgerRoutes } from './modules/cashLedger/cashLedger.routes.js';
 import { adminRoutes } from './modules/admin/admin.routes.js';
 import { assistantRoutes } from './modules/assistant/assistant.routes.js';
 import { settingsRoutes } from './modules/settings/ai.routes.js';
+import { jobsRoutes } from './modules/push/jobs.routes.js';
+import { pushRoutes } from './modules/push/push.routes.js';
 
 const frontendDist = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../frontend/dist');
 
@@ -60,6 +62,7 @@ export function createApp() {
   api.use('/assistant', assistantRoutes());
   api.use('/settings', settingsRoutes());
   api.use('/admin', adminRoutes());
+  api.use('/push', pushRoutes());
   api.use('/purchases', purchasesRoutes());
   api.use('/dashboard', dashboardRoutes());
   api.use('/cards', cardsRoutes());
@@ -73,6 +76,7 @@ export function createApp() {
   api.use('/import', importRoutes());
   api.use('/cash-ledger', cashLedgerRoutes());
 
+  app.use('/jobs', jobsRoutes());
   app.use('/api', api);
 
   if (existsSync(frontendDist)) {

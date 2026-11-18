@@ -123,33 +123,37 @@ export default function CashEntryForm({ value, onClose, onSubmit, lookups }) {
           {(id) => <input id={id} className="input" type="date" value={form.entryDate} onChange={set('entryDate')} />}
         </Field>
         {form.kind === 'expense' && <Field label="Forma de pagamento">{(id) => <Select id={id} value={form.paymentMethod} onChange={set('paymentMethod')} options={METHODS} />}</Field>}
-        <Field label="Categoria">{(id) => <Select id={id} value={form.categoryId} onChange={set('categoryId')} placeholder="Sem categoria" options={categoryOptions} />}</Field>
         {personRequired && <Field label={form.kind === 'sale' ? 'Comprador' : 'Quem pegou'}>{(id) => <Select id={id} value={form.personId} onChange={set('personId')} placeholder="Selecione uma pessoa" options={personOptions} />}</Field>}
+        {form.kind === 'refund' && <Field label="Pessoa cadastrada (opcional)">{(id) => <Select id={id} value={form.personId} onChange={set('personId')} placeholder="Empresa ou pessoa em texto livre" options={personOptions} />}</Field>}
+        {form.kind === 'refund' && !form.personId && <Field label="Empresa / pessoa devedora">{(id) => <input id={id} className="input" maxLength={120} value={form.counterparty} onChange={set('counterparty')} />}</Field>}
+        {personRequired && <Field label={form.kind === 'sale' ? 'Forma de recebimento' : 'Como entreguei'}>{(id) => <Select id={id} value={form.paymentMethod} onChange={set('paymentMethod')} options={METHODS} />}</Field>}
+        {form.kind === 'sale' && <Field label="Número de parcelas">{(id) => <input id={id} className="input" type="number" min="1" max="240" value={form.installmentCount} onChange={set('installmentCount')} />}</Field>}
+        {form.kind === 'sale' && <Field label="Vencimento da 1ª parcela">{(id) => <input id={id} className="input" type="date" value={form.firstDueDate} onChange={set('firstDueDate')} />}</Field>}
+        {form.kind === 'loan' && <Field label="Condição de pagamento">{(id) => <Select id={id} value={form.loanTerm} onChange={set('loanTerm')} options={[
+          { value: 'date', label: 'À vista em uma data' },
+          { value: 'installments', label: 'Parcelado' },
+          { value: 'none', label: 'Sem prazo definido' },
+        ]} />}</Field>}
+        {form.kind === 'loan' && form.loanTerm === 'installments' && <Field label="Número de parcelas">{(id) => <input id={id} className="input" type="number" min="1" max="240" value={form.installmentCount} onChange={set('installmentCount')} />}</Field>}
+        {form.kind === 'loan' && form.loanTerm !== 'none' && <Field label="Data / 1º vencimento">{(id) => <input id={id} className="input" type="date" value={form.firstDueDate} onChange={set('firstDueDate')} />}</Field>}
+        {((form.kind === 'sale' && Number(form.installmentCount) > 1) || (form.kind === 'loan' && form.loanTerm === 'installments')) && <Field label="Periodicidade">{(id) => <Select id={id} value={form.frequency} onChange={set('frequency')} options={FREQUENCIES} />}</Field>}
+      </div>
+      <details className="form-more-options" open={isEdit}>
+        <summary>Mais opções</summary>
+        <div className="form-grid">
+        <Field label="Categoria">{(id) => <Select id={id} value={form.categoryId} onChange={set('categoryId')} placeholder="Sem categoria" options={categoryOptions} />}</Field>
         {['sale', 'loan'].includes(form.kind) && <>
-          <Field label={form.kind === 'sale' ? 'Forma de recebimento' : 'Como entreguei'}>{(id) => <Select id={id} value={form.paymentMethod} onChange={set('paymentMethod')} options={METHODS} />}</Field>
           {form.kind === 'sale' && <Field label="Entrada (R$), opcional">{(id) => <input id={id} className="input" inputMode="decimal" value={form.downPayment} onChange={set('downPayment')} placeholder="0,00" />}</Field>}
-          {form.kind === 'loan' && <Field label="Condição de pagamento">{(id) => <Select id={id} value={form.loanTerm} onChange={set('loanTerm')} options={[
-            { value: 'date', label: 'À vista em uma data' },
-            { value: 'installments', label: 'Parcelado' },
-            { value: 'none', label: 'Sem prazo definido' },
-          ]} />}</Field>}
-          {(form.kind === 'sale' || form.loanTerm !== 'none') && <>
-            {form.kind === 'sale' && <Field label="Número de parcelas">{(id) => <input id={id} className="input" type="number" min="1" max="240" value={form.installmentCount} onChange={set('installmentCount')} />}</Field>}
-            {form.kind === 'loan' && form.loanTerm === 'installments' && <Field label="Número de parcelas">{(id) => <input id={id} className="input" type="number" min="1" max="240" value={form.installmentCount} onChange={set('installmentCount')} />}</Field>}
-            <Field label={form.kind === 'sale' ? 'Vencimento da 1ª parcela' : 'Data / 1º vencimento'}>{(id) => <input id={id} className="input" type="date" value={form.firstDueDate} onChange={set('firstDueDate')} />}</Field>
-            {((form.kind === 'sale' && Number(form.installmentCount) > 1) || (form.kind === 'loan' && form.loanTerm === 'installments')) && <Field label="Periodicidade">{(id) => <Select id={id} value={form.frequency} onChange={set('frequency')} options={FREQUENCIES} />}</Field>}
-          </>}
           {form.kind === 'loan' && <Field label="Juros simples (% ao mês), opcional">{(id) => <input id={id} className="input" inputMode="decimal" value={form.interestRate} onChange={set('interestRate')} />}</Field>}
         </>}
         {form.kind === 'sale' && <Field label="Vincular veículo vendido">{(id) => <Select id={id} value={form.vehicleId} onChange={set('vehicleId')} placeholder="Não vincular veículo" options={vehicleOptions} />}</Field>}
         {form.kind === 'refund' && <>
-          <Field label="Pessoa cadastrada (opcional)">{(id) => <Select id={id} value={form.personId} onChange={set('personId')} placeholder="Empresa ou pessoa em texto livre" options={personOptions} />}</Field>
-          {!form.personId && <Field label="Empresa / pessoa devedora">{(id) => <input id={id} className="input" maxLength={120} value={form.counterparty} onChange={set('counterparty')} />}</Field>}
           <Field label="Número do protocolo">{(id) => <input id={id} className="input" maxLength={120} value={form.protocol} onChange={set('protocol')} />}</Field>
           <Field label="Previsão de devolução">{(id) => <input id={id} className="input" type="date" value={form.expectedReturnDate} onChange={set('expectedReturnDate')} />}</Field>
         </>}
         <Field label="Observação">{(id) => <textarea id={id} className="input" rows="3" maxLength={2000} value={form.notes} onChange={set('notes')} />}</Field>
-      </div>
+        </div>
+      </details>
       {error && <p className="field-error" role="alert">{error}</p>}
     </Modal>
   );

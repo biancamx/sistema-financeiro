@@ -1,68 +1,13 @@
 import { driver } from 'driver.js';
 import 'driver.js/dist/driver.css';
-import { PATHS } from '../app/paths.js';
 
 const tourSteps = [
-  {
-    path: PATHS.dashboard,
-    title: 'Painel financeiro',
-    description: 'Veja o resumo do mês, acompanhe faturas de cartões e consulte os indicadores do caixa avulso.',
-  },
-  {
-    path: PATHS.purchases,
-    title: 'Lançamentos',
-    description: 'Registre compras, associe cartão, pessoa e categoria, e acompanhe as parcelas ao longo dos meses.',
-  },
-  {
-    path: PATHS.cashLedger,
-    title: 'Avulsos',
-    description: 'Controle despesas, vendas, empréstimos e reembolsos fora das compras de cartão, incluindo parcelas e recebimentos.',
-  },
-  {
-    path: PATHS.cards,
-    title: 'Cartões',
-    description: 'Cadastre cartões, informe titular e limites e acompanhe faturas e pagamentos.',
-  },
-  {
-    path: PATHS.budget,
-    title: 'Planilha mensal',
-    description: 'Organize receitas, despesas e contas fixas por pessoa, ano e mês.',
-  },
-  {
-    path: PATHS.overview,
-    title: 'Visão geral',
-    description: 'Consulte uma visão consolidada dos valores e compromissos financeiros por período.',
-  },
-  {
-    path: PATHS.vehicles,
-    title: 'Gestão de veículos',
-    description: 'Cadastre veículos e registre manutenções e despesas com datas, quilometragem e rateio entre pessoas.',
-  },
-  {
-    path: PATHS.people,
-    title: 'Pessoas e portal do participante',
-    description: 'Mantenha contatos e dados das pessoas, gere links do portal do participante e prepare cobranças.',
-  },
-  {
-    path: PATHS.birthdays,
-    title: 'Aniversários',
-    description: 'Consulte e organize os aniversários cadastrados para as pessoas da sua conta.',
-  },
-  {
-    path: PATHS.rescission,
-    title: 'Calculadora de rescisão',
-    description: 'Faça uma estimativa dos valores de rescisão informando os dados do vínculo de trabalho.',
-  },
-  {
-    path: PATHS.settings,
-    title: 'Configurações',
-    description: 'Acesse as opções da conta, revise importações e encontre as ações de gerenciamento de dados.',
-  },
-  {
-    path: PATHS.adminUsers,
-    title: 'Gerenciar acessos',
-    description: 'Administradores podem aprovar ou bloquear contas cadastradas no sistema.',
-  },
+  { selector: 'inicio', title: 'Início', description: 'Acompanhe o painel mensal, as pendências e as ações que precisam de atenção.' },
+  { selector: 'lancamentos-compras', title: 'Lançamentos', description: 'Acesse compras e parcelas, dinheiro e empréstimos e importações em abas.' },
+  { selector: 'pessoas', title: 'Pessoas', description: 'Encontre cadastro, extrato, planilha, cobrança, portal e aniversários.' },
+  { selector: 'cartoes', title: 'Cartões', description: 'Acompanhe limites, vencimentos e faturas.' },
+  { selector: 'veiculos', title: 'Veículos', description: 'Gerencie gastos, manutenções, lembretes e documentos.' },
+  { selector: 'mais', title: 'Mais', description: 'Abra o assistente de IA, a calculadora de rescisão, configurações e acessos administrativos.' },
 ];
 
 export function startTour() {
@@ -87,22 +32,16 @@ export function startTour() {
     },
     steps: [
       ...tourSteps.map((step) => ({
-        element: `${navigationSelector} [data-tour="nav-${step.path.replace(/^\//, '')}"]`,
-        popover: {
-          title: step.title,
-          description: step.description,
-          side: 'right',
-          align: 'start',
-        },
+        element: `${navigationSelector} [data-tour="nav-${step.selector}"]`,
+        popover: { title: step.title, description: step.description, side: 'right', align: 'start' },
       })),
       {
+        element: isMobile ? '[data-tour="new-action-mobile"]' : '[data-tour="new-action"]',
+        popover: { title: 'Novo registro', description: 'Crie compras, despesas, recebimentos ou gastos de veículos sem procurar o formulário.', side: 'bottom', align: 'start' },
+      },
+      {
         element: '[data-tour="reminders"]',
-        popover: {
-          title: 'Central de lembretes',
-          description: 'Use este sino para consultar vencimentos próximos e pendências financeiras.',
-          side: 'bottom',
-          align: 'start',
-        },
+        popover: { title: 'Central de lembretes', description: 'Consulte vencimentos próximos e pendências financeiras.', side: 'bottom', align: 'start' },
       },
     ],
   });

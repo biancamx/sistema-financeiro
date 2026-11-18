@@ -13,6 +13,7 @@
     "start": "node src/server.js",
     "seed": "node scripts/seed.js",
     "backup": "node scripts/backup.js",
+    "generate:vapid": "web-push generate-vapid-keys",
     "test": "node --test --test-concurrency=1 tests/*.test.js"
   },
   "dependencies": {
@@ -32,6 +33,7 @@
     "pino": "^9.5.0",
     "pino-http": "^10.3.0",
     "pino-pretty": "^11.3.0",
+    "web-push": "^4.0.0",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
     "zod": "^4.6.7"
   },

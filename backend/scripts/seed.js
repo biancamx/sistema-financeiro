@@ -196,6 +196,8 @@ async function main() {
         name: 'Usuário Demo',
         passwordHash: 'local',
         provider: 'local',
+        status: 'active',
+        role: 'user',
         googleId: null,
         portalContactPersonId: null,
         reminderSettings: { enabled: true, triggerDay: 5, triggerHour: 9, autoSend: false },

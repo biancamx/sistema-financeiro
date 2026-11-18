@@ -4,6 +4,7 @@ import {
   ArrowRight,
   Bell,
   CheckCircle2,
+  ChevronRight,
   Eye,
   EyeOff,
   FileSpreadsheet,
@@ -12,6 +13,7 @@ import {
   Plus,
   ShieldCheck,
   Sparkles,
+  Smartphone,
   Tag,
   Trash2,
   Upload,
@@ -24,6 +26,7 @@ import { notifyFinanceChanged } from '../../hooks/useFinanceRefresh.js';
 import { refreshAllLookups } from '../../services/lookupRefresh.js';
 import { MONTHS_SHORT, money } from '../../lib/format.js';
 import { categoriesApi, importApi, settingsAiApi, systemApi, vehiclesApi } from '../../services/api.js';
+import PushNotificationsSettings from './PushNotificationsSettings.jsx';
 import './SettingsPage.css';
 
 const IMPORT_COUNT_CARDS = [
@@ -43,11 +46,28 @@ const PDF_IMPORT_COUNT_CARDS = [
   ['Novas compras', (data) => data.deduplication?.newCount ?? data.summaryCounts.purchasesCount],
   ['Já existentes', (data) => data.deduplication?.existingCount ?? 0],
 ];
-const SETTINGS_TABS = ['categories', 'import', 'ai', 'vehicle-reminders', 'danger'];
+const SETTINGS_TABS = ['categories', 'import', 'ai', 'vehicle-reminders', 'push', 'danger'];
 const pdfPeriodLabel = (month, year) => `${MONTHS_SHORT[month - 1]}/${year}`;
 
-export default function SettingsPage() {
-  const [activeSection, setActiveSection] = useState('categories');
+function SettingsPanels({ standaloneImport, open, title, onClose, footer, children }) {
+  const panels = <div className="settings-sections">{children}</div>;
+  if (standaloneImport) return panels;
+  return (
+    <Modal
+      open={open}
+      title={title}
+      className="settings-dialog"
+      onClose={onClose}
+      dismissible
+      footer={footer}
+    >
+      {panels}
+    </Modal>
+  );
+}
+
+export default function SettingsPage({ initialSection = 'categories', standaloneImport = false } = {}) {
+  const [activeSection, setActiveSection] = useState(initialSection);
   const [previewData, setPreviewData] = useState(null);
   const [confirmation, setConfirmation] = useState(null);
   const [resetPhrase, setResetPhrase] = useState('');
@@ -109,6 +129,7 @@ export default function SettingsPage() {
       });
       setVehicleReminderSettings(saved);
       toast.success('Antecedência dos lembretes atualizada.');
+      setActiveSection('categories');
     } catch (error) {
       toast.error(error);
     } finally {
@@ -176,8 +197,11 @@ export default function SettingsPage() {
     if (!file) return;
     if (file.name.toLowerCase().endsWith('.pdf')
       && (!aiSettings?.configured || !aiSettings.consentGiven)) {
-      toast.error(new Error('Configure sua chave e confirme o envio de dados na seção Inteligência artificial antes de analisar PDFs.'));
-      setActiveSection('ai');
+      const message = 'Configure sua chave e confirme o envio de dados na seção Inteligência artificial antes de analisar PDFs.';
+      toast.error(new Error(standaloneImport
+        ? `${message} Acesse Mais > Configurações > Inteligência artificial para configurar.`
+        : message));
+      if (!standaloneImport) setActiveSection('ai');
       return;
     }
 
@@ -223,6 +247,7 @@ export default function SettingsPage() {
       toast.success(analyzedData.sourceType === 'pdf'
         ? `Importação concluída: ${summary.peopleUpserted} novas pessoas, ${summary.cardsUpserted} novos cartões, ${summary.categoriesCreated} novas categorias, ${summary.purchasesUpserted} compras e ${summary.installmentsUpserted} parcelas${summary.purchasesIgnored ? `; ${summary.purchasesIgnored} duplicadas ignoradas` : ''}.`
         : `Importação concluída: ${summary.peopleUpserted} pessoas, ${summary.cardsUpserted} cartões, ${summary.purchasesUpserted} compras, ${summary.installmentsUpserted} parcelas e ${summary.budgetsUpserted} linhas.`);
+      if (!standaloneImport) setActiveSection('categories');
       refreshAllLookups();
       notifyFinanceChanged();
       window.dispatchEvent(new Event('reminders:refresh'));
@@ -328,6 +353,7 @@ export default function SettingsPage() {
       setAiProviders(saved.providers ?? aiProviders);
       setAiApiKey('');
       setAiMessage({ text: 'Configuração de IA salva com segurança.', type: 'success' });
+      setActiveSection('categories');
     } catch (error) {
       setAiMessage({ text: error.message, type: 'error' });
     } finally {
@@ -369,70 +395,321 @@ export default function SettingsPage() {
     document.getElementById(`settings-tab-${nextSection}`)?.focus();
   }
 
+  const closeSettingsModal = () => setActiveSection('categories');
+  const importForm = (
+    <Card className="settings-card">
+      <header className="settings-card-head">
+        <div className="settings-icon"><FileSpreadsheet aria-hidden="true" /></div>
+        <div className="settings-card-copy">
+          <h2>Importador de planilhas e faturas</h2>
+          <p>Envie sua planilha ou fatura para conferir os dados antes de gravar.</p>
+        </div>
+      </header>
+
+      <div
+        className={`settings-upload${fileDragging ? ' is-dragging' : ''}`}
+        onDragOver={(event) => { event.preventDefault(); setFileDragging(true); }}
+        onDragLeave={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget)) setFileDragging(false);
+        }}
+        onDrop={handleFileDrop}
+      >
+        <Upload className="settings-upload-icon" aria-hidden="true" />
+        <h3>Importe uma planilha ou fatura</h3>
+        <p>Compatível com .xlsx, .xls e PDF de orçamento anual ou extrato de compras. O PDF é analisado pela IA configurada na sua conta e só é gravado depois da sua conferência.</p>
+        <Button
+          variant="primary"
+          className="settings-file-button"
+          onClick={() => fileInput.current?.click()}
+        >
+          <Upload aria-hidden="true" />
+          Selecionar arquivo
+        </Button>
+        <input
+          ref={fileInput}
+          type="file"
+          disabled={false}
+          accept=".xlsx,.xls,.pdf,application/pdf"
+          onChange={handleFileSelected}
+          className="settings-file-input"
+          aria-label="Selecionar planilha ou PDF financeiro"
+        />
+        <span className="settings-upload-hint">ou arraste o arquivo para esta área · máximo de 14 MB para PDF</span>
+      </div>
+    </Card>
+  );
+  const aiForm = (
+    <Card className="settings-card">
+      <header className="settings-card-head">
+        <div className="settings-icon"><Sparkles aria-hidden="true" /></div>
+        <div className="settings-card-copy">
+          <h2>Sua chave de IA</h2>
+          <p>Use sua própria chave do Google Gemini, OpenAI ou Anthropic Claude.</p>
+        </div>
+        <span className={`settings-ai-status${aiEnabled ? ' is-active' : ''}`} role="status">
+          <span className="settings-ai-status-dot" />
+          {aiLoading ? 'Carregando' : aiEnabled ? 'Ativa' : aiSettings?.configured ? 'Consentimento pendente' : 'Sem chave'}
+        </span>
+      </header>
+
+      <div className="settings-ai-fields">
+        <label className="field">
+          <span className="field-label">Provedor</span>
+          <select className="input" value={aiProvider} onChange={handleAiProviderChange} disabled={aiLoading || aiBusy}>
+            {Object.entries(aiProviders).map(([id, provider]) => (
+              <option key={id} value={id}>{provider.label}</option>
+            ))}
+          </select>
+        </label>
+        <label className="field">
+          <span className="field-label">Modelo</span>
+          <select className="input" value={aiModel} onChange={(event) => setAiModel(event.target.value)} disabled={aiLoading || aiBusy || !aiProvider}>
+            {(aiProviders[aiProvider]?.models ?? []).map((model) => (
+              <option key={model} value={model}>{model}</option>
+            ))}
+          </select>
+        </label>
+        <label className="field settings-ai-key-field">
+          <span className="field-label">Chave de API</span>
+          <span className="settings-ai-key-input">
+            <input
+              className="input"
+              type={showAiApiKey ? 'text' : 'password'}
+              autoComplete="new-password"
+              spellCheck="false"
+              value={aiApiKey}
+              onChange={(event) => setAiApiKey(event.target.value)}
+              placeholder={aiSettings?.configured ? 'Chave salva não é exibida. Informe outra para substituir.' : 'Cole sua chave de API'}
+              disabled={aiBusy}
+            />
+            <button
+              type="button"
+              className="settings-ai-eye"
+              onClick={() => setShowAiApiKey((visible) => !visible)}
+              aria-label={showAiApiKey ? 'Ocultar chave' : 'Mostrar chave'}
+            >
+              {showAiApiKey ? <EyeOff aria-hidden="true" /> : <Eye aria-hidden="true" />}
+            </button>
+          </span>
+          <span className="field-hint">{aiProviders[aiProvider]?.hint}</span>
+        </label>
+      </div>
+
+      {aiSettings?.configured && (
+        <div className="settings-ai-saved" role="status">
+          <KeyRound aria-hidden="true" />
+          <span>{aiProviders[aiSettings.provider]?.label} · {aiSettings.model} · chave terminada em <strong>••••{aiSettings.last4}</strong></span>
+        </div>
+      )}
+
+      <div className="settings-ai-notice" role="note">
+        <AlertTriangle aria-hidden="true" />
+        <div>
+          <p><strong>Seus dados financeiros são enviados ao provedor escolhido.</strong> Mensagens do assistente, imagens e PDFs enviados para análise podem conter descrições, valores e categorias. Consulte os termos e a política de privacidade do provedor. A chave é criptografada no servidor e nunca volta a ser exibida.</p>
+          <label className="settings-ai-consent">
+            <input type="checkbox" checked={aiConsent} onChange={handleAiConsentChange} disabled={aiBusy} />
+            Entendi e concordo em enviar esses dados ao provedor selecionado.
+          </label>
+        </div>
+      </div>
+      {aiMessage && (
+        <p className={`settings-ai-message is-${aiMessage.type}`} role={aiMessage.type === 'error' ? 'alert' : 'status'}>
+          {aiMessage.text}
+        </p>
+      )}
+    </Card>
+  );
+  const vehicleReminderForm = (
+    <Card className="settings-card">
+      <header className="settings-card-head">
+        <div className="settings-icon"><Bell aria-hidden="true" /></div>
+        <div className="settings-card-copy">
+          <h2>Antecedência dos lembretes</h2>
+          <p>Defina quando um lembrete de veículo muda para “Em breve”.</p>
+        </div>
+      </header>
+      <form id="settings-vehicle-reminder-form" onSubmit={saveVehicleReminderSettings}>
+        <div className="form-grid">
+          <Field label="Avisar até (dias antes)">{(id) => <input id={id} className="input" type="number" min="0" max="365" value={vehicleReminderSettings.daysBefore} disabled={vehicleReminderSettingsLoading || vehicleReminderSettingsBusy} onChange={(event) => setVehicleReminderSettings((current) => ({ ...current, daysBefore: event.target.value }))} />}</Field>
+          <Field label="Avisar até (km antes)">{(id) => <input id={id} className="input" type="number" min="0" max="100000" value={vehicleReminderSettings.kmBefore} disabled={vehicleReminderSettingsLoading || vehicleReminderSettingsBusy} onChange={(event) => setVehicleReminderSettings((current) => ({ ...current, kmBefore: event.target.value }))} />}</Field>
+        </div>
+      </form>
+    </Card>
+  );
+
   return (
-    <div className="settings-page">
+    <div className={`settings-page${standaloneImport ? ' settings-import-standalone' : ''}`}>
       <PageHeader
-        title="Configurações"
-        subtitle="Gerencie categorias, importações, inteligência artificial, lembretes e dados da sua conta."
+        title={standaloneImport ? 'Importação' : 'Configurações'}
+        subtitle={standaloneImport
+          ? 'Importe planilhas e faturas, confira os dados e confirme antes de gravar.'
+          : 'Gerencie categorias, importações, inteligência artificial, notificações e dados da sua conta.'}
       />
 
-      <div className="settings-layout">
-        <nav
-          className="settings-nav"
-          role="tablist"
-          aria-label="Seções das configurações"
-          onKeyDown={handleSettingsTabKeyDown}
+      <div className={`settings-layout${standaloneImport ? ' settings-import-layout' : ''}`}>
+        {!standaloneImport && (
+          <div className="settings-overview">
+            <section className="settings-group">
+              <h2>Dados</h2>
+              <div className="settings-group-card">
+                <button
+                  id="settings-tab-categories"
+                  type="button"
+                  className="settings-option-row"
+                  aria-haspopup="dialog"
+                  aria-expanded={categoryManagerOpen}
+                  onClick={() => setCategoryManagerOpen(true)}
+                >
+                  <span className="settings-option-icon"><Tag aria-hidden="true" /></span>
+                  <span className="settings-option-copy">
+                    <strong>Categorias</strong>
+                    <small>Lançamentos e filtros</small>
+                  </span>
+                  <span className="settings-option-value">
+                    {categoriesLoading ? 'Carregando…' : `${categories.length} cadastradas`}
+                  </span>
+                  <ChevronRight className="settings-option-chevron" aria-hidden="true" />
+                </button>
+                <button
+                  id="settings-tab-import"
+                  type="button"
+                  className="settings-option-row"
+                  aria-haspopup="dialog"
+                  aria-expanded={activeSection === 'import'}
+                  onClick={() => setActiveSection('import')}
+                >
+                  <span className="settings-option-icon"><FileSpreadsheet aria-hidden="true" /></span>
+                  <span className="settings-option-copy">
+                    <strong>Importação</strong>
+                    <small>Planilha ou fatura em PDF</small>
+                  </span>
+                  <ChevronRight className="settings-option-chevron" aria-hidden="true" />
+                </button>
+              </div>
+            </section>
+
+            <section className="settings-group">
+              <h2>Inteligência artificial</h2>
+              <div className="settings-group-card">
+                <button
+                  id="settings-tab-ai"
+                  type="button"
+                  className="settings-option-row"
+                  aria-haspopup="dialog"
+                  aria-expanded={activeSection === 'ai'}
+                  onClick={() => setActiveSection('ai')}
+                >
+                  <span className="settings-option-icon"><Sparkles aria-hidden="true" /></span>
+                  <span className="settings-option-copy">
+                    <strong>Chave de IA</strong>
+                    <small>Gemini, OpenAI ou Claude</small>
+                  </span>
+                  <span className="settings-option-value">
+                    {aiLoading ? 'Carregando' : aiEnabled ? 'Ativa' : aiSettings?.configured ? 'Consentimento pendente' : 'Sem chave'}
+                  </span>
+                  <ChevronRight className="settings-option-chevron" aria-hidden="true" />
+                </button>
+              </div>
+            </section>
+
+            <section className="settings-group">
+              <h2>Lembretes</h2>
+              <div className="settings-group-card">
+                <button
+                  id="settings-tab-vehicle-reminders"
+                  type="button"
+                  className="settings-option-row"
+                  aria-haspopup="dialog"
+                  aria-expanded={activeSection === 'vehicle-reminders'}
+                  onClick={() => setActiveSection('vehicle-reminders')}
+                >
+                  <span className="settings-option-icon"><Bell aria-hidden="true" /></span>
+                  <span className="settings-option-copy">
+                    <strong>Lembretes de veículos</strong>
+                    <small>Quando avisar “Em breve”</small>
+                  </span>
+                  <span className="settings-option-value">
+                    {vehicleReminderSettingsLoading
+                      ? 'Carregando'
+                      : `${vehicleReminderSettings.daysBefore} dias · ${vehicleReminderSettings.kmBefore} km`}
+                  </span>
+                  <ChevronRight className="settings-option-chevron" aria-hidden="true" />
+                </button>
+                <button
+                  id="settings-tab-push"
+                  type="button"
+                  className="settings-option-row"
+                  aria-haspopup="dialog"
+                  aria-expanded={activeSection === 'push'}
+                  onClick={() => setActiveSection('push')}
+                >
+                  <span className="settings-option-icon"><Smartphone aria-hidden="true" /></span>
+                  <span className="settings-option-copy">
+                    <strong>Notificações no celular</strong>
+                    <small>Faturas que vencem hoje ou estão atrasadas</small>
+                  </span>
+                  <ChevronRight className="settings-option-chevron" aria-hidden="true" />
+                </button>
+              </div>
+            </section>
+
+            <section className="settings-group">
+              <h2>Conta</h2>
+              <div className="settings-group-card">
+                <button
+                  id="settings-tab-danger"
+                  type="button"
+                  className="settings-option-row is-danger"
+                  aria-haspopup="dialog"
+                  onClick={() => { setResetPhrase(''); setConfirmation({ kind: 'all' }); }}
+                >
+                  <span className="settings-option-icon"><Trash2 aria-hidden="true" /></span>
+                  <span className="settings-option-copy">
+                    <strong>Apagar dados da conta</strong>
+                    <small>Não dá para desfazer</small>
+                  </span>
+                  <ChevronRight className="settings-option-chevron" aria-hidden="true" />
+                </button>
+                <button
+                  type="button"
+                  className="settings-option-row is-danger"
+                  onClick={() => setConfirmation({ kind: 'purchases' })}
+                >
+                  <span className="settings-option-icon"><Trash2 aria-hidden="true" /></span>
+                  <span className="settings-option-copy">
+                    <strong>Limpar lançamentos</strong>
+                    <small>Apaga compras e parcelas, mantendo pessoas e cartões</small>
+                  </span>
+                  <ChevronRight className="settings-option-chevron" aria-hidden="true" />
+                </button>
+              </div>
+            </section>
+          </div>
+        )}
+        <SettingsPanels
+          standaloneImport={standaloneImport}
+          open={['import', 'ai', 'vehicle-reminders', 'push'].includes(activeSection)}
+          title={activeSection === 'import'
+            ? 'Importador de planilhas e faturas'
+            : activeSection === 'ai'
+              ? 'Chave de IA'
+              : activeSection === 'vehicle-reminders'
+                ? 'Lembretes de veículos'
+                : 'Notificações no celular'}
+          onClose={closeSettingsModal}
+          footer={(
+            activeSection === 'vehicle-reminders'
+              ? (
+                <>
+                  <Button onClick={closeSettingsModal}>Cancelar</Button>
+                  <Button type="submit" form="settings-vehicle-reminder-form" variant="primary" disabled={vehicleReminderSettingsLoading || vehicleReminderSettingsBusy}>
+                    {vehicleReminderSettingsBusy ? 'Salvando…' : 'Salvar preferências'}
+                  </Button>
+                </>
+              )
+              : <Button onClick={closeSettingsModal}>{activeSection === 'push' ? 'Fechar' : 'Cancelar'}</Button>
+          )}
         >
-          <button
-            id="settings-tab-categories"
-            type="button"
-            role="tab"
-            aria-selected={activeSection === 'categories'}
-            aria-controls="settings-categories"
-            tabIndex={activeSection === 'categories' ? 0 : -1}
-            onClick={() => setActiveSection('categories')}
-          ><Tag aria-hidden="true" /> Categorias</button>
-          <button
-            id="settings-tab-import"
-            type="button"
-            role="tab"
-            aria-selected={activeSection === 'import'}
-            aria-controls="settings-import"
-            tabIndex={activeSection === 'import' ? 0 : -1}
-            onClick={() => setActiveSection('import')}
-          ><FileSpreadsheet aria-hidden="true" /> Importação</button>
-          <button
-            id="settings-tab-ai"
-            type="button"
-            role="tab"
-            aria-selected={activeSection === 'ai'}
-            aria-controls="settings-ai"
-            tabIndex={activeSection === 'ai' ? 0 : -1}
-            onClick={() => setActiveSection('ai')}
-          ><Sparkles aria-hidden="true" /> Inteligência artificial
-            {aiEnabled && <span className="settings-nav-dot" aria-label="Configurada" />}
-          </button>
-          <button
-            id="settings-tab-vehicle-reminders"
-            type="button"
-            role="tab"
-            aria-selected={activeSection === 'vehicle-reminders'}
-            aria-controls="settings-vehicle-reminders"
-            tabIndex={activeSection === 'vehicle-reminders' ? 0 : -1}
-            onClick={() => setActiveSection('vehicle-reminders')}
-          ><Bell aria-hidden="true" /> Lembretes de veículos</button>
-          <button
-            id="settings-tab-danger"
-            type="button"
-            role="tab"
-            className="settings-nav-danger"
-            aria-selected={activeSection === 'danger'}
-            aria-controls="settings-danger"
-            tabIndex={activeSection === 'danger' ? 0 : -1}
-            onClick={() => setActiveSection('danger')}
-          ><Trash2 aria-hidden="true" /> Zona de perigo</button>
-        </nav>
-        <main className="settings-sections">
       <section
         id="settings-categories"
         className="settings-section"
@@ -459,51 +736,13 @@ export default function SettingsPage() {
       <section
         id="settings-import"
         className="settings-section"
-        role="tabpanel"
-        aria-labelledby="settings-tab-import"
-        tabIndex="0"
+        role={standaloneImport ? 'region' : 'tabpanel'}
+        aria-label={standaloneImport ? 'Importação' : undefined}
+        aria-labelledby={standaloneImport ? undefined : 'settings-tab-import'}
+        tabIndex={standaloneImport ? undefined : '0'}
         hidden={activeSection !== 'import'}
       >
-      <Card className="settings-card">
-        <header className="settings-card-head">
-          <div className="settings-icon"><FileSpreadsheet aria-hidden="true" /></div>
-          <div className="settings-card-copy">
-            <h2>Importador de planilhas e faturas</h2>
-            <p>Envie sua planilha ou fatura para conferir os dados antes de gravar.</p>
-          </div>
-        </header>
-
-        <div
-          className={`settings-upload${fileDragging ? ' is-dragging' : ''}`}
-          onDragOver={(event) => { event.preventDefault(); setFileDragging(true); }}
-          onDragLeave={(event) => {
-            if (!event.currentTarget.contains(event.relatedTarget)) setFileDragging(false);
-          }}
-          onDrop={handleFileDrop}
-        >
-          <Upload className="settings-upload-icon" aria-hidden="true" />
-          <h3>Importe uma planilha ou fatura</h3>
-          <p>Compatível com .xlsx, .xls e PDF de orçamento anual ou extrato de compras. O PDF é analisado pela IA configurada na sua conta e só é gravado depois da sua conferência.</p>
-          <Button
-            variant="primary"
-            className="settings-file-button"
-            onClick={() => fileInput.current?.click()}
-          >
-            <Upload aria-hidden="true" />
-            Selecionar arquivo
-          </Button>
-          <input
-            ref={fileInput}
-            type="file"
-            disabled={false}
-            accept=".xlsx,.xls,.pdf,application/pdf"
-            onChange={handleFileSelected}
-            className="settings-file-input"
-            aria-label="Selecionar planilha ou PDF financeiro"
-          />
-          <span className="settings-upload-hint">ou arraste o arquivo para esta área · máximo de 14 MB para PDF</span>
-        </div>
-      </Card>
+        {importForm}
       </section>
 
       <section
@@ -514,99 +753,7 @@ export default function SettingsPage() {
         tabIndex="0"
         hidden={activeSection !== 'ai'}
       >
-      <Card className="settings-card">
-        <header className="settings-card-head">
-          <div className="settings-icon"><Sparkles aria-hidden="true" /></div>
-          <div className="settings-card-copy">
-            <h2>Sua chave de IA</h2>
-            <p>Use sua própria chave do Google Gemini, OpenAI ou Anthropic Claude.</p>
-          </div>
-          <span className={`settings-ai-status${aiEnabled ? ' is-active' : ''}`} role="status">
-            <span className="settings-ai-status-dot" />
-            {aiLoading ? 'Carregando' : aiEnabled ? 'Ativa' : aiSettings?.configured ? 'Consentimento pendente' : 'Sem chave'}
-          </span>
-        </header>
-
-        <div className="settings-ai-fields">
-          <label className="field">
-            <span className="field-label">Provedor</span>
-            <select className="input" value={aiProvider} onChange={handleAiProviderChange} disabled={aiLoading || aiBusy}>
-              {Object.entries(aiProviders).map(([id, provider]) => (
-                <option key={id} value={id}>{provider.label}</option>
-              ))}
-            </select>
-          </label>
-          <label className="field">
-            <span className="field-label">Modelo</span>
-            <select className="input" value={aiModel} onChange={(event) => setAiModel(event.target.value)} disabled={aiLoading || aiBusy || !aiProvider}>
-              {(aiProviders[aiProvider]?.models ?? []).map((model) => (
-                <option key={model} value={model}>{model}</option>
-              ))}
-            </select>
-          </label>
-          <label className="field settings-ai-key-field">
-            <span className="field-label">Chave de API</span>
-            <span className="settings-ai-key-input">
-              <input
-                className="input"
-                type={showAiApiKey ? 'text' : 'password'}
-                autoComplete="new-password"
-                spellCheck="false"
-                value={aiApiKey}
-                onChange={(event) => setAiApiKey(event.target.value)}
-                placeholder={aiSettings?.configured ? 'Chave salva não é exibida. Informe outra para substituir.' : 'Cole sua chave de API'}
-                disabled={aiBusy}
-              />
-              <button
-                type="button"
-                className="settings-ai-eye"
-                onClick={() => setShowAiApiKey((visible) => !visible)}
-                aria-label={showAiApiKey ? 'Ocultar chave' : 'Mostrar chave'}
-              >
-                {showAiApiKey ? <EyeOff aria-hidden="true" /> : <Eye aria-hidden="true" />}
-              </button>
-            </span>
-            <span className="field-hint">{aiProviders[aiProvider]?.hint}</span>
-          </label>
-        </div>
-
-        {aiSettings?.configured && (
-          <div className="settings-ai-saved" role="status">
-            <KeyRound aria-hidden="true" />
-            <span>{aiProviders[aiSettings.provider]?.label} · {aiSettings.model} · chave terminada em <strong>••••{aiSettings.last4}</strong></span>
-          </div>
-        )}
-
-        <div className="settings-ai-notice" role="note">
-          <AlertTriangle aria-hidden="true" />
-          <div>
-            <p><strong>Seus dados financeiros são enviados ao provedor escolhido.</strong> Mensagens do assistente, imagens e PDFs enviados para análise podem conter descrições, valores e categorias. Consulte os termos e a política de privacidade do provedor. A chave é criptografada no servidor e nunca volta a ser exibida.</p>
-            <label className="settings-ai-consent">
-              <input type="checkbox" checked={aiConsent} onChange={handleAiConsentChange} disabled={aiBusy} />
-              Entendi e concordo em enviar esses dados ao provedor selecionado.
-            </label>
-          </div>
-        </div>
-
-        <div className="settings-ai-actions">
-          <Button onClick={testAiKey} disabled={aiLoading || aiBusy || !aiProvider || !aiModel}>
-            {aiBusy && aiMessage?.text === 'Testando a chave...' ? 'Testando...' : 'Testar'}
-          </Button>
-          <Button variant="primary" onClick={saveAiKey} disabled={aiLoading || aiBusy || !aiProvider || !aiModel}>
-            <KeyRound aria-hidden="true" /> Salvar chave
-          </Button>
-          {aiSettings?.configured && (
-            <Button className="settings-button-warning" onClick={() => setRemoveAiConfirmation(true)} disabled={aiBusy}>
-              <Trash2 aria-hidden="true" /> Remover chave
-            </Button>
-          )}
-        </div>
-        {aiMessage && (
-          <p className={`settings-ai-message is-${aiMessage.type}`} role={aiMessage.type === 'error' ? 'alert' : 'status'}>
-            {aiMessage.text}
-          </p>
-        )}
-      </Card>
+        {aiForm}
       </section>
 
       <section
@@ -617,26 +764,18 @@ export default function SettingsPage() {
         tabIndex="0"
         hidden={activeSection !== 'vehicle-reminders'}
       >
-        <Card className="settings-card">
-          <header className="settings-card-head">
-            <div className="settings-icon"><Bell aria-hidden="true" /></div>
-            <div className="settings-card-copy">
-              <h2>Antecedência dos lembretes</h2>
-              <p>Defina quando um lembrete de veículo muda para “Em breve”.</p>
-            </div>
-          </header>
-          <form onSubmit={saveVehicleReminderSettings}>
-            <div className="form-grid">
-              <Field label="Avisar até (dias antes)">{(id) => <input id={id} className="input" type="number" min="0" max="365" value={vehicleReminderSettings.daysBefore} disabled={vehicleReminderSettingsLoading || vehicleReminderSettingsBusy} onChange={(event) => setVehicleReminderSettings((current) => ({ ...current, daysBefore: event.target.value }))} />}</Field>
-              <Field label="Avisar até (km antes)">{(id) => <input id={id} className="input" type="number" min="0" max="100000" value={vehicleReminderSettings.kmBefore} disabled={vehicleReminderSettingsLoading || vehicleReminderSettingsBusy} onChange={(event) => setVehicleReminderSettings((current) => ({ ...current, kmBefore: event.target.value }))} />}</Field>
-            </div>
-            <div className="settings-ai-actions">
-              <Button type="submit" variant="primary" disabled={vehicleReminderSettingsLoading || vehicleReminderSettingsBusy}>
-                {vehicleReminderSettingsBusy ? 'Salvando…' : 'Salvar preferências'}
-              </Button>
-            </div>
-          </form>
-        </Card>
+        {vehicleReminderForm}
+      </section>
+
+      <section
+        id="settings-push"
+        className="settings-section"
+        role="tabpanel"
+        aria-labelledby="settings-tab-push"
+        tabIndex="0"
+        hidden={activeSection !== 'push'}
+      >
+        <PushNotificationsSettings />
       </section>
 
       <section
@@ -687,7 +826,7 @@ export default function SettingsPage() {
         </div>
       </Card>
       </section>
-        </main>
+        </SettingsPanels>
       </div>
 
       <Modal

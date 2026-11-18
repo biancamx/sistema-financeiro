@@ -126,16 +126,20 @@ export default function PurchaseForm({ value, onClose, onSubmit, lookups }) {
       footer={<><Button variant="ghost" onClick={onClose}>Cancelar</Button><Button variant="primary" disabled={busy} onClick={submit}>{editing ? 'Salvar alterações' : 'Registrar compra'}</Button></>}>
       <div className="form-grid">
         <Field label="Descrição" error={errors.description}>{(id) => <input id={id} className="input" maxLength={120} value={f.description} onChange={set('description')} autoFocus placeholder="Ex.: Shopee, Mercado, Uber" />}</Field>
-        <Field label="Categoria">{(id) => <Select id={id} value={f.categoryId} onChange={set('categoryId')} placeholder="Sem categoria" options={opt(lookups.categories)} />}</Field>
         {!f.shared && <Field label="Pessoa" error={errors.personId}>{(id) => <Select id={id} value={f.personId} onChange={set('personId')} placeholder="Escolha…" options={opt(lookups.people)} />}</Field>}
         <Field label="Cartão" error={errors.cardId}>{(id) => <Select id={id} value={f.cardId} onChange={setCard} placeholder="Escolha…" options={opt(lookups.cards)} />}</Field>
         <Field label="Valor total (R$)" error={errors.total}>{(id) => <input id={id} className="input" inputMode="decimal" value={f.total} onChange={set('total')} placeholder="0,00" />}</Field>
         {!f.isSubscription && <Field label="Parcelas" error={errors.count}>{(id) => <input id={id} className="input" type="number" inputMode="numeric" min="1" max="120" step="1" value={f.count} onChange={set('count')} />}</Field>}
         <Field label="Data da compra" error={errors.purchaseDate} hint="Define a fatura conforme o dia de fechamento do cartão.">{(id) => <input id={id} className="input" type="date" value={f.purchaseDate} onChange={set('purchaseDate')} />}</Field>
-        <Field label="Observação" hint="Opcional · até 1.000 caracteres">{(id) => <textarea id={id} className="input" maxLength={1000} value={f.observation} onChange={set('observation')} rows={3} placeholder="Ex.: pagamento combinado, garantia, detalhe da compra" />}</Field>
       </div>
 
-      {!f.shared && (
+      <details className="form-more-options" open={f.shared || f.isSubscription || Boolean(f.observation) || Boolean(f.categoryId)}>
+        <summary>Mais opções</summary>
+        <div className="form-grid">
+          <Field label="Categoria">{(id) => <Select id={id} value={f.categoryId} onChange={set('categoryId')} placeholder="Sem categoria" options={opt(lookups.categories)} />}</Field>
+          <Field label="Observação" hint="Opcional · até 1.000 caracteres">{(id) => <textarea id={id} className="input" maxLength={1000} value={f.observation} onChange={set('observation')} rows={3} placeholder="Ex.: pagamento combinado, garantia, detalhe da compra" />}</Field>
+        </div>
+        {!f.shared && (
         <label className="share-toggle subscription-toggle">
           <input
             type="checkbox"
@@ -148,14 +152,14 @@ export default function PurchaseForm({ value, onClose, onSubmit, lookups }) {
           />
           <span><strong>🔄 É uma assinatura mensal recorrente?</strong> — streaming, academia etc.</span>
         </label>
-      )}
-      {!editing && !f.isSubscription && (
+        )}
+        {!editing && !f.isSubscription && (
         <label className="share-toggle">
           <input type="checkbox" checked={f.shared} onChange={(e) => setF((s) => ({ ...s, shared: e.target.checked, participantIds: e.target.checked ? s.participantIds : [], splitMode: 'equal', values: {} }))} />
           <span><strong>Compra compartilhada</strong> — dividir entre várias pessoas (você escolhe quanto cada uma paga)</span>
         </label>
-      )}
-      {f.shared && (
+        )}
+        {f.shared && (
         <fieldset className="people-pick">
           <legend className="field-label">Quem divide esta compra?</legend>
           <div className="people-pick-list">
@@ -203,7 +207,8 @@ export default function PurchaseForm({ value, onClose, onSubmit, lookups }) {
 
           {errors.participantIds ? <span className="field-error">{errors.participantIds}</span> : <span className="field-hint">Escolha 2 ou mais pessoas e como dividir. Os centavos são acertados parcela a parcela, e a soma sempre fecha no total.</span>}
         </fieldset>
-      )}
+        )}
+      </details>
 
       {valid && (
         <p className="preview">

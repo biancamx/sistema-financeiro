@@ -15,6 +15,12 @@ if (!/^[\da-f]{64}$/i.test(aiKeySecret)) {
   throw new Error('AI_KEY_SECRET deve conter exatamente 64 caracteres hexadecimais.');
 }
 
+const vapidPublicKey = process.env.VAPID_PUBLIC_KEY || '';
+const vapidPrivateKey = process.env.VAPID_PRIVATE_KEY || '';
+if (Boolean(vapidPublicKey) !== Boolean(vapidPrivateKey)) {
+  throw new Error('VAPID_PUBLIC_KEY e VAPID_PRIVATE_KEY devem ser configuradas juntas.');
+}
+
 const bool = (v, def) => (v === undefined || v === '' ? def : ['1', 'true', 'yes'].includes(String(v).toLowerCase()));
 
 export const env = {
@@ -40,5 +46,9 @@ export const env = {
   },
   rateLimitMax: Number(process.env.RATE_LIMIT_MAX || 600),
   authRateLimitMax: Number(process.env.AUTH_RATE_LIMIT_MAX || 40),
+  vapidPublicKey,
+  vapidPrivateKey,
+  vapidSubject: process.env.VAPID_SUBJECT || 'mailto:admin@example.com',
+  jobsToken: process.env.JOBS_TOKEN || '',
   logLevel: process.env.LOG_LEVEL || 'info',
 };

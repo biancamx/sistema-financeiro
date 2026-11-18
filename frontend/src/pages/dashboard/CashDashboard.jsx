@@ -124,7 +124,7 @@ export default function CashDashboard() {
           <Select
             value={selected.mode}
             onChange={(mode) => setPeriod({ mode })}
-            aria-label="Período do painel Avulsos"
+            aria-label="Período de dinheiro e empréstimos"
             options={[
               { value: 'month', label: 'Mês' },
               { value: 'last3', label: 'Últimos 3 meses' },

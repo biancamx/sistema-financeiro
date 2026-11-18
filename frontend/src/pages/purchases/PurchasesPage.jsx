@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react';
-import { Ban, ChevronDown, CreditCard, Download, Pencil, Plus, RotateCcw, SlidersHorizontal, Trash2, Users, Zap } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import { Ban, ChevronDown, CreditCard, Download, Info, Pencil, Plus, RotateCcw, SlidersHorizontal, Trash2, Users, Zap } from 'lucide-react';
 import { usePeriod } from '../../context/PeriodContext.jsx';
 import { useToast } from '../../context/ToastContext.jsx';
 import { useFetch } from '../../hooks/useFetch.js';
@@ -11,7 +12,78 @@ import { Button, Card, EmptyState, ErrorState, Money, PageHeader, Select, Spinne
 import { dateTimeLabel, MONTHS_SHORT, monthLabel } from '../../lib/format.js';
 import PurchaseForm, { emptyPurchase, toForm, toSharedForm } from './PurchaseForm.jsx';
 
+const boundBulkMenus = new WeakSet();
+
+function syncBulkMenuExpanded(event) {
+  const menu = event.currentTarget;
+  const trigger = menu.parentElement?.querySelector('.purchase-bulk-trigger');
+  const isOpen = menu.matches(':popover-open');
+  trigger?.setAttribute('aria-expanded', String(isOpen));
+  if (!isOpen || !trigger) {
+    menu.style.removeProperty('top');
+    menu.style.removeProperty('left');
+    return;
+  }
+  const anchor = trigger.getBoundingClientRect();
+  const width = menu.offsetWidth;
+  const height = menu.offsetHeight;
+  const left = Math.max(8, Math.min(anchor.right - width, window.innerWidth - width - 8));
+  const below = anchor.bottom + 6;
+  const top = below + height <= window.innerHeight - 8 || anchor.top - height - 6 < 8
+    ? below
+    : anchor.top - bounds.height - 6;
+  menu.style.left = `${left}px`;
+  menu.style.top = `${top}px`;
+}
+
+function bindBulkMenu(menu) {
+  if (!menu || boundBulkMenus.has(menu)) return;
+  boundBulkMenus.add(menu);
+  menu.addEventListener('toggle', syncBulkMenuExpanded);
+}
+
+function handleBulkMenuTriggerKeyDown(event) {
+  if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+  event.preventDefault();
+  const menu = event.currentTarget.parentElement?.querySelector('.purchase-bulk-menu');
+  if (!menu) return;
+  if (!menu.matches(':popover-open')) menu.showPopover();
+  event.currentTarget.setAttribute('aria-expanded', 'true');
+  const items = menu.querySelectorAll('[role="menuitem"]:not(:disabled)');
+  items[event.key === 'ArrowDown' ? 0 : items.length - 1]?.focus();
+}
+
+function handleBulkMenuKeyDown(event) {
+  const menu = event.currentTarget;
+  const trigger = menu.parentElement?.querySelector('.purchase-bulk-trigger');
+  if (event.key === 'Escape') {
+    event.preventDefault();
+    menu.hidePopover();
+    trigger?.setAttribute('aria-expanded', 'false');
+    trigger?.focus();
+    return;
+  }
+  if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp' && event.key !== 'Home' && event.key !== 'End') return;
+  const items = [...menu.querySelectorAll('[role="menuitem"]:not(:disabled)')];
+  if (!items.length) return;
+  event.preventDefault();
+  const currentIndex = items.indexOf(event.target.closest('[role="menuitem"]'));
+  const nextIndex = event.key === 'Home'
+    ? 0
+    : event.key === 'End'
+      ? items.length - 1
+      : (currentIndex + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
+  items[nextIndex]?.focus();
+}
+
+function closeBulkMenu(event) {
+  const menu = event.currentTarget.closest('.purchase-bulk-dropdown')?.querySelector('.purchase-bulk-menu');
+  if (menu?.matches(':popover-open')) menu.hidePopover();
+}
+
 export default function PurchasesPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const newActionHandled = useRef(false);
   const period = usePeriod();
   const toast = useToast();
   const lookups = useLookups();
@@ -49,6 +121,13 @@ export default function PurchasesPage() {
     const visibleIds = new Set(month.data?.data.map((row) => row.id) ?? []);
     setSelectedInstallments((ids) => ids.filter((id) => visibleIds.has(id)));
   }, [month.data]);
+
+  useEffect(() => {
+    if (newActionHandled.current || searchParams.get('new') !== '1' || !lookups.ready) return;
+    newActionHandled.current = true;
+    setForm(emptyPurchase(period));
+    setSearchParams({}, { replace: true });
+  }, [lookups.ready, period.month, period.year, searchParams, setSearchParams]);
 
   // compra compartilhada: edita o grupo inteiro (todos os participantes de uma vez)
   const openEdit = async (purchaseId, group) => {
@@ -209,7 +288,7 @@ export default function PurchasesPage() {
   return (
     <div className="purchases-page">
       <PageHeader
-        title="Lançamentos"
+        title="Compras e parcelas"
         subtitle={<span className="purchase-page-subtitle">Compras no cartão e suas parcelas</span>}
         actions={<>
           <a className="btn btn-ghost purchase-export" href={purchasesApi.exportUrl()} aria-label="Exportar CSV">
@@ -262,7 +341,7 @@ export default function PurchasesPage() {
         {!active.data && !active.error && <Spinner />}
 
         {tab === 'month' && month.data && (
-          month.data.data.length === 0 ? <EmptyState title="Nenhuma parcela neste mês">Registre uma compra ou mude o mês no topo.</EmptyState> : (
+          month.data.data.length === 0 ? <><EmptyState title="Nenhuma parcela neste mês">Registre uma compra ou mude o mês no topo.</EmptyState><div className="empty-state-action"><Button variant="primary" onClick={() => setForm(emptyPurchase(period))} disabled={!lookups.ready}>Registrar compra</Button></div></> : (
             <>
               <section className={`purchase-bulk-panel${bulkActionsOpen ? ' is-open' : ''}`}>
                 <button
@@ -277,47 +356,114 @@ export default function PurchasesPage() {
                   <ChevronDown size={16} aria-hidden="true" />
                 </button>
                 <div id="purchase-bulk-content" className="purchase-bulk-content">
-                  <div className="toolbar purchase-bulk-toolbar">
-                    <div className="small purchase-bulk-selection">
-                      <label className="purchase-bulk-checkbox">
+                  <div className="purchase-bulk-toolbar">
+                    <div className="purchase-bulk-segment" role="group" aria-label="Seleção de parcelas">
+                      <label className="purchase-bulk-segment-option">
                         <input type="checkbox" checked={allUnpaidSelected} onChange={toggleAllUnpaid} disabled={unpaidRows.length === 0} />
-                        {' '}Selecionar pendentes ({unpaidRows.length})
+                        <span>Pendentes <b>{unpaidRows.length}</b></span>
                       </label>
-                      <label className="purchase-bulk-checkbox">
+                      <label className="purchase-bulk-segment-option">
                         <input type="checkbox" checked={allPaidSelected} onChange={toggleAllPaid} disabled={paidRows.length === 0} />
-                        {' '}Selecionar pagas ({paidRows.length})
+                        <span>Pagas <b>{paidRows.length}</b></span>
                       </label>
                     </div>
-                    <div className={`purchase-bulk-actions${selectedInstallments.length ? ' has-selection' : ''}`}>
-                      <Button
-                        variant="primary"
-                        onClick={() => setInstallmentsPaid(selectedUnpaidRows, true)}
-                        disabled={!selectedUnpaidRows.length || payingAll}
+                    <div className="purchase-bulk-actions">
+                      <button
+                        type="button"
+                        className="purchase-bulk-info"
+                        aria-label="As ações consideram o mês e os filtros selecionados."
+                        data-tip="As ações consideram o mês e os filtros selecionados."
                       >
-                        Pagar selecionadas ({selectedUnpaidRows.length})
-                      </Button>
-                      <Button
-                        variant="primary"
-                        onClick={() => setInstallmentsPaid(unpaidRows, true)}
-                        disabled={!unpaidRows.length || payingAll}
-                      >
-                        Pagar todas exibidas
-                      </Button>
-                      <Button
-                        onClick={() => setInstallmentsPaid(selectedPaidRows, false)}
-                        disabled={!selectedPaidRows.length || payingAll}
-                      >
-                        Despagar selecionadas ({selectedPaidRows.length})
-                      </Button>
-                      <Button
-                        onClick={() => setInstallmentsPaid(paidRows, false)}
-                        disabled={!paidRows.length || payingAll}
-                      >
-                        Despagar todas exibidas
-                      </Button>
+                        <Info size={17} aria-hidden="true" />
+                      </button>
+                      <div className="purchase-bulk-dropdown">
+                        <button
+                          type="button"
+                          className="purchase-bulk-trigger"
+                          popovertarget="purchase-bulk-unpay-menu"
+                          aria-controls="purchase-bulk-unpay-menu"
+                          aria-haspopup="menu"
+                          aria-expanded="false"
+                          onKeyDown={handleBulkMenuTriggerKeyDown}
+                        >
+                          Despagar
+                          <ChevronDown size={14} aria-hidden="true" />
+                        </button>
+                        <div
+                          id="purchase-bulk-unpay-menu"
+                          className="purchase-bulk-menu"
+                          popover="auto"
+                          role="menu"
+                          aria-label="Opções para despagar parcelas"
+                          ref={bindBulkMenu}
+                          onKeyDown={handleBulkMenuKeyDown}
+                        >
+                          <button
+                            type="button"
+                            className="purchase-bulk-menu-item"
+                            role="menuitem"
+                            onClick={(event) => { closeBulkMenu(event); setInstallmentsPaid(selectedPaidRows, false); }}
+                            disabled={!selectedPaidRows.length || payingAll}
+                          >
+                            <span>Selecionadas</span>
+                            <small>{selectedPaidRows.length}</small>
+                          </button>
+                          <button
+                            type="button"
+                            className="purchase-bulk-menu-item"
+                            role="menuitem"
+                            onClick={(event) => { closeBulkMenu(event); setInstallmentsPaid(paidRows, false); }}
+                            disabled={!paidRows.length || payingAll}
+                          >
+                            Todas exibidas
+                          </button>
+                        </div>
+                      </div>
+                      <div className="purchase-bulk-dropdown">
+                        <button
+                          type="button"
+                          className="purchase-bulk-trigger is-primary"
+                          popovertarget="purchase-bulk-pay-menu"
+                          aria-controls="purchase-bulk-pay-menu"
+                          aria-haspopup="menu"
+                          aria-expanded="false"
+                          onKeyDown={handleBulkMenuTriggerKeyDown}
+                        >
+                          Pagar
+                          <ChevronDown size={14} aria-hidden="true" />
+                        </button>
+                        <div
+                          id="purchase-bulk-pay-menu"
+                          className="purchase-bulk-menu"
+                          popover="auto"
+                          role="menu"
+                          aria-label="Opções para pagar parcelas"
+                          ref={bindBulkMenu}
+                          onKeyDown={handleBulkMenuKeyDown}
+                        >
+                          <button
+                            type="button"
+                            className="purchase-bulk-menu-item"
+                            role="menuitem"
+                            onClick={(event) => { closeBulkMenu(event); setInstallmentsPaid(selectedUnpaidRows, true); }}
+                            disabled={!selectedUnpaidRows.length || payingAll}
+                          >
+                            <span>Selecionadas</span>
+                            <small>{selectedUnpaidRows.length}</small>
+                          </button>
+                          <button
+                            type="button"
+                            className="purchase-bulk-menu-item"
+                            role="menuitem"
+                            onClick={(event) => { closeBulkMenu(event); setInstallmentsPaid(unpaidRows, true); }}
+                            disabled={!unpaidRows.length || payingAll}
+                          >
+                            Todas exibidas
+                          </button>
+                        </div>
+                      </div>
                     </div>
                   </div>
-                  <p className="muted small purchase-bulk-hint">As ações consideram o mês e os filtros selecionados.</p>
                 </div>
               </section>
               <div className="table-wrap responsive-desktop-table">

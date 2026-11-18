@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Bar as RBar, BarChart, Cell, ResponsiveContainer, Tooltip, XAxis } from 'recharts';
 import CashDashboard from './CashDashboard.jsx';
+import AttentionPanel from './AttentionPanel.jsx';
 import { usePeriod } from '../../context/PeriodContext.jsx';
 import { useFetch } from '../../hooks/useFetch.js';
 import { useFinanceRefresh } from '../../hooks/useFinanceRefresh.js';
@@ -24,19 +25,20 @@ export default function DashboardPage() {
   const tabs = (
     <div className="tabs dashboard-tabs" role="tablist" aria-label="Resumo do Mês">
       <button role="tab" aria-selected={tab === 'cards'} className={tab === 'cards' ? 'on' : ''} onClick={() => setTab('cards')}>Cartões</button>
-      <button role="tab" aria-selected={tab === 'cash'} className={tab === 'cash' ? 'on' : ''} onClick={() => setTab('cash')}>Avulsos</button>
+      <button role="tab" aria-selected={tab === 'cash'} className={tab === 'cash' ? 'on' : ''} onClick={() => setTab('cash')}>Dinheiro e empréstimos</button>
     </div>
   );
 
   if (tab === 'cash') return (
     <div>
       <PageHeader title="Resumo do Mês" subtitle="Indicadores financeiros, faturas e quem deve quanto no mês selecionado." />
+      <AttentionPanel />
       {tabs}
       <CashDashboard />
     </div>
   );
-  if (error) return <div><PageHeader title="Resumo do Mês" subtitle="Indicadores financeiros, faturas e quem deve quanto no mês selecionado." />{tabs}<ErrorState error={error} onRetry={reload} /></div>;
-  if (!data) return <div><PageHeader title="Resumo do Mês" subtitle="Indicadores financeiros, faturas e quem deve quanto no mês selecionado." />{tabs}<Spinner /></div>;
+  if (error) return <div><PageHeader title="Resumo do Mês" subtitle="Indicadores financeiros, faturas e quem deve quanto no mês selecionado." /><AttentionPanel />{tabs}<ErrorState error={error} onRetry={reload} /></div>;
+  if (!data) return <div><PageHeader title="Resumo do Mês" subtitle="Indicadores financeiros, faturas e quem deve quanto no mês selecionado." /><AttentionPanel />{tabs}<Spinner /></div>;
   const { totals, cardTotals, people, person, series, byCategory } = data;
   const maxCard = Math.max(...cardTotals.map((c) => c.amount), 1);
   const maxCat = Math.max(...byCategory.map((c) => c.amount), 1);
@@ -45,6 +47,7 @@ export default function DashboardPage() {
   return (
     <div className={loading ? 'is-loading' : ''}>
       <PageHeader title="Resumo do Mês" subtitle="Indicadores financeiros, faturas e quem deve quanto no mês selecionado." />
+      <AttentionPanel />
       {tabs}
 
       <section className="hero">

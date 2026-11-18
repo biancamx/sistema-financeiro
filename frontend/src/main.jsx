@@ -12,6 +12,11 @@ window.addEventListener('vite:preloadError', (event) => {
   window.location.reload();
 });
 
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/service-worker.js')
+    .catch((error) => console.error('Não foi possível registrar o service worker de notificações:', error));
+}
+
 createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <App />

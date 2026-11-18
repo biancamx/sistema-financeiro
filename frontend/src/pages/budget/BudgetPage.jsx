@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useState } from 'react';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { BarChart3 } from 'lucide-react';
 import { useToast } from '../../context/ToastContext.jsx';
 import { useFetch } from '../../hooks/useFetch.js';
@@ -8,22 +8,19 @@ import { budgetApi, peopleApi, purchasesApi } from '../../services/api.js';
 import { Button, Card, EmptyState, ErrorState, Modal, Money, PageHeader, Select, Spinner } from '../../components/ui/ui.jsx';
 import { MONTHS, MONTHS_SHORT, moneyPlain, yearsAround } from '../../lib/format.js';
 import MoneyCell from '../../components/MoneyCell.jsx';
-import { PATHS } from '../../app/paths.js';
 
 export default function BudgetPage() {
   const nav = useNavigate();
   const toast = useToast();
   const params = useParams();
+  const [searchParams] = useSearchParams();
   const people = useFetch(() => peopleApi.list(), [], { cacheKey: 'lookup:people', refreshEvent: 'people:refresh' });
   const thisYear = new Date().getFullYear();
-  const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
+  const queryMonth = Number(searchParams.get('month'));
+  const [selectedMonth, setSelectedMonth] = useState(() => queryMonth >= 1 && queryMonth <= 12 ? queryMonth : new Date().getMonth() + 1);
   const [showFullYearMobile, setShowFullYearMobile] = useState(false);
-  const personId = params.personId || people.data?.[0]?.id;
+  const personId = params.personId;
   const year = Number(params.year) || thisYear;
-
-  useEffect(() => {
-    if (!params.personId && personId) nav(`${PATHS.budget}/${personId}/${year}`, { replace: true });
-  }, [params.personId, personId, year, nav]);
 
   const sheet = useFetch(() => budgetApi.get({ personId, year, month: selectedMonth }), [personId, year, selectedMonth], { enabled: Boolean(personId) });
   useFinanceRefresh(sheet.reload);
@@ -35,7 +32,7 @@ export default function BudgetPage() {
   if (!people.data) return <Spinner />;
   if (people.data.length === 0) return <EmptyState title="Cadastre uma pessoa primeiro">A planilha mensal é montada por pessoa e ano.</EmptyState>;
 
-  const go = (p, y) => nav(`${PATHS.budget}/${p}/${y}`);
+  const goToYear = (nextYear) => nav(`/pessoas/${personId}/planilha/${nextYear}`);
   const d = sheet.data;
 
   // Atualiza a célula na tela na hora; o resumo é recarregado em seguida (o servidor é a fonte dos totais).
@@ -139,8 +136,7 @@ export default function BudgetPage() {
         title="Planilha mensal"
         subtitle="Receitas, descontos e despesas mês a mês. Marque cada despesa paga no mês correspondente."
         actions={<>
-          <Select value={personId || ''} onChange={(v) => go(v, year)} options={people.data.map((p) => ({ value: p.id, label: p.name }))} aria-label="Pessoa" />
-          <Select value={year} onChange={(v) => go(personId, v)} options={yearsAround(thisYear).map((y) => ({ value: y, label: y }))} aria-label="Ano" />
+          <Select value={year} onChange={(v) => goToYear(v)} options={yearsAround(thisYear).map((y) => ({ value: y, label: y }))} aria-label="Ano" />
           <Button variant="primary" onClick={() => setMonthlySummaryOpen(true)} disabled={!d}>Resumo do mês</Button>
         </>}
       />
@@ -270,7 +266,7 @@ export default function BudgetPage() {
               </button>
             </div>
 
-            <div className={`budget-month-table${showFullYearMobile ? ' is-hidden' : ''}`}>
+            <div className={`table-wrap budget-month-table${showFullYearMobile ? ' is-hidden' : ''}`}>
               <table className="sheet budget-month-view">
                 <thead>
                   <tr><th>Categoria</th><th className="num">{MONTHS_SHORT[selectedMonth - 1]}</th><th>Pago</th></tr>

@@ -151,15 +151,6 @@ export default function ExpenseForm({ value, onClose, onSubmit, vehicles, people
           )}
         </Field>
         <Field label="Valor (R$)" error={errors.amount} hint="A partir de R$ 1,00">{(id) => <input id={id} className="input" inputMode="decimal" value={f.amount} onChange={set('amount')} placeholder="0,00" />}</Field>
-        <Field label="Descrição" error={errors.description}>{(id) => <input id={id} className="input" value={f.description} onChange={set('description')} maxLength={200} placeholder="Ex.: Gasolina aditivada — Posto Ipiranga" />}</Field>
-        <Field label="KM atual" error={errors.km} hint={kmLow ? `KM menor que o atual (${showKm(vehicle.currentKm)}). Confirme se está correto.` : vehicle?.currentKm != null ? `Último registrado: ${showKm(vehicle.currentKm)}` : 'Opcional'}>
-          {(id) => <input id={id} className="input" inputMode="numeric" value={f.km} onChange={(e) => setF((s) => ({ ...s, km: e.target.value.replace(/\D/g, '') }))} placeholder="Ex.: 41200" />}
-        </Field>
-        {f.category === 'fuel' && (
-          <Field label="Litros" error={errors.liters} hint="Opcional; usado no cálculo do consumo médio">
-            {(id) => <input id={id} className="input" inputMode="decimal" value={f.liters} onChange={set('liters')} placeholder="Ex.: 42,5" />}
-          </Field>
-        )}
         <Field label="Pessoa responsável / pagadora" error={errors.payerId}>{(id) => <Select id={id} value={f.payerId} onChange={set('payerId')} placeholder="Escolha…" options={personOpts} />}</Field>
         <Field label="Forma de pagamento">
           {(id) => <Select id={id} value={f.paymentMethod} onChange={set('paymentMethod')} options={[{ value: 'cash', label: 'Dinheiro / outro' }, { value: 'card', label: 'Cartão de crédito' }]} />}
@@ -177,10 +168,23 @@ export default function ExpenseForm({ value, onClose, onSubmit, vehicles, people
       </div>
       {f.paymentMethod === 'card' && <p className="field-hint">A compra e as parcelas serão criadas automaticamente em Lançamentos e na Planilha mensal. A data deste gasto e o fechamento do cartão definem a primeira fatura. Em despesas compartilhadas, o valor de cada parcela seguirá o rateio escolhido acima.</p>}
 
-      <label className="share-toggle">
-        <input type="checkbox" checked={f.shared} onChange={(e) => setF((s) => ({ ...s, shared: e.target.checked, participantIds: e.target.checked ? s.participantIds : [], splitMode: 'equal', values: {} }))} />
-        <span><strong>Despesa compartilhada</strong> — dividir entre membros da casa/equipe{!f.shared && ' (sem marcar, quem pagou assume o gasto sozinho)'}</span>
-      </label>
+      <details className="form-more-options" open={Boolean(f.id || f.description || f.km || f.liters || f.shared)}>
+        <summary>Mais opções</summary>
+        <div className="form-grid">
+          <Field label="Descrição" error={errors.description}>{(id) => <input id={id} className="input" value={f.description} onChange={set('description')} maxLength={200} placeholder="Ex.: Gasolina aditivada — Posto Ipiranga" />}</Field>
+          <Field label="KM atual" error={errors.km} hint={kmLow ? `KM menor que o atual (${showKm(vehicle.currentKm)}). Confirme se está correto.` : vehicle?.currentKm != null ? `Último registrado: ${showKm(vehicle.currentKm)}` : 'Opcional'}>
+            {(id) => <input id={id} className="input" inputMode="numeric" value={f.km} onChange={(e) => setF((s) => ({ ...s, km: e.target.value.replace(/\D/g, '') }))} placeholder="Ex.: 41200" />}
+          </Field>
+          {f.category === 'fuel' && (
+            <Field label="Litros" error={errors.liters} hint="Opcional; usado no cálculo do consumo médio">
+              {(id) => <input id={id} className="input" inputMode="decimal" value={f.liters} onChange={set('liters')} placeholder="Ex.: 42,5" />}
+            </Field>
+          )}
+        </div>
+        <label className="share-toggle">
+          <input type="checkbox" checked={f.shared} onChange={(e) => setF((s) => ({ ...s, shared: e.target.checked, participantIds: e.target.checked ? s.participantIds : [], splitMode: 'equal', values: {} }))} />
+          <span><strong>Despesa compartilhada</strong> — dividir entre membros da casa/equipe{!f.shared && ' (sem marcar, quem pagou assume o gasto sozinho)'}</span>
+        </label>
 
       {f.shared && (
         <fieldset className="people-pick">
@@ -233,6 +237,7 @@ export default function ExpenseForm({ value, onClose, onSubmit, vehicles, people
             : <span className="field-hint">Os centavos são acertados pelo sistema e a soma sempre fecha no valor do gasto. Quem pagou recebe dos demais a parte de cada um (veja “Acerto entre pessoas” no resumo).</span>}
         </fieldset>
       )}
+      </details>
     </Modal>
   );
 }

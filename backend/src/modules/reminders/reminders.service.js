@@ -66,22 +66,22 @@ export async function getPersonBillingSummary(userId, personId, month, year) {
   if (!installments.length && !fixedExpenses.length) message += 'Você não possui nenhuma pendência ou despesa registrada neste mês! Parabéns!';
   else {
     for (const group of cards) {
-      const dueInfo = group.dueDate ? `(Vencimento ${group.dueDate.split('-').reverse().join('/')})` : '';
-      message += `💳 *${group.cardName}* ${dueInfo}\n`;
+      const dueInfo = group.dueDate ? ` _Vencimento ${group.dueDate.split('-').reverse().join('/')}_` : '';
+      message += `💳 *${group.cardName}*${dueInfo}\n`;
       for (const item of group.items) {
         const remaining = item.remaining > 0 ? `(restam ${item.remaining})` : '(última!)';
         const count = item.totalInstallments > 1 ? `[${item.installmentNumber}/${item.totalInstallments} ${remaining}]` : '[À vista]';
-        message += `  ${item.paid ? '✅' : '⏳'} ${item.description} ${count}: *${brl(item.amount)}*\n`;
+        message += `  ${item.paid ? '✅' : '⏳'} ${item.description} _${count}_ — *${brl(item.amount)}*\n`;
       }
-      message += `  *Subtotal Fatura:* ${brl(group.total)}\n\n`;
+      message += `  *Subtotal da fatura: ${brl(group.total)}*\n\n`;
     }
     if (fixedExpenses.length) {
-      message += '📄 *Contas Fixas & Despesas do Mês:*\n';
-      for (const expense of fixedExpenses) message += `  🔹 ${expense.label}: *${brl(expense.amount)}*\n`;
-      message += `  *Subtotal Contas:* ${brl(totalFixedExpenses)}\n\n`;
+      message += '📄 *Contas fixas e despesas do mês*\n';
+      for (const expense of fixedExpenses) message += `  • ${expense.label} — *${brl(expense.amount)}*\n`;
+      message += `  *Subtotal das contas: ${brl(totalFixedExpenses)}*\n\n`;
     }
-    message += `──────────────────\n📌 *Total Geral do Mês:* ${brl(grandTotal)}\n`;
-    if (grandTotalPending < grandTotal) message += `⏳ *Saldo Restante a Pagar:* ${brl(grandTotalPending)}\n`;
+    message += `━━━━━━━━━━━━━━━━━━\n📌 *Total do mês: ${brl(grandTotal)}*\n`;
+    if (grandTotalPending < grandTotal) message += `⏳ *Saldo pendente: ${brl(grandTotalPending)}*\n`;
   }
   let whatsappLink = null;
   if (person.phone) {

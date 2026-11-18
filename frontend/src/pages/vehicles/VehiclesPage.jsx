@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { Bike, Car, CircleHelp, Truck } from 'lucide-react';
 import { useToast } from '../../context/ToastContext.jsx';
@@ -49,6 +49,7 @@ export default function VehiclesPage() {
   const [vehicleForm, setVehicleForm] = useState(null);
   const [expenseForm, setExpenseForm] = useState(null);
   const [version, setVersion] = useState(0); // muda quando algo é gravado, para recarregar listas e painel
+  const newExpenseHandled = useRef(false);
 
   useEffect(() => {
     const requestedTab = new URLSearchParams(location.search).get('tab');
@@ -69,12 +70,24 @@ export default function VehiclesPage() {
 
   const refresh = () => setVersion((v) => v + 1);
   const pick = (id) => nav(id ? `${PATHS.vehicles}/${id}` : PATHS.vehicles);
+  const list = vehicles.data ?? [];
+  const vehicle = selectedId ? list.find((v) => v.id === selectedId) : null;
+  const openExpense = useCallback(async (id, defaults = {}) => {
+    const availableVehicles = vehicles.data ?? [];
+    if (!id) return setExpenseForm({ ...emptyExpense({ vehicleId: selectedId || (availableVehicles.length === 1 ? availableVehicles[0].id : '') }), ...defaults });
+    try { setExpenseForm(expenseToForm(await vehiclesApi.expense(id))); } catch (e) { toast.error(e); }
+  }, [selectedId, toast, vehicles.data]);
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    if (newExpenseHandled.current || params.get('new') !== 'expense' || !vehicles.data || !lookups.ready) return;
+    newExpenseHandled.current = true;
+    openExpense();
+    nav(location.pathname, { replace: true });
+  }, [location.pathname, location.search, lookups.ready, nav, openExpense, vehicles.data]);
 
   if (vehicles.error) return <ErrorState error={vehicles.error} onRetry={vehicles.reload} />;
   if (!vehicles.data || !cats.data) return <Spinner />;
 
-  const list = vehicles.data;
-  const vehicle = selectedId ? list.find((v) => v.id === selectedId) : null;
   if (selectedId && !vehicle) return <EmptyState title="Veículo não encontrado"><Button onClick={() => pick(null)}>Ver toda a frota</Button></EmptyState>;
 
   const saveVehicle = async (body, photoAction = {}) => {
@@ -112,10 +125,6 @@ export default function VehiclesPage() {
     try { await vehiclesApi.remove(vehicle.id, hist); toast.success('Veículo excluído'); pick(null); refresh(); } catch (e) { toast.error(e); }
   };
 
-  const openExpense = async (id, defaults = {}) => {
-    if (!id) return setExpenseForm({ ...emptyExpense({ vehicleId: selectedId || (list.length === 1 ? list[0].id : '') }), ...defaults });
-    try { setExpenseForm(expenseToForm(await vehiclesApi.expense(id))); } catch (e) { toast.error(e); }
-  };
   const saveExpense = async (body) => {
     try {
       if (expenseForm.id) await vehiclesApi.updateExpense(expenseForm.id, body);

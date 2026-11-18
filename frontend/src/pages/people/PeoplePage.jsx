@@ -1,12 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Check, Copy, Link2, MessageCircle } from 'lucide-react';
+import { CalendarDays, Check, Copy, Link2, MessageCircle, Pencil } from 'lucide-react';
 import { usePeriod } from '../../context/PeriodContext.jsx';
 import { useToast } from '../../context/ToastContext.jsx';
 import { useFetch } from '../../hooks/useFetch.js';
 import { remindersApi, peopleApi, systemApi } from '../../services/api.js';
 import { Button, Card, EmptyState, ErrorState, Field, Modal, Money, PageHeader, Spinner } from '../../components/ui/ui.jsx';
-import { PATHS } from '../../app/paths.js';
 import { MONTHS } from '../../lib/format.js';
 
 function maskPhone(value) {
@@ -27,6 +26,21 @@ function birthDateInfo(value) {
   let age = today.getFullYear() - year;
   if (today.getMonth() < month - 1 || (today.getMonth() === month - 1 && today.getDate() < day)) age -= 1;
   return { formatted: `${String(day).padStart(2, '0')}/${String(month).padStart(2, '0')}/${year}`, age };
+}
+
+function BillingMessage({ message }) {
+  const parts = message.split(/(\*\*[^*]+\*\*|\*[^*]+\*|__[^_]+__|_[^_]+_)/g);
+  return (
+    <pre className="billing-message">
+      {parts.map((part, index) => {
+        if (part.startsWith('**') && part.endsWith('**')) return <strong key={index}>{part.slice(2, -2)}</strong>;
+        if (part.startsWith('*') && part.endsWith('*')) return <strong key={index}>{part.slice(1, -1)}</strong>;
+        if (part.startsWith('__') && part.endsWith('__')) return <strong key={index}>{part.slice(2, -2)}</strong>;
+        if (part.startsWith('_') && part.endsWith('_')) return <em key={index}>{part.slice(1, -1)}</em>;
+        return part;
+      })}
+    </pre>
+  );
 }
 
 async function processAvatarImage(file) {
@@ -54,7 +68,7 @@ async function processAvatarImage(file) {
   }
 }
 
-function PersonAvatar({ person }) {
+export function PersonAvatar({ person }) {
   const [imageUrl, setImageUrl] = useState(person.avatar || null);
   const [imageFailed, setImageFailed] = useState(false);
 
@@ -97,15 +111,175 @@ function PersonAvatar({ person }) {
 
 const emptyForm = { name: '', phone: '', email: '', birthDate: '', pixKey: '', avatar: null, notes: '' };
 
-export default function PeoplePage() {
+export function PersonEditorModal({ open, person, onClose }) {
+  const toast = useToast();
+  const [form, setForm] = useState({ ...emptyForm });
+  const [saving, setSaving] = useState(false);
+  const fileInput = useRef(null);
+
+  useEffect(() => {
+    if (!open) return;
+    setForm(person ? {
+      name: person.name || '',
+      phone: maskPhone(person.phone || ''),
+      email: person.email || '',
+      birthDate: person.birth_date || '',
+      pixKey: person.pix_key || '',
+      avatar: person.avatar || null,
+      notes: person.notes || '',
+    } : { ...emptyForm });
+    setSaving(false);
+  }, [open, person]);
+
+  const setFormValue = (key, value) => setForm((current) => ({ ...current, [key]: value }));
+  const changeAvatar = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    try {
+      setFormValue('avatar', await processAvatarImage(file));
+    } catch (error) {
+      toast.error(error);
+    } finally {
+      event.target.value = '';
+    }
+  };
+  const save = async () => {
+    if (!form.name.trim()) return toast.error(new Error('O nome é obrigatório'));
+    setSaving(true);
+    try {
+      const payload = {
+        name: form.name.trim(),
+        phone: form.phone.trim() || null,
+        email: form.email.trim() || null,
+        birthDate: form.birthDate || null,
+        pixKey: form.pixKey.trim() || null,
+        avatar: form.avatar || null,
+        notes: form.notes.trim() || null,
+      };
+      if (person) await peopleApi.update(person.id, payload);
+      else await peopleApi.create(payload);
+      toast.success(person ? 'Pessoa atualizada' : 'Pessoa adicionada');
+      onClose();
+    } catch (error) {
+      toast.error(error);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Modal
+      open={open}
+      title={person ? 'Editar pessoa' : 'Nova pessoa'}
+      wide
+      onClose={onClose}
+      footer={<><Button variant="ghost" onClick={onClose}>Cancelar</Button><Button variant="primary" disabled={saving} onClick={save}>{saving ? 'Salvando…' : 'Salvar'}</Button></>}
+    >
+      <div className="person-avatar-editor">
+        <button type="button" className="person-avatar-upload" onClick={() => fileInput.current?.click()} aria-label="Escolher foto de perfil">
+          <PersonAvatar person={{ name: form.name || 'Pessoa', email: form.email, avatar: form.avatar }} />
+        </button>
+        <div>
+          <strong>Foto de perfil</strong>
+          <p className="muted small">Se houver uma foto pública no Gravatar associado ao e-mail, ela aparece aqui. Você também pode escolher uma foto do computador, que será cortada e reduzida para até 20 KB.</p>
+          <div className="inline person-avatar-actions">
+            <Button size="sm" variant="ghost" onClick={() => fileInput.current?.click()}>Escolher foto</Button>
+            {form.avatar && <Button size="sm" variant="ghost" onClick={() => setFormValue('avatar', null)}>Remover</Button>}
+          </div>
+        </div>
+        <input ref={fileInput} className="person-file-input" type="file" accept="image/*" onChange={changeAvatar} />
+      </div>
+      <div className="form-grid">
+        <Field label="Nome completo *">{(id) => <input id={id} className="input" value={form.name} onChange={(event) => setFormValue('name', event.target.value)} autoFocus required maxLength={60} />}</Field>
+        <Field label="WhatsApp / celular">{(id) => <input id={id} className="input" type="tel" inputMode="tel" autoComplete="tel" placeholder="(11) 99999-9999" value={form.phone} onChange={(event) => setFormValue('phone', maskPhone(event.target.value))} />}</Field>
+        <Field label="E-mail">{(id) => <input id={id} className="input" type="email" autoComplete="email" maxLength={254} value={form.email} onChange={(event) => setFormValue('email', event.target.value)} />}</Field>
+        <Field label="Data de nascimento">{(id) => <input id={id} className="input" type="date" value={form.birthDate} onChange={(event) => setFormValue('birthDate', event.target.value)} />}</Field>
+        <Field label="Chave Pix">{(id) => <input id={id} className="input" maxLength={120} placeholder="CPF, celular, e-mail ou chave aleatória" value={form.pixKey} onChange={(event) => setFormValue('pixKey', event.target.value)} />}</Field>
+        <Field label="Observações / notas">{(id) => <textarea id={id} className="input person-notes-input" rows="3" maxLength={1000} value={form.notes} onChange={(event) => setFormValue('notes', event.target.value)} />}</Field>
+      </div>
+    </Modal>
+  );
+}
+
+async function removePerson(person, toast) {
+  if (!window.confirm(`Excluir ${person.name}? Compras e planilhas dessa pessoa também serão apagadas.`)) return false;
+  try {
+    await peopleApi.remove(person.id);
+    toast.success('Pessoa excluída');
+    return true;
+  } catch (error) {
+    toast.error(error);
+    return false;
+  }
+}
+
+export function PersonProfileMenu({ person, onEdit, onDeleted }) {
+  const toast = useToast();
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef(null);
+  const triggerRef = useRef(null);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const closeOnOutsideClick = (event) => {
+      if (!containerRef.current?.contains(event.target)) setOpen(false);
+    };
+    const closeOnEscape = (event) => {
+      if (event.key === 'Escape') {
+        setOpen(false);
+        triggerRef.current?.focus();
+      }
+    };
+    document.addEventListener('pointerdown', closeOnOutsideClick);
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('pointerdown', closeOnOutsideClick);
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [open]);
+
+  const deletePerson = async () => {
+    setOpen(false);
+    if (await removePerson(person, toast)) onDeleted();
+  };
+
+  return (
+    <div className="person-profile-menu-wrap" ref={containerRef}>
+      <button
+        ref={triggerRef}
+        type="button"
+        className="person-profile-menu-trigger"
+        aria-label={`Ações de ${person.name}`}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen((current) => !current)}
+      >
+        <Pencil size={18} aria-hidden="true" />
+      </button>
+      {open && (
+        <div className="person-profile-menu" role="menu" aria-label={`Ações de ${person.name}`}>
+          <button type="button" role="menuitem" onClick={() => { setOpen(false); onEdit(); }}>Editar</button>
+          <button type="button" role="menuitem" onClick={deletePerson}>Excluir</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default function PeoplePage({
+  initialBillingPersonId = null,
+  onlyPersonId = null,
+  showHeader = true,
+  headerContent = null,
+  profileCard = false,
+  onAddPhone = null,
+} = {}) {
   const { month, year } = usePeriod();
   const toast = useToast();
   const { data, error, reload } = useFetch(() => peopleApi.list(), [], { cacheKey: 'lookup:people', refreshEvent: 'people:refresh' });
-  const portalContact = useFetch(() => systemApi.getPortalContact(), []);
+  const portalContact = useFetch(() => systemApi.getPortalContact(), [], { enabled: !profileCard });
   const [editing, setEditing] = useState(null);
   const [personModalOpen, setPersonModalOpen] = useState(false);
-  const [form, setForm] = useState(emptyForm);
-  const [saving, setSaving] = useState(false);
   const [billingPerson, setBillingPerson] = useState(null);
   const [billing, setBilling] = useState(null);
   const [billingLoading, setBillingLoading] = useState(false);
@@ -114,11 +288,32 @@ export default function PeoplePage() {
   const [modalMonth, setModalMonth] = useState(month || new Date().getMonth() + 1);
   const [modalYear, setModalYear] = useState(year || new Date().getFullYear());
   const [copied, setCopied] = useState(false);
-  const fileInput = useRef(null);
   const billingRequest = useRef(0);
+  const initialBillingOpened = useRef(null);
+
+  useEffect(() => {
+    if (!initialBillingPersonId || !data || initialBillingOpened.current === initialBillingPersonId) return;
+    const person = data.find((item) => item.id === initialBillingPersonId);
+    if (person) {
+      initialBillingOpened.current = initialBillingPersonId;
+      if (profileCard) {
+        const initialMonth = month || new Date().getMonth() + 1;
+        const initialYear = year || new Date().getFullYear();
+        setModalMonth(initialMonth);
+        setModalYear(initialYear);
+        fetchBilling(person.id, initialMonth, initialYear);
+      } else {
+        openBilling(person);
+      }
+    }
+  }, [data, initialBillingPersonId, profileCard]);
 
   if (error) return <ErrorState error={error} onRetry={reload} />;
   if (!data) return <Spinner />;
+
+  const visiblePeople = onlyPersonId
+    ? data.filter((person) => person.id === onlyPersonId)
+    : data;
 
   const fetchBilling = async (personId, targetMonth, targetYear) => {
     const requestId = ++billingRequest.current;
@@ -142,67 +337,17 @@ export default function PeoplePage() {
   };
   const openCreate = () => {
     setEditing(null);
-    setForm({ ...emptyForm });
     setPersonModalOpen(true);
   };
   const openEdit = (person) => {
     setEditing(person);
-    setForm({
-      name: person.name || '',
-      phone: maskPhone(person.phone || ''),
-      email: person.email || '',
-      birthDate: person.birth_date || '',
-      pixKey: person.pix_key || '',
-      avatar: person.avatar || null,
-      notes: person.notes || '',
-    });
     setPersonModalOpen(true);
   };
-  const setFormValue = (key, value) => setForm((current) => ({ ...current, [key]: value }));
-  const changeAvatar = async (event) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    try {
-      setFormValue('avatar', await processAvatarImage(file));
-    } catch (e) {
-      toast.error(e);
-    } finally {
-      event.target.value = '';
-    }
+  const closePersonModal = () => {
+    setPersonModalOpen(false);
+    setEditing(null);
   };
-  const save = async () => {
-    if (!form.name.trim()) return toast.error(new Error('O nome é obrigatório'));
-    setSaving(true);
-    try {
-      const payload = {
-        name: form.name.trim(),
-        phone: form.phone.trim() || null,
-        email: form.email.trim() || null,
-        birthDate: form.birthDate || null,
-        pixKey: form.pixKey.trim() || null,
-        avatar: form.avatar || null,
-        notes: form.notes.trim() || null,
-      };
-      if (editing) await peopleApi.update(editing.id, payload);
-      else await peopleApi.create(payload);
-      toast.success(editing ? 'Pessoa atualizada' : 'Pessoa adicionada');
-      setEditing(null);
-      setPersonModalOpen(false);
-    } catch (e) {
-      toast.error(e);
-    } finally {
-      setSaving(false);
-    }
-  };
-  const remove = async (person) => {
-    if (!window.confirm(`Excluir ${person.name}? Compras e planilhas dessa pessoa também serão apagadas.`)) return;
-    try {
-      await peopleApi.remove(person.id);
-      toast.success('Pessoa excluída');
-    } catch (e) {
-      toast.error(e);
-    }
-  };
+  const remove = (person) => removePerson(person, toast);
   const openBilling = (person) => {
     const initialMonth = month || new Date().getMonth() + 1;
     const initialYear = year || new Date().getFullYear();
@@ -294,16 +439,55 @@ export default function PeoplePage() {
 
   return (
     <>
-      <PageHeader
+      {showHeader && <PageHeader
         title="Pessoas"
         subtitle="Gerencie participantes, contatos, aniversários e demonstrativos de cobrança"
         actions={<Button variant="primary" onClick={openCreate}>Nova pessoa</Button>}
-      />
-      {data.length === 0 ? (
-        <Card><EmptyState title="Ninguém cadastrado">Adicione pessoas para associar aos gastos e cobranças.</EmptyState></Card>
+      />}
+      {headerContent}
+      {visiblePeople.length === 0 ? (
+        onlyPersonId
+          ? <EmptyState title="Pessoa não encontrada">Volte para Pessoas para selecionar outra pessoa.</EmptyState>
+          : <Card><EmptyState title="Ninguém cadastrado">Adicione pessoas para associar aos gastos e cobranças.</EmptyState><Button variant="primary" onClick={openCreate}>Cadastrar a primeira pessoa</Button></Card>
       ) : (
         <section className="person-grid" aria-label="Pessoas cadastradas">
-          {data.map((person) => {
+          {visiblePeople.map((person) => {
+            if (profileCard) {
+              return (
+                <Card className="person-billing-card" key={person.id}>
+                  <div className="person-billing-overview">
+                    <div className="person-billing-total">
+                      <span className="muted small">Valor a cobrar</span>
+                      {billingLoading && !billing ? <Spinner /> : billing ? (
+                        <Money value={billing.grandTotalPending ?? billing.totalPending ?? 0} strong />
+                      ) : billingError ? (
+                        <Button size="sm" variant="ghost" onClick={() => fetchBilling(person.id, modalMonth, modalYear)}>Tentar novamente</Button>
+                      ) : <Spinner />}
+                    </div>
+                    <div className="person-billing-purchases">
+                      <strong>{person.purchases ?? 0}</strong>
+                      <span className="muted small">compras registradas</span>
+                    </div>
+                  </div>
+                  {person.phone ? (
+                    <p className="person-billing-phone">{maskPhone(person.phone)}</p>
+                  ) : (
+                    <p className="person-billing-phone muted">
+                      Sem telefone cadastrado.{' '}
+                      <button type="button" className="person-add-phone" onClick={onAddPhone}>Adicionar telefone</button>
+                    </p>
+                  )}
+                  <div className="person-billing-actions">
+                    <Button variant="primary" onClick={() => openBilling(person)}>
+                      <MessageCircle size={16} aria-hidden="true" /> Cobrar no WhatsApp
+                    </Button>
+                    <Button variant="ghost" onClick={() => copyPortalLink(person)}>
+                      <Link2 size={16} aria-hidden="true" /> Portal
+                    </Button>
+                  </div>
+                </Card>
+              );
+            }
             const birthday = birthDateInfo(person.birth_date);
             return (
               <Card className="person-card" key={person.id}>
@@ -350,7 +534,9 @@ export default function PeoplePage() {
                   <Button variant="ghost" size="sm" onClick={() => copyPortalLink(person)}>
                     <Link2 size={14} aria-hidden="true" /> Portal
                   </Button>
-                  <Link className="btn btn-ghost btn-sm" to={`${PATHS.budget}/${person.id}/${new Date().getFullYear()}`}>Planilha</Link>
+                  <Link className="btn btn-ghost btn-sm person-monthly-link" to={`/pessoas/${person.id}/planilha/${new Date().getFullYear()}`}>
+                    <CalendarDays size={15} aria-hidden="true" /> Mês a mês
+                  </Link>
                   <Button variant="ghost" size="sm" onClick={() => openEdit(person)}>Editar</Button>
                   <Button variant="ghost" size="sm" onClick={() => remove(person)}>Excluir</Button>
                 </div>
@@ -360,35 +546,7 @@ export default function PeoplePage() {
         </section>
       )}
 
-      <Modal
-        open={personModalOpen}
-        title={editing ? 'Editar pessoa' : 'Nova pessoa'}
-        wide
-        footer={<><Button variant="ghost" onClick={() => { setPersonModalOpen(false); setEditing(null); setForm({ ...emptyForm }); }}>Cancelar</Button><Button variant="primary" disabled={saving} onClick={save}>{saving ? 'Salvando…' : 'Salvar'}</Button></>}
-      >
-        <div className="person-avatar-editor">
-          <button type="button" className="person-avatar-upload" onClick={() => fileInput.current?.click()} aria-label="Escolher foto de perfil">
-            <PersonAvatar person={{ name: form.name || 'Pessoa', email: form.email, avatar: form.avatar }} />
-          </button>
-          <div>
-            <strong>Foto de perfil</strong>
-            <p className="muted small">Se houver uma foto pública no Gravatar associado ao e-mail, ela aparece aqui. Você também pode escolher uma foto do computador, que será cortada e reduzida para até 20 KB.</p>
-            <div className="inline person-avatar-actions">
-              <Button size="sm" variant="ghost" onClick={() => fileInput.current?.click()}>Escolher foto</Button>
-              {form.avatar && <Button size="sm" variant="ghost" onClick={() => setFormValue('avatar', null)}>Remover</Button>}
-            </div>
-          </div>
-          <input ref={fileInput} className="person-file-input" type="file" accept="image/*" onChange={changeAvatar} />
-        </div>
-        <div className="form-grid">
-          <Field label="Nome completo *">{(id) => <input id={id} className="input" value={form.name} onChange={(e) => setFormValue('name', e.target.value)} autoFocus required maxLength={60} />}</Field>
-          <Field label="WhatsApp / celular">{(id) => <input id={id} className="input" type="tel" inputMode="tel" autoComplete="tel" placeholder="(11) 99999-9999" value={form.phone} onChange={(e) => setFormValue('phone', maskPhone(e.target.value))} />}</Field>
-          <Field label="E-mail">{(id) => <input id={id} className="input" type="email" autoComplete="email" maxLength={254} value={form.email} onChange={(e) => setFormValue('email', e.target.value)} />}</Field>
-          <Field label="Data de nascimento">{(id) => <input id={id} className="input" type="date" value={form.birthDate} onChange={(e) => setFormValue('birthDate', e.target.value)} />}</Field>
-          <Field label="Chave Pix">{(id) => <input id={id} className="input" maxLength={120} placeholder="CPF, celular, e-mail ou chave aleatória" value={form.pixKey} onChange={(e) => setFormValue('pixKey', e.target.value)} />}</Field>
-          <Field label="Observações / notas">{(id) => <textarea id={id} className="input person-notes-input" rows="3" maxLength={1000} value={form.notes} onChange={(e) => setFormValue('notes', e.target.value)} />}</Field>
-        </div>
-      </Modal>
+      <PersonEditorModal open={personModalOpen} person={editing} onClose={closePersonModal} />
 
       <Modal
         open={!!billingPerson}
@@ -427,7 +585,7 @@ export default function PeoplePage() {
               <span>Total do mês <Money value={billing.grandTotal ?? billing.totalAmount} strong /></span>
               <span>Saldo restante <Money value={billing.grandTotalPending ?? billing.totalPending} strong /></span>
             </div>
-            <pre className="billing-message">{billing.formattedMessage}</pre>
+            <BillingMessage message={billing.formattedMessage} />
           </div>
         ) : billingError ? (
           <EmptyState title="Não foi possível gerar o demonstrativo">Tente novamente. Se o erro persistir, verifique a conexão com a API.</EmptyState>

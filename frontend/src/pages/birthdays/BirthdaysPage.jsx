@@ -15,7 +15,7 @@ function whatsappShareUrl(message) {
   return `https://api.whatsapp.com/send?text=${encodeURIComponent(message)}`;
 }
 
-export default function BirthdaysPage() {
+export default function BirthdaysPage({ showHeader = true } = {}) {
   const toast = useToast();
   const { data, error, reload } = useFetch(() => birthdaysApi.list(), []);
   const [f, setF] = useState({ name: '', day: '', month: new Date().getMonth() + 1 });
@@ -79,7 +79,7 @@ export default function BirthdaysPage() {
 
   return (
     <div className="birthdays-page">
-      <PageHeader title="Aniversários" subtitle="Para lembrar de presentes antes do mês chegar" />
+      {showHeader && <PageHeader title="Aniversários" subtitle="Para lembrar de presentes antes do mês chegar" />}
       {todayBirthdays.length > 0 && (
         <Card className="birthday-celebration" role="status">
           <span className="birthday-celebration-icon"><PartyPopper size={22} aria-hidden="true" /></span>

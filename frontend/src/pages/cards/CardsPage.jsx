@@ -172,7 +172,10 @@ export default function CardsPage() {
         <Card><span className="muted">Cartões cadastrados</span><strong>{data.length}</strong></Card>
       </div>
       {data.length === 0 ? (
-        <Card><EmptyState title="Nenhum cartão ainda">Cadastre seus cartões para acompanhar o limite e registrar compras.</EmptyState></Card>
+        <Card>
+          <EmptyState title="Nenhum cartão ainda">Cadastre seus cartões para acompanhar o limite e registrar compras.</EmptyState>
+          <Button variant="primary" onClick={() => setEditing({ ...emptyCard })}>Cadastrar o primeiro cartão</Button>
+        </Card>
       ) : (
         <section className="card-grid" aria-label="Seus cartões">
           {data.map((card) => {

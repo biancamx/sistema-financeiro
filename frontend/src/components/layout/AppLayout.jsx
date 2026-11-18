@@ -1,23 +1,19 @@
-import { NavLink, Outlet, useLocation } from 'react-router-dom';
-import { Suspense, useEffect, useRef, useState } from 'react';
+import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
+import { Fragment, Suspense, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
-  Calculator,
-  Cake,
   Car,
-  CircleDollarSign,
+  ChevronRight,
+  CircleHelp,
   Clock3,
   CreditCard,
   Bell,
-  CircleHelp,
   AlertTriangle,
   ExternalLink,
-  Eye,
+  MoreHorizontal,
   LayoutDashboard,
   Menu,
+  Plus,
   ReceiptText,
-  Settings,
-  ShieldCheck,
-  Table,
   Users,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext.jsx';
@@ -31,28 +27,16 @@ import { remindersApi } from '../../services/api.js';
 import { useAppBusy } from '../../context/BusyContext.jsx';
 import { startTour } from '../../lib/tour.js';
 import AssistantWidget from '../AssistantWidget.jsx';
+import GlobalSearch from './GlobalSearch.jsx';
+import NewActionButton from './NewActionButton.jsx';
+import MoreMenu from './MoreMenu.jsx';
 
 const NAV = [
-  { title: 'Visão & Relatórios', items: [
-    { to: PATHS.dashboard, label: 'Resumo do Mês', icon: LayoutDashboard },
-    { to: PATHS.overview, label: 'Extrato por Pessoa', icon: Eye },
-    { to: PATHS.budget, label: 'Planilha Mensal', icon: Table },
-  ] },
-  { title: 'Movimentações', items: [
-    { to: PATHS.purchases, label: 'Lançamentos', icon: ReceiptText },
-    { to: PATHS.cashLedger, label: 'Avulsos', icon: CircleDollarSign },
-  ] },
-  { title: 'Gestão & Cadastros', items: [
-    { to: PATHS.cards, label: 'Cartões', icon: CreditCard },
-    { to: PATHS.vehicles, label: 'Gestão de Veículos', icon: Car },
-    { to: PATHS.people, label: 'Pessoas', icon: Users },
-    { to: PATHS.birthdays, label: 'Aniversários', icon: Cake },
-  ] },
-  { title: 'Sistema & Ferramentas', items: [
-    { to: PATHS.rescission, label: 'Calculadora de rescisão', icon: Calculator },
-    { to: PATHS.settings, label: 'Configurações', icon: Settings },
-    { to: PATHS.adminUsers, label: 'Acessos', icon: ShieldCheck },
-  ], itemAdminOnly: [PATHS.adminUsers] },
+  { to: PATHS.dashboard, label: 'Início', icon: LayoutDashboard, end: true },
+  { to: PATHS.purchases, label: 'Lançamentos', icon: ReceiptText },
+  { to: PATHS.people, label: 'Pessoas', icon: Users },
+  { to: PATHS.cards, label: 'Cartões', icon: CreditCard },
+  { to: PATHS.vehicles, label: 'Veículos', icon: Car },
 ];
 
 // Telas em que o seletor de mês/ano do topo faz sentido
@@ -97,8 +81,13 @@ function SystemClock() {
   );
 }
 
-const MOBILE_NAV = NAV.flatMap((group) => group.items.map((item) => ({ ...item, adminOnly: group.adminOnly })));
-const navTourId = (path) => `nav-${path.replace(/^\//, '')}`;
+const MOBILE_NAV = NAV.filter((item) => [PATHS.dashboard, PATHS.purchases, PATHS.people].includes(item.to));
+const navTourId = (path) => `nav-${path.replace(/^\//, '').replaceAll('/', '-')}`;
+const isAreaActive = (item, pathname) => {
+  if (item.to === PATHS.purchases) return pathname === PATHS.transactions || pathname.startsWith(`${PATHS.transactions}/`);
+  if (item.end) return pathname === item.to;
+  return pathname === item.to || pathname.startsWith(`${item.to}/`);
+};
 
 export default function AppLayout() {
   const { user, logout } = useAuth();
@@ -106,10 +95,35 @@ export default function AppLayout() {
   const { pathname } = useLocation();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [desktopCollapsed, setDesktopCollapsed] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
   const [alertsData, setAlertsData] = useState({ totalAlerts: 0, overdueCount: 0, upcomingCount: 0, alerts: [] });
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const notificationsRef = useRef(null);
   const shellRef = useRef(null);
+  const sidebarRef = useRef(null);
+  const sidebarNavRef = useRef(null);
+  const [sidebarIndicator, setSidebarIndicator] = useState({ top: 0, left: 0, height: 0, visible: false });
+  const [sidebarIndicatorMotionReady, setSidebarIndicatorMotionReady] = useState(false);
+  const morePageActive = pathname === PATHS.more || pathname.startsWith(`${PATHS.more}/`);
+
+  useEffect(() => {
+    let frame = 0;
+    let enabled = false;
+    const enableMotion = () => {
+      if (enabled || document.visibilityState !== 'visible') return;
+      frame = window.requestAnimationFrame(() => {
+        enabled = true;
+        setSidebarIndicatorMotionReady(true);
+      });
+    };
+
+    enableMotion();
+    document.addEventListener('visibilitychange', enableMotion);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      document.removeEventListener('visibilitychange', enableMotion);
+    };
+  }, []);
 
   useEffect(() => {
     shellRef.current?.toggleAttribute('inert', Boolean(busyMessage));
@@ -118,7 +132,81 @@ export default function AppLayout() {
   useEffect(() => {
     setMobileMenuOpen(false);
     setNotificationsOpen(false);
+    setMoreOpen(false);
   }, [pathname]);
+
+  useLayoutEffect(() => {
+    const sidebar = sidebarRef.current;
+    const nav = sidebarNavRef.current;
+    if (!sidebar || !nav) return undefined;
+
+    const updateIndicator = () => {
+      const active = nav.querySelector('.sidebar-more-trigger[aria-expanded="true"]')
+        || nav.querySelector('.nav-link[aria-current="page"]');
+      const sidebarRect = sidebar.getBoundingClientRect();
+      if (!active || sidebarRect.width === 0) {
+        setSidebarIndicator((current) => current.visible ? { ...current, visible: false } : current);
+        return;
+      }
+
+      const activeRect = active.getBoundingClientRect();
+      const next = {
+        top: activeRect.top - sidebarRect.top,
+        left: activeRect.left - sidebarRect.left,
+        height: activeRect.height,
+        visible: true,
+      };
+      setSidebarIndicator((current) => (
+        current.visible
+        && Math.abs(current.top - next.top) < 0.5
+        && Math.abs(current.left - next.left) < 0.5
+        && Math.abs(current.height - next.height) < 0.5
+          ? current
+          : next
+      ));
+    };
+
+    updateIndicator();
+    const resizeObserver = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(updateIndicator);
+    resizeObserver?.observe(sidebar);
+    resizeObserver?.observe(nav);
+    const active = nav.querySelector('.sidebar-more-trigger[aria-expanded="true"]')
+      || nav.querySelector('.nav-link[aria-current="page"]');
+    if (active) resizeObserver?.observe(active);
+
+    const mutationObserver = new MutationObserver(updateIndicator);
+    mutationObserver.observe(nav, {
+      attributes: true,
+      attributeFilter: ['aria-current', 'aria-expanded', 'class'],
+      childList: true,
+      subtree: true,
+    });
+    nav.addEventListener('scroll', updateIndicator, { passive: true });
+    window.addEventListener('resize', updateIndicator);
+
+    return () => {
+      resizeObserver?.disconnect();
+      mutationObserver.disconnect();
+      nav.removeEventListener('scroll', updateIndicator);
+      window.removeEventListener('resize', updateIndicator);
+    };
+  }, [desktopCollapsed, moreOpen, pathname]);
+
+  useEffect(() => {
+    if (!moreOpen) return undefined;
+    const closeOnEscape = (event) => {
+      if (event.key === 'Escape') setMoreOpen(false);
+    };
+    document.addEventListener('keydown', closeOnEscape);
+    return () => document.removeEventListener('keydown', closeOnEscape);
+  }, [moreOpen]);
+
+  const toggleMore = () => setMoreOpen((open) => !open);
+  const openMoreFromDrawer = () => {
+    setMobileMenuOpen(false);
+    setMoreOpen(true);
+  };
+  const openAssistant = () => document.querySelector('[aria-label="Abrir assistente financeiro"]')?.click();
 
   useEffect(() => {
     const connection = navigator.connection;
@@ -193,30 +281,57 @@ export default function AppLayout() {
   }, []);
 
   return (
-    <div ref={shellRef} className={`shell ${desktopCollapsed ? 'shell-collapsed' : ''}`} aria-busy={Boolean(busyMessage)}>
-      <aside className="sidebar">
+    <div ref={shellRef} className={`shell ${desktopCollapsed ? 'shell-collapsed' : ''} ${moreOpen ? 'shell-more-open' : ''}`} aria-busy={Boolean(busyMessage)}>
+      <aside ref={sidebarRef} className="sidebar">
         <div className="brand"><span className="brand-mark" aria-hidden="true" />{!desktopCollapsed && 'Caderno de Contas'}</div>
-        <nav className="sidebar-nav" aria-label="Principal">
-          {NAV.map((g) => (
-            <div key={g.title} className="nav-group">
-              {!desktopCollapsed && <div className="nav-title">{g.title}</div>}
-              {g.items.filter((item) => !g.itemAdminOnly?.includes(item.to) || user?.role === 'admin').map((i) => (
-                <NavLink
-                  key={i.to}
-                  to={i.to}
-                  onPointerEnter={() => preloadRoute(i.to)}
-                  onPointerDown={() => preloadRoute(i.to)}
-                  onFocus={() => preloadRoute(i.to)}
-                  data-tour={navTourId(i.to)}
-                  title={desktopCollapsed ? i.label : undefined}
-                  className={({ isActive }) => `nav-link ${desktopCollapsed ? 'nav-link-collapsed' : ''} ${isActive ? 'active' : ''}`}
+        <div
+          className={`sidebar-nav-indicator ${sidebarIndicator.visible ? 'is-visible' : ''} ${sidebarIndicatorMotionReady ? 'has-motion' : ''}`}
+          aria-hidden="true"
+          style={{
+            '--indicator-y': `${sidebarIndicator.top}px`,
+            '--indicator-left': `${sidebarIndicator.left}px`,
+            '--indicator-height': `${sidebarIndicator.height}px`,
+          }}
+        />
+        <nav ref={sidebarNavRef} className="sidebar-nav" aria-label="Principal">
+          <div className="nav-group">
+            {!desktopCollapsed && <div className="nav-title">Áreas</div>}
+            {NAV.map((item) => {
+              const isActive = isAreaActive(item, pathname);
+              return (
+                <Link
+                  key={item.to}
+                  to={item.to}
+                  onPointerEnter={() => preloadRoute(item.to)}
+                  onPointerDown={() => preloadRoute(item.to)}
+                  onFocus={() => preloadRoute(item.to)}
+                  data-tour={navTourId(item.to)}
+                  title={desktopCollapsed ? item.label : undefined}
+                  aria-current={isActive ? 'page' : undefined}
+                  className={`nav-link ${desktopCollapsed ? 'nav-link-collapsed' : ''} ${isActive ? 'active' : ''}`}
                 >
-                  <i.icon className="sidebar-nav-icon" aria-hidden="true" />
-                  {!desktopCollapsed && i.label}
-                </NavLink>
-              ))}
-            </div>
-          ))}
+                  <item.icon className="sidebar-nav-icon" aria-hidden="true" />
+                  {!desktopCollapsed && item.label}
+                </Link>
+              );
+            })}
+            <button
+              type="button"
+              className={`nav-link sidebar-more-trigger ${desktopCollapsed ? 'nav-link-collapsed' : ''}`}
+              onClick={toggleMore}
+              aria-expanded={moreOpen}
+              aria-haspopup="menu"
+              aria-controls="more-flyout"
+              aria-current={morePageActive ? 'page' : undefined}
+              data-tour={navTourId(PATHS.more)}
+              title={desktopCollapsed ? 'Mais' : undefined}
+            >
+              {desktopCollapsed
+                ? <Plus className="sidebar-nav-icon" aria-hidden="true" />
+                : <MoreHorizontal className="sidebar-nav-icon" aria-hidden="true" />}
+              {!desktopCollapsed && <>Mais<ChevronRight className="more-chevron" aria-hidden="true" /></>}
+            </button>
+          </div>
         </nav>
         <div className="sidebar-user">
           {!desktopCollapsed && (
@@ -282,6 +397,7 @@ export default function AppLayout() {
             </span>
           </div>
           <div className="topbar-actions">
+            <GlobalSearch />
             <SystemClock />
             {USES_PERIOD.some((p) => pathname.startsWith(p)) && <PeriodPicker />}
             <button
@@ -375,7 +491,7 @@ export default function AppLayout() {
             </div>
           </div>
         </div>
-        <main className={`content ${pathname.startsWith(PATHS.budget) ? 'content-wide' : ''}`}>
+        <main className={`content ${pathname.includes('/planilha/') ? 'content-wide' : ''}`}>
           <ErrorBoundary key={pathname}>
             <Suspense fallback={<Spinner />}><Outlet /></Suspense>
           </ErrorBoundary>
@@ -391,14 +507,12 @@ export default function AppLayout() {
               <button className="icon-btn" type="button" aria-label="Fechar menu" onClick={() => setMobileMenuOpen(false)}>×</button>
             </header>
             <nav className="mobile-drawer-nav" aria-label="Navegação móvel">
-              {NAV.map((group) => {
-                const items = group.items.filter((item) => !group.itemAdminOnly?.includes(item.to) || user?.role === 'admin');
-                if (!items.length) return null;
-                return (
-                <div key={group.title} className="nav-group">
-                  <div className="nav-title">{group.title}</div>
-                  {items.map((item) => (
-                    <NavLink
+              <div className="nav-group">
+                <div className="nav-title">Áreas do sistema</div>
+                {NAV.map((item) => {
+                  const isActive = isAreaActive(item, pathname);
+                  return (
+                    <Link
                       key={item.to}
                       to={item.to}
                       onPointerEnter={() => preloadRoute(item.to)}
@@ -406,15 +520,26 @@ export default function AppLayout() {
                       onFocus={() => preloadRoute(item.to)}
                       data-tour={navTourId(item.to)}
                       onClick={() => setMobileMenuOpen(false)}
-                      className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
+                      aria-current={isActive ? 'page' : undefined}
+                      className={`nav-link ${isActive ? 'active' : ''}`}
                     >
-                        <item.icon className="drawer-nav-icon" aria-hidden="true" />
-                        {item.label}
-                    </NavLink>
-                  ))}
-                </div>
-                );
-              })}
+                      <item.icon className="drawer-nav-icon" aria-hidden="true" />
+                      {item.label}
+                    </Link>
+                  );
+                })}
+                <button
+                  type="button"
+                  className={`nav-link ${moreOpen || morePageActive ? 'active' : ''}`}
+                  onClick={openMoreFromDrawer}
+                  aria-expanded={moreOpen}
+                  aria-haspopup="menu"
+                  aria-current={morePageActive ? 'page' : undefined}
+                  data-tour={navTourId(PATHS.more)}
+                >
+                  <MoreHorizontal className="drawer-nav-icon" aria-hidden="true" />Mais
+                </button>
+              </div>
             </nav>
             <div className="mobile-drawer-user">
               <div className="flex items-center gap-3">
@@ -444,27 +569,41 @@ export default function AppLayout() {
 
       <nav className="mobile-bottom-nav" aria-label="Navegação rápida">
         <div className="mobile-bottom-scroll no-scrollbar">
-          {MOBILE_NAV.filter((item) => !item.adminOnly || user?.role === 'admin').map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              onPointerEnter={() => preloadRoute(item.to)}
-              onPointerDown={() => preloadRoute(item.to)}
-              onFocus={() => preloadRoute(item.to)}
-              data-tour={navTourId(item.to)}
-              className={({ isActive }) => `mobile-bottom-link ${isActive ? 'active' : ''}`}
-            >
-              <item.icon className="mobile-bottom-symbol" aria-hidden="true" />
-              <span>
-                {item.to === PATHS.vehicles ? 'Veículos'
-                  : item.to === PATHS.rescission ? 'Rescisão'
-                    : item.to === PATHS.overview ? 'Visão Geral'
-                      : item.label}
-              </span>
-            </NavLink>
+          {MOBILE_NAV.map((item, index) => (
+            <Fragment key={item.to}>
+              {index === 2 && <NewActionButton mobile />}
+              <Link
+                to={item.to}
+                onPointerEnter={() => preloadRoute(item.to)}
+                onPointerDown={() => preloadRoute(item.to)}
+                onFocus={() => preloadRoute(item.to)}
+                data-tour={navTourId(item.to)}
+                aria-current={isAreaActive(item, pathname) ? 'page' : undefined}
+                className={`mobile-bottom-link ${isAreaActive(item, pathname) ? 'active' : ''}`}
+              >
+                <item.icon className="mobile-bottom-symbol" aria-hidden="true" />
+                <span>{item.label}</span>
+              </Link>
+            </Fragment>
           ))}
+          <button
+            type="button"
+            className={`mobile-bottom-link ${moreOpen || morePageActive ? 'active' : ''}`}
+            onClick={toggleMore}
+            aria-label="Mais"
+            aria-expanded={moreOpen}
+            aria-haspopup="menu"
+            aria-controls="more-flyout"
+            aria-current={morePageActive ? 'page' : undefined}
+            data-tour={navTourId(PATHS.more)}
+          >
+            <MoreHorizontal className="mobile-bottom-symbol" aria-hidden="true" />
+            <span>Mais</span>
+          </button>
         </div>
       </nav>
+      <MoreMenu open={moreOpen} isAdmin={user?.role === 'admin'} onClose={() => setMoreOpen(false)} onOpenAssistant={openAssistant} />
+      <NewActionButton floating />
       <AssistantWidget />
     </div>
   );

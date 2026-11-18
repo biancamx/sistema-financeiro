@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useState } from 'react';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { BarChart3 } from 'lucide-react';
 import { useToast } from '../../context/ToastContext.jsx';
 import { useFetch } from '../../hooks/useFetch.js';
@@ -8,23 +8,20 @@ import { budgetApi, dashboardApi, peopleApi } from '../../services/api.js';
 import { Card, EmptyState, ErrorState, PageHeader, Select, Spinner } from '../../components/ui/ui.jsx';
 import MoneyCell from '../../components/MoneyCell.jsx';
 import { MONTHS_SHORT, moneyPlain, yearsAround } from '../../lib/format.js';
-import { PATHS } from '../../app/paths.js';
 
 export default function OverviewPage() {
   const nav = useNavigate();
   const toast = useToast();
   const params = useParams();
+  const [searchParams] = useSearchParams();
   const people = useFetch(() => peopleApi.list(), [], { cacheKey: 'lookup:people', refreshEvent: 'people:refresh' });
   const thisYear = new Date().getFullYear();
-  const personId = params.personId || people.data?.[0]?.id;
+  const personId = params.personId;
   const year = Number(params.year) || thisYear;
   const [newLabel, setNewLabel] = useState(null);
-  const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
+  const queryMonth = Number(searchParams.get('month'));
+  const [selectedMonth, setSelectedMonth] = useState(() => queryMonth >= 1 && queryMonth <= 12 ? queryMonth : new Date().getMonth() + 1);
   const [showFullYearMobile, setShowFullYearMobile] = useState(false);
-
-  useEffect(() => {
-    if (!params.personId && personId) nav(`${PATHS.overview}/${personId}/${year}`, { replace: true });
-  }, [params.personId, personId, year, nav]);
 
   const ov = useFetch(() => dashboardApi.overview({ personId, year }), [personId, year], { enabled: Boolean(personId) });
   useFinanceRefresh(ov.reload);
@@ -33,7 +30,8 @@ export default function OverviewPage() {
   if (!people.data) return <Spinner />;
   if (people.data.length === 0) return <EmptyState title="Nenhuma pessoa cadastrada" />;
 
-  const go = (p, y) => nav(`${PATHS.overview}/${p}/${y}`);
+  const personName = people.data.find((person) => person.id === personId)?.name;
+  const goToYear = (nextYear) => nav(`/pessoas/${personId}/extrato/${nextYear}`);
   const d = ov.data;
   const toggle = async (month) => {
     const next = d.status[month - 1] === 'paid' ? 'pending' : 'paid';
@@ -62,11 +60,10 @@ export default function OverviewPage() {
   return (
     <>
       <PageHeader
-        title="Extrato por Pessoa"
-        subtitle="Consolidado anual de faturas, contas fixas e pendências de cada participante."
+        title={`Extrato · ${personName}`}
+        subtitle="Consolidado anual de faturas, contas fixas e pendências desta pessoa."
         actions={<>
-          <Select value={personId || ''} onChange={(v) => go(v, year)} options={people.data.map((p) => ({ value: p.id, label: p.name }))} aria-label="Pessoa" />
-          <Select value={year} onChange={(v) => go(personId, v)} options={yearsAround(thisYear).map((y) => ({ value: y, label: y }))} aria-label="Ano" />
+          <Select value={year} onChange={(v) => goToYear(v)} options={yearsAround(thisYear).map((y) => ({ value: y, label: y }))} aria-label="Ano" />
         </>}
       />
       {ov.error && <ErrorState error={ov.error} onRetry={ov.reload} />}
@@ -116,7 +113,7 @@ export default function OverviewPage() {
             </button>
           </div>
 
-          <div className={`budget-month-table overview-month-table${showFullYearMobile ? ' is-hidden' : ''}`}>
+          <div className={`table-wrap budget-month-table overview-month-table${showFullYearMobile ? ' is-hidden' : ''}`}>
             <table className="sheet budget-month-view">
               <thead>
                 <tr><th>Item</th><th className="num">{MONTHS_SHORT[selectedMonth - 1]}</th></tr>

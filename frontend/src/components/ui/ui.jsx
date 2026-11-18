@@ -28,7 +28,7 @@ export function Select({ value, onChange, options, placeholder, id, ...rest }) {
   );
 }
 
-export function Modal({ open, title, children, footer, wide, className = '', onClose }) {
+export function Modal({ open, title, children, footer, wide, className = '', onClose, dismissible = false }) {
   const ref = useRef(null);
   useEffect(() => {
     const d = ref.current;
@@ -41,7 +41,19 @@ export function Modal({ open, title, children, footer, wide, className = '', onC
       ref={ref}
       className={`modal ${wide ? 'modal-wide' : ''} ${className}`}
       aria-label={title}
-      onCancel={(event) => event.preventDefault()}
+      onCancel={(event) => {
+        event.preventDefault();
+        if (dismissible) onClose?.();
+      }}
+      onKeyDown={(event) => {
+        if (dismissible && event.key === 'Escape') {
+          event.preventDefault();
+          onClose?.();
+        }
+      }}
+      onClick={(event) => {
+        if (dismissible && event.target === event.currentTarget) onClose?.();
+      }}
     >
       {open && (
         <div className="modal-body">

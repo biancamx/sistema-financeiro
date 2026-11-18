@@ -108,12 +108,17 @@ export default function CashLedgerPage() {
 
   useEffect(() => {
     if (appliedDashboardQuery.current || !searchParams.size) return;
+    if (searchParams.get('action') === 'receive' && !list.data) return;
     appliedDashboardQuery.current = true;
-    if (searchParams.get('new') === '1') setForm(emptyCashEntry());
+    if (searchParams.get('new') === '1') setForm(emptyCashEntry(searchParams.get('kind') || 'expense'));
     const entryId = searchParams.get('entryId');
     if (entryId) openDetails(entryId);
+    if (searchParams.get('action') === 'receive') {
+      const receivable = list.data?.data.find((row) => row.installmentId && row.outstanding > 0);
+      if (receivable) openReceive(receivable);
+    }
     setSearchParams({}, { replace: true });
-  }, [searchParams, setSearchParams]);
+  }, [searchParams, setSearchParams, list.data]);
 
   const openEdit = async (entryId) => {
     try {
@@ -201,7 +206,7 @@ export default function CashLedgerPage() {
   return (
     <div className="cash-page">
       <PageHeader
-        title="Avulsos"
+        title="Dinheiro e empréstimos"
         subtitle={<span className="cash-page-subtitle">Entradas e saídas fora dos cartões de crédito. Gastos em dinheiro dos veículos também aparecem aqui.</span>}
         actions={<>
           <a className="btn btn-ghost cash-export" href={cashLedgerApi.exportUrl()} aria-label="Exportar CSV">

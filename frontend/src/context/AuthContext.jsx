@@ -21,7 +21,26 @@ export function AuthProvider({ children }) {
       }
       return accountRefresh.current;
     });
-    authApi.me().then((r) => setUser(r?.user || r?.data?.user)).catch(() => setUser(null)).finally(() => setBooting(false));
+    const boot = async () => {
+      if (import.meta.env.DEV) {
+        try {
+          const response = await authApi.local();
+          setUser(response?.user || response?.data?.user);
+          return;
+        } catch {
+          // Falls back to the regular session check if local demo login is unavailable.
+        }
+      }
+      try {
+        const response = await authApi.me();
+        setUser(response?.user || response?.data?.user);
+      } catch {
+        setUser(null);
+      } finally {
+        setBooting(false);
+      }
+    };
+    boot().finally(() => setBooting(false));
   }, []);
 
   const finish = useCallback(async (promise) => {

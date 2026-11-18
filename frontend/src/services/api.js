@@ -1,4 +1,4 @@
-import { get, post, put, patch, del, apiUrl, postFormData } from './http.js';
+import { get, post, put, patch, del, apiUrl, postFormData, http } from './http.js';
 import { refreshLookup } from './lookupRefresh.js';
 
 // Um objeto por "módulo" da API (espelha as pastas do backend).
@@ -148,6 +148,11 @@ export const remindersApi = {
   getPersonBilling: (personId, month, year) => get(`/reminders/billing/${personId}`, { month, year }),
   getMonthlySummary: (month, year) => get('/reminders/monthly-summary', { month, year }),
   settlePersonMonth: (personId, month, year) => post('/reminders/settle-person-month', { personId, month, year }),
+};
+export const pushApi = {
+  getVapidPublicKey: () => get('/push/vapid-public-key').then((response) => response.data.publicKey),
+  saveSubscription: (body) => post('/push/subscriptions', body),
+  removeSubscription: (endpoint) => http('DELETE', '/push/subscriptions', { body: { endpoint } }),
 };
 export const cardsApi = {
   ...crud('/cards', 'cards'),

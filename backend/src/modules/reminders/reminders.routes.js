@@ -8,7 +8,7 @@ import { MonthStatus } from '../../models/MonthStatus.js';
 import { Person } from '../../models/Person.js';
 import { Purchase } from '../../models/Purchase.js';
 import { User } from '../../models/User.js';
-import { getSystemAlerts } from './alerts.service.js';
+import { dismissSystemAlert, getSystemAlerts } from './alerts.service.js';
 import { getPersonBillingSummary } from './reminders.service.js';
 
 const period = z.object({
@@ -25,6 +25,9 @@ const reminderSettingsBody = z.object({
   trigger_day: z.coerce.number().int().min(1).max(31),
   trigger_hour: z.coerce.number().int().min(0).max(23),
   enabled: z.boolean(),
+});
+const dismissAlertBody = z.object({
+  alertKey: z.string().regex(/^[\da-f]{64}$/i),
 });
 
 export function remindersRoutes() {
@@ -51,6 +54,10 @@ export function remindersRoutes() {
     res.json({ data: settings, ...settings, success: true });
   }));
   router.get('/alerts', asyncHandler(async (req, res) => res.json(await getSystemAlerts(req.user._id))));
+  router.post('/alerts/dismiss', validate({ body: dismissAlertBody }), asyncHandler(async (req, res) => {
+    await dismissSystemAlert(req.user._id, req.body.alertKey);
+    res.json({ success: true });
+  }));
   router.post('/settle-person-month', validate({ body: settlePersonMonthBody }), asyncHandler(async (req, res) => {
     const { personId, month, year } = req.body;
     if (!await Person.exists({ _id: personId, userId: req.user._id })) return res.status(404).json({ error: 'Pessoa não encontrada' });

@@ -1,5 +1,7 @@
+import { createHash } from 'node:crypto';
 import { SECTIONS } from '../budgets/budgets.defaults.js';
 import { ensureSubscriptionInstallments, getInvoiceDueDate, getInstallmentBalanceCents } from '../../lib/cardBilling.js';
+import { AlertDismissal } from '../../models/AlertDismissal.js';
 import { BudgetSheet } from '../../models/BudgetSheet.js';
 import { Installment } from '../../models/Installment.js';
 import { MonthStatus } from '../../models/MonthStatus.js';
@@ -11,6 +13,9 @@ const DAY_MS = 86400000;
 const MONTH_NAMES = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
 const dateOnly = (date) => Date.UTC(date.getFullYear(), date.getMonth(), date.getDate());
 const daysBetween = (from, to) => Math.round((dateOnly(to) - dateOnly(from)) / DAY_MS);
+const makeAlertKey = (alert) => createHash('sha256')
+  .update(JSON.stringify([alert.id, alert.status, alert.amount ?? null, alert.dueDate ?? null]))
+  .digest('hex');
 
 async function getSystemAlerts(userId, today = new Date()) {
   const currentMonth = today.getMonth() + 1;
@@ -84,13 +89,30 @@ async function getSystemAlerts(userId, today = new Date()) {
   }
   alerts.push(...await getVehicleReminderAlerts(userId, `${today.getFullYear()}-${String(currentMonth).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`));
   const severityOrder = { danger: 1, warning: 2, info: 3 };
-  alerts.sort((a, b) => severityOrder[a.severity] - severityOrder[b.severity] || (a.dueDate || '').localeCompare(b.dueDate || ''));
+  const keyedAlerts = alerts
+    .sort((a, b) => severityOrder[a.severity] - severityOrder[b.severity] || (a.dueDate || '').localeCompare(b.dueDate || ''))
+    .map((alert) => ({ ...alert, alertKey: makeAlertKey(alert) }));
+  const dismissedKeys = keyedAlerts.length
+    ? new Set(await AlertDismissal.distinct('alertKey', {
+      userId,
+      alertKey: { $in: keyedAlerts.map((alert) => alert.alertKey) },
+    }))
+    : new Set();
+  const visibleAlerts = keyedAlerts.filter((alert) => !dismissedKeys.has(alert.alertKey));
   return {
-    totalAlerts: alerts.length,
-    overdueCount: alerts.filter((alert) => alert.status === 'overdue').length,
-    upcomingCount: alerts.filter((alert) => ['upcoming', 'today'].includes(alert.status)).length,
-    alerts,
+    totalAlerts: visibleAlerts.length,
+    overdueCount: visibleAlerts.filter((alert) => alert.status === 'overdue').length,
+    upcomingCount: visibleAlerts.filter((alert) => ['upcoming', 'today'].includes(alert.status)).length,
+    alerts: visibleAlerts,
   };
+}
+
+export async function dismissSystemAlert(userId, alertKey) {
+  await AlertDismissal.updateOne(
+    { userId, alertKey },
+    { $setOnInsert: { userId, alertKey } },
+    { upsert: true, setDefaultsOnInsert: true },
+  );
 }
 
 export { getSystemAlerts };

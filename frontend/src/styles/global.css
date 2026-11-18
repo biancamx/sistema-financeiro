@@ -163,7 +163,7 @@ a { color: var(--primary); }
 .notification-item-footer { align-items: center; margin-top: 9px; padding-top: 7px; border-top: 1px solid var(--line); }
 .notification-status { color: var(--accent); font-size: 10px; font-weight: 600; text-transform: uppercase; }
 .notification-status.is-danger { color: var(--neg); }
-.notification-link { display: inline-flex; align-items: center; gap: 4px; color: var(--primary); font-size: 11px; font-weight: 500; text-decoration: none; }
+.notification-link { display: inline-flex; align-items: center; gap: 4px; padding: 0; border: 0; background: transparent; color: var(--primary); font: inherit; font-size: 11px; font-weight: 500; text-decoration: none; cursor: pointer; }
 .notification-link:hover { text-decoration: underline; }
 .notification-link svg { width: 12px; height: 12px; }
 
@@ -1803,8 +1803,9 @@ img, canvas { max-width: 100%; }
 /* ───────── Atenção e formulários em camadas ───────── */
 .attention-panel { margin-bottom: 16px; }
 .attention-list { display: grid; gap: 6px; }
-.attention-item { display: flex; min-width: 0; align-items: center; gap: 10px; padding: 10px; border: 1px solid var(--line); border-radius: 8px; color: var(--ink); text-decoration: none; }
+.attention-item { display: flex; width: 100%; min-width: 0; align-items: center; gap: 10px; padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--ink); font: inherit; text-align: left; text-decoration: none; cursor: pointer; }
 .attention-item:hover { border-color: var(--primary); background: var(--hover); }
+.attention-item:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 .attention-item > svg:last-child { width: 16px; height: 16px; flex: 0 0 auto; color: var(--muted); }
 .attention-icon { display: grid; width: 32px; height: 32px; flex: 0 0 32px; place-items: center; border-radius: 50%; background: var(--primary-soft); color: var(--primary); }
 .attention-icon svg { width: 16px; height: 16px; }
@@ -1814,6 +1815,16 @@ img, canvas { max-width: 100%; }
 .attention-copy strong, .attention-copy small { overflow: hidden; text-overflow: ellipsis; }
 .attention-copy small { color: var(--muted); }
 .attention-item .money { flex: 0 0 auto; font-weight: 600; }
+.alert-details { display: grid; gap: 16px; }
+.alert-details-status { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px; border-radius: 10px; background: var(--primary-soft); color: var(--primary); }
+.alert-details-status.attention-danger { background: color-mix(in srgb, var(--neg) 14%, var(--surface)); color: var(--neg); }
+.alert-details-status.attention-warning { background: var(--warn-bg); color: var(--warn-ink); }
+.alert-details-description { color: var(--muted); }
+.alert-details-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin: 0; }
+.alert-details-facts > div { display: grid; gap: 5px; padding: 12px; border: 1px solid var(--line); border-radius: 8px; }
+.alert-details-facts dt { color: var(--muted); font-size: 12px; }
+.alert-details-facts dd { margin: 0; font-weight: 600; }
+.alert-details-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 @media (max-width: 420px) {
   .attention-item { gap: 7px; padding: 8px; }
   .attention-item .money { font-size: 12px; }

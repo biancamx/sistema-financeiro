@@ -1,6 +1,8 @@
 import { test, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { clearMongoMemory, createApiClient, createTestAccount, startMongoMemory } from './helpers/mongo.js';
+import { Installment } from '../src/models/Installment.js';
+import { Purchase } from '../src/models/Purchase.js';
 
 process.env.NODE_ENV = 'test';
 process.env.JWT_SECRET = 'test-secret-for-api';
@@ -104,6 +106,46 @@ test('compras e referências permanecem isoladas entre usuários', async () => {
     startYear: 2099,
   });
   assert.equal(crossAccountPurchase.status, 400);
+});
+
+test('visualizar um alerta o remove da central até seu valor mudar', async () => {
+  const account = await createTestAccount({ email: 'alerts@example.invalid' });
+  const api = createApiClient(baseUrl, account.cookie);
+  const now = new Date();
+  const month = now.getMonth() === 0 ? 12 : now.getMonth();
+  const year = now.getMonth() === 0 ? now.getFullYear() - 1 : now.getFullYear();
+  const purchase = await Purchase.create({
+    userId: account.user._id,
+    personId: account.person._id,
+    cardId: account.card._id,
+    description: 'Fatura para testar visualização',
+    totalAmount: 100,
+    totalInstallments: 1,
+  });
+  const installment = await Installment.create({
+    userId: account.user._id,
+    purchaseId: purchase._id,
+    number: 1,
+    year,
+    month,
+    amount: 100,
+  });
+
+  const first = await api('GET', '/reminders/alerts');
+  const alert = first.json.alerts.find((item) => item.type === 'card_invoice');
+  assert.ok(alert);
+  assert.match(alert.alertKey, /^[\da-f]{64}$/i);
+  assert.equal(first.json.totalAlerts, 1);
+
+  const dismissed = await api('POST', '/reminders/alerts/dismiss', { alertKey: alert.alertKey });
+  assert.equal(dismissed.status, 200, dismissed.text);
+  const afterDismissal = await api('GET', '/reminders/alerts');
+  assert.equal(afterDismissal.json.totalAlerts, 0);
+
+  await Installment.updateOne({ _id: installment._id }, { $set: { amount: 80 } });
+  const afterBalanceChange = await api('GET', '/reminders/alerts');
+  assert.equal(afterBalanceChange.json.totalAlerts, 1);
+  assert.notEqual(afterBalanceChange.json.alerts[0].alertKey, alert.alertKey);
 });
 
 test('divisão de valores fecha em centavos e agenda períodos consecutivos', () => {

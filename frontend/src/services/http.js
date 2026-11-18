@@ -37,7 +37,7 @@ let onAccountPending = () => {};
 export const setAccountPendingHandler = (fn) => (onAccountPending = fn);
 
 function notifySuccessfulMutation(method, path) {
-  if (path.startsWith('/auth/') || path.startsWith('/tools/') || path === '/assistant/chat' || path === '/import/preview' || path === '/system/client-errors') return;
+  if (path.startsWith('/auth/') || path.startsWith('/tools/') || path === '/assistant/chat' || path === '/import/preview' || path === '/system/client-errors' || path === '/reminders/alerts/dismiss') return;
   window.dispatchEvent(new CustomEvent('app:mutation-success', { detail: { method, path } }));
 }
 

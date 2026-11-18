@@ -145,6 +145,7 @@ export const remindersApi = {
   getSettings: () => get('/reminders/settings').then((r) => r.data),
   saveSettings: (settings) => put('/reminders/settings', settings).then((r) => r.data),
   getAlerts: () => get('/reminders/alerts'),
+  dismissAlert: (alertKey) => post('/reminders/alerts/dismiss', { alertKey }),
   getPersonBilling: (personId, month, year) => get(`/reminders/billing/${personId}`, { month, year }),
   getMonthlySummary: (month, year) => get('/reminders/monthly-summary', { month, year }),
   settlePersonMonth: (personId, month, year) => post('/reminders/settle-person-month', { personId, month, year }),

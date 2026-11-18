@@ -8,7 +8,6 @@ import {
   CreditCard,
   Bell,
   AlertTriangle,
-  ExternalLink,
   MoreHorizontal,
   LayoutDashboard,
   Menu,
@@ -24,7 +23,10 @@ import ErrorBoundary from '../ErrorBoundary.jsx';
 import { PATHS } from '../../app/paths.js';
 import { preloadRoute, routePaths } from '../../app/routeLoaders.js';
 import { remindersApi } from '../../services/api.js';
+import AlertDetailsModal from '../notifications/AlertDetailsModal.jsx';
 import { useAppBusy } from '../../context/BusyContext.jsx';
+import { useToast } from '../../context/ToastContext.jsx';
+import { dismissAlert as dismissAlertRequest } from '../../lib/alerts.js';
 import { startTour } from '../../lib/tour.js';
 import AssistantWidget from '../AssistantWidget.jsx';
 import GlobalSearch from './GlobalSearch.jsx';
@@ -91,6 +93,7 @@ const isAreaActive = (item, pathname) => {
 
 export default function AppLayout() {
   const { user, logout } = useAuth();
+  const toast = useToast();
   const { message: busyMessage } = useAppBusy();
   const { pathname } = useLocation();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -98,6 +101,7 @@ export default function AppLayout() {
   const [moreOpen, setMoreOpen] = useState(false);
   const [alertsData, setAlertsData] = useState({ totalAlerts: 0, overdueCount: 0, upcomingCount: 0, alerts: [] });
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [selectedAlert, setSelectedAlert] = useState(null);
   const notificationsRef = useRef(null);
   const shellRef = useRef(null);
   const sidebarRef = useRef(null);
@@ -105,6 +109,11 @@ export default function AppLayout() {
   const [sidebarIndicator, setSidebarIndicator] = useState({ top: 0, left: 0, height: 0, visible: false });
   const [sidebarIndicatorMotionReady, setSidebarIndicatorMotionReady] = useState(false);
   const morePageActive = pathname === PATHS.more || pathname.startsWith(`${PATHS.more}/`);
+  const openAlert = (alert) => {
+    setNotificationsOpen(false);
+    setSelectedAlert(alert);
+    void dismissAlertRequest(alert, toast);
+  };
 
   useEffect(() => {
     let frame = 0;
@@ -452,13 +461,9 @@ export default function AppLayout() {
                             <span className={`notification-status ${alert.severity === 'danger' ? 'is-danger' : ''}`}>
                               {alert.status === 'overdue' ? 'Atrasado' : alert.status === 'today' ? 'Vence hoje' : 'Em breve'}
                             </span>
-                            <NavLink
-                              to={alert.link}
-                              onClick={() => setNotificationsOpen(false)}
-                              className="notification-link"
-                            >
-                              Ver detalhes <ExternalLink aria-hidden="true" />
-                            </NavLink>
+                            <button type="button" onClick={() => openAlert(alert)} className="notification-link" aria-haspopup="dialog">
+                              Ver detalhes <ChevronRight aria-hidden="true" />
+                            </button>
                           </div>
                         </article>
                       ))}
@@ -605,6 +610,7 @@ export default function AppLayout() {
       <MoreMenu open={moreOpen} isAdmin={user?.role === 'admin'} onClose={() => setMoreOpen(false)} onOpenAssistant={openAssistant} />
       <NewActionButton floating />
       <AssistantWidget />
+      {selectedAlert && <AlertDetailsModal alert={selectedAlert} onClose={() => setSelectedAlert(null)} />}
     </div>
   );
 }

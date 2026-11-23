@@ -19,6 +19,7 @@ const loaders = {
   '/pessoas/:personId': () => import('../pages/people/PersonTabs.jsx'),
   '/pessoas/:personId/cobrar': () => import('../pages/people/PersonBillingPage.jsx'),
   '/pessoas/:personId/portal': () => import('../pages/people/PersonTabs.jsx'),
+  [PATHS.financialPlanning]: () => import('../pages/financialPlanning/FinancialPlanningPage.jsx'),
 };
 
 export const routePaths = Object.keys(loaders);

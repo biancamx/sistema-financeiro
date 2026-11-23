@@ -14,6 +14,7 @@ import {
   Plus,
   ReceiptText,
   Users,
+  Calculator,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { usePeriod } from '../../context/PeriodContext.jsx';
@@ -35,6 +36,7 @@ import MoreMenu from './MoreMenu.jsx';
 
 const NAV = [
   { to: PATHS.dashboard, label: 'Início', icon: LayoutDashboard, end: true },
+  { to: PATHS.financialPlanning, label: 'Planejamento Financeiro', icon: Calculator },
   { to: PATHS.purchases, label: 'Lançamentos', icon: ReceiptText },
   { to: PATHS.people, label: 'Pessoas', icon: Users },
   { to: PATHS.cards, label: 'Cartões', icon: CreditCard },
@@ -83,7 +85,7 @@ function SystemClock() {
   );
 }
 
-const MOBILE_NAV = NAV.filter((item) => [PATHS.dashboard, PATHS.purchases, PATHS.people].includes(item.to));
+const MOBILE_NAV = NAV.filter((item) => [PATHS.dashboard, PATHS.purchases, PATHS.people, PATHS.financialPlanning].includes(item.to));
 const navTourId = (path) => `nav-${path.replace(/^\//, '').replaceAll('/', '-')}`;
 const isAreaActive = (item, pathname) => {
   if (item.to === PATHS.purchases) return pathname === PATHS.transactions || pathname.startsWith(`${PATHS.transactions}/`);

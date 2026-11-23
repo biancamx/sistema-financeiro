@@ -29,6 +29,7 @@ const AdminUsers = lazy(loadRoute(PATHS.adminUsers));
 const Portal = lazy(() => import('../pages/portal/PortalPage.jsx'));
 const NotFound = lazy(() => import('../pages/system/NotFoundPage.jsx'));
 const AccountStatus = lazy(() => import('../pages/auth/AccountStatusPage.jsx'));
+const FinancialPlanning = lazy(loadRoute(PATHS.financialPlanning));
 
 function Protected() {
   const { user, booting } = useAuth();
@@ -73,6 +74,7 @@ export const router = createBrowserRouter([
           { path: '/', element: <Navigate to={PATHS.dashboard} replace /> },
           { path: '/painel', element: <Navigate to={PATHS.dashboard} replace /> },
           { path: PATHS.dashboard, element: <Dashboard /> },
+          { path: PATHS.financialPlanning, element: <FinancialPlanning /> },
           {
             path: PATHS.transactions,
             element: <Transactions />,

@@ -30,6 +30,7 @@ import { assistantRoutes } from './modules/assistant/assistant.routes.js';
 import { settingsRoutes } from './modules/settings/ai.routes.js';
 import { jobsRoutes } from './modules/push/jobs.routes.js';
 import { pushRoutes } from './modules/push/push.routes.js';
+import { financialPlanningRoutes } from './modules/financialPlanning/financialPlanning.routes.js';
 
 const frontendDist = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../frontend/dist');
 
@@ -75,6 +76,7 @@ export function createApp() {
   api.use('/reminders', remindersRoutes());
   api.use('/import', importRoutes());
   api.use('/cash-ledger', cashLedgerRoutes());
+  api.use('/financial-planning', financialPlanningRoutes());
 
   app.use('/jobs', jobsRoutes());
   app.use('/api', api);

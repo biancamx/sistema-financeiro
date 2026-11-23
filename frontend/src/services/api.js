@@ -183,6 +183,14 @@ export const categoriesApi = {
   },
 };
 export const birthdaysApi = crud('/birthdays');
+export const financialPlanningApi = {
+  people: () => get('/financial-planning/people').then((r) => r.data),
+  project: (body) => post('/financial-planning/projection', body).then((r) => r.data),
+  simulations: (query = {}) => get('/financial-planning/simulations', query).then((r) => r.data),
+  updateStatus: (id, status) => http('PATCH', `/financial-planning/simulations/${id}/status`, { body: { status } }).then((r) => r.data),
+  remove: (id) => del(`/financial-planning/simulations/${id}`),
+  convert: (id) => post(`/financial-planning/simulations/${id}/convert`, {}).then((r) => r.data),
+};
 
 export const importApi = {
   previewDocument: (formData) => postFormData('/import/preview', formData),

@@ -17,11 +17,11 @@ export function Field({ label, hint, error, children }) {
   );
 }
 
-export function Select({ value, onChange, options, placeholder, id, ...rest }) {
+export function Select({ value, onChange, options, placeholder, id, children, ...rest }) {
   return (
-    <select id={id} className="input" value={value ?? ''} onChange={(e) => onChange(e.target.value)} {...rest}>
+    <select id={id} className="input" value={value ?? ''} onChange={(e) => onChange?.(e.target.value)} {...rest}>
       {placeholder !== undefined && <option value="">{placeholder}</option>}
-      {options.map((o) => (
+      {children ?? options?.map((o) => (
         <option key={o.value} value={o.value}>{o.label}</option>
       ))}
     </select>

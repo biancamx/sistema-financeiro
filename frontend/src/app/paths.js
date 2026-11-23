@@ -17,4 +17,5 @@ export const PATHS = {
   rescission: '/mais/rescisao',
   settings: '/mais/configuracoes',
   adminUsers: '/mais/acessos',
+  financialPlanning: '/planejamento-financeiro',
 };

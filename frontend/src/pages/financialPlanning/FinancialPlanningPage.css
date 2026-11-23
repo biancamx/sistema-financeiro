@@ -1,0 +1,47 @@
+.financial-planning-page { min-width: 0; }
+.planning-person-row { max-width: 360px; margin-bottom: 16px; }
+.planning-grid { display: grid; grid-template-columns: minmax(320px, .8fr) minmax(420px, 1.2fr); gap: 16px; align-items: start; }
+.planning-form-card, .planning-result-card, .planning-history-card { min-width: 0; }
+.planning-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.planning-form-grid .field:last-child { grid-column: 1 / -1; }
+.planning-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+.planning-classification { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 14px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; }
+.planning-classification > svg { width: 20px; height: 20px; flex: 0 0 auto; }
+.planning-classification p { margin: 3px 0 0; color: var(--muted); font-size: 12px; }
+.planning-viavel { border-color: color-mix(in srgb, var(--pos) 45%, var(--line)); background: color-mix(in srgb, var(--pos) 8%, var(--surface)); }
+.planning-atencao { border-color: color-mix(in srgb, var(--warn) 45%, var(--line)); background: color-mix(in srgb, var(--warn) 8%, var(--surface)); }
+.planning-alto_risco, .planning-inviavel { border-color: color-mix(in srgb, var(--neg) 45%, var(--line)); background: color-mix(in srgb, var(--neg) 8%, var(--surface)); }
+.planning-kpis { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.planning-kpis .card { display: grid; gap: 5px; padding: 10px; }
+.planning-kpis .card > span { color: var(--muted); font-size: 11px; }
+.planning-kpis .card > strong { font-size: 14px; }
+.planning-summary-lines { display: grid; gap: 6px; margin: 12px 0; color: var(--muted); font-size: 12px; }
+.planning-summary-lines span { display: flex; align-items: center; gap: 5px; }
+.planning-summary-lines svg { width: 14px; height: 14px; }
+.planning-summary-lines strong { color: var(--ink); }
+.planning-chart { width: 100%; min-height: 260px; }
+.planning-history-card { margin-top: 16px; }
+.planning-history-list { display: grid; gap: 8px; }
+.planning-history-item { display: grid; grid-template-columns: minmax(220px, 1fr) auto auto; align-items: center; gap: 12px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; }
+.planning-history-main { display: flex; min-width: 0; align-items: center; gap: 9px; }
+.planning-history-main > div { display: grid; min-width: 0; gap: 3px; }
+.planning-history-main strong, .planning-history-main small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.planning-history-icon { display: grid; width: 34px; height: 34px; flex: 0 0 34px; place-items: center; border-radius: 8px; background: var(--primary-soft); color: var(--primary); }
+.planning-history-icon svg { width: 16px; height: 16px; }
+.planning-history-meta { display: grid; gap: 3px; color: var(--muted); font-size: 11px; text-align: right; }
+.planning-history-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 5px; }
+@media (max-width: 1100px) { .planning-grid { grid-template-columns: 1fr; } }
+@media (max-width: 700px) {
+  .planning-person-row { max-width: none; }
+  .planning-form-grid { grid-template-columns: 1fr; }
+  .planning-form-grid .field:last-child { grid-column: auto; }
+  .planning-actions { display: grid; grid-template-columns: 1fr; }
+  .planning-actions .btn { width: 100%; }
+  .planning-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .planning-history-item { grid-template-columns: 1fr; }
+  .planning-history-meta { text-align: left; }
+  .planning-history-actions { justify-content: flex-start; }
+}
+@media (max-width: 420px) {
+  .planning-kpis { grid-template-columns: 1fr; }
+}

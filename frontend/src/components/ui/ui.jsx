@@ -10,7 +10,7 @@ export function Field({ label, hint, error, children }) {
   return (
     <label className="field" htmlFor={id}>
       <span className="field-label">{label}</span>
-      {children(id)}
+      {typeof children === 'function' ? children(id) : children}
       {hint && !error && <span className="field-hint">{hint}</span>}
       {error && <span className="field-error">{error}</span>}
     </label>
@@ -78,10 +78,11 @@ export const Spinner = ({ label = 'Carregando…' }) => (
 );
 
 export function ErrorState({ error, onRetry }) {
+  const message = typeof error === 'string' ? error : error?.message;
   return (
     <div className="state state-error">
       <strong>Não foi possível carregar</strong>
-      <p>{error?.message}</p>
+      <p>{message || 'Erro desconhecido'}</p>
       {onRetry && <Button onClick={onRetry}>Tentar de novo</Button>}
     </div>
   );

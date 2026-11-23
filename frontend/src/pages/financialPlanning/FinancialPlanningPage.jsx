@@ -144,22 +144,22 @@ export default function FinancialPlanningPage() {
       <section className="planning-grid" aria-label="Simulador financeiro">
         <Card className="planning-form-card" title="Simulador de compras">
           <div className="planning-form-grid">
-            <Field label="Nome da compra"><input className="input" value={form.nome} onChange={set('nome')} placeholder="Ex.: Ar-condicionado" /></Field>
-            <Field label="Categoria"><Select value={form.categoriaId} onChange={(value) => {
+            <Field label="Nome da compra">{(id) => <input id={id} className="input" value={form.nome} onChange={set('nome')} placeholder="Ex.: Ar-condicionado" />}</Field>
+            <Field label="Categoria">{(id) => <Select id={id} value={form.categoriaId} onChange={(value) => {
               const category = lookups.categories.find((item) => String(item.id) === value);
               setForm((current) => ({ ...current, categoriaId: value, categoria: category?.name || '' }));
-            }}><option value="">Sem categoria</option>{lookups.categories.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></Field>
-            <Field label="Valor total"><input className="input" inputMode="decimal" value={form.valorTotal} onChange={set('valorTotal')} placeholder="R$ 0,00" /></Field>
-            <Field label="Forma de pagamento"><Select value={form.modalidadePagamento} onChange={set('modalidadePagamento')}>{Object.entries(PAYMENT_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</Select></Field>
-            <Field label="Valor de entrada"><input className="input" inputMode="decimal" value={form.entrada} onChange={set('entrada')} /></Field>
-            <Field label="Parcelas"><input className="input" type="number" min="1" max="120" value={form.quantidadeParcelas} onChange={set('quantidadeParcelas')} /></Field>
-            <Field label="Taxa de juros ao ano"><input className="input" inputMode="decimal" type="number" min="0" max="100" value={form.taxaJuros} onChange={set('taxaJuros')} /></Field>
-            <Field label="Data prevista"><input className="input" type="date" value={form.dataPrevista} onChange={set('dataPrevista')} /></Field>
+            }}><option value="">Sem categoria</option>{lookups.categories.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</Select>}</Field>
+            <Field label="Valor total">{(id) => <input id={id} className="input" inputMode="decimal" value={form.valorTotal} onChange={set('valorTotal')} placeholder="R$ 0,00" />}</Field>
+            <Field label="Forma de pagamento">{(id) => <Select id={id} value={form.modalidadePagamento} onChange={set('modalidadePagamento')}>{Object.entries(PAYMENT_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</Select>}</Field>
+            <Field label="Valor de entrada">{(id) => <input id={id} className="input" inputMode="decimal" value={form.entrada} onChange={set('entrada')} />}</Field>
+            <Field label="Parcelas">{(id) => <input id={id} className="input" type="number" min="1" max="120" value={form.quantidadeParcelas} onChange={set('quantidadeParcelas')} />}</Field>
+            <Field label="Taxa de juros ao ano">{(id) => <input id={id} className="input" inputMode="decimal" type="number" min="0" max="100" value={form.taxaJuros} onChange={set('taxaJuros')} />}</Field>
+            <Field label="Data prevista">{(id) => <input id={id} className="input" type="date" value={form.dataPrevista} onChange={set('dataPrevista')} />}</Field>
             {['cartao_credito', 'parcelamento_entrada'].includes(form.modalidadePagamento) && (
-              <Field label="Cartão de crédito"><Select value={form.cartaoId} onChange={set('cartaoId')}><option value="">Selecione o cartão</option>{lookups.cards.map((card) => <option key={card.id} value={card.id}>{card.name}</option>)}</Select></Field>
+              <Field label="Cartão de crédito">{(id) => <Select id={id} value={form.cartaoId} onChange={set('cartaoId')}><option value="">Selecione o cartão</option>{lookups.cards.map((card) => <option key={card.id} value={card.id}>{card.name}</option>)}</Select>}</Field>
             )}
-            <Field label="Horizonte"><Select value={form.horizonteProjecao} onChange={set('horizonteProjecao')}><option value="12">12 meses</option><option value="24">24 meses</option><option value="36">36 meses</option></Select></Field>
-            <Field label="Observações"><textarea className="input" rows="3" value={form.observacoes} onChange={set('observacoes')} /></Field>
+            <Field label="Horizonte">{(id) => <Select id={id} value={form.horizonteProjecao} onChange={set('horizonteProjecao')}><option value="12">12 meses</option><option value="24">24 meses</option><option value="36">36 meses</option></Select>}</Field>
+            <Field label="Observações">{(id) => <textarea id={id} className="input" rows="3" value={form.observacoes} onChange={set('observacoes')} />}</Field>
           </div>
           <div className="planning-actions">
             <Button onClick={() => analyze(false)} disabled={loading || !personId || !(parseMoney(form.valorTotal) > 0)}><Calculator aria-hidden="true" /> Calcular</Button>

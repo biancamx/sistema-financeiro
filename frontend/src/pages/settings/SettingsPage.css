@@ -1301,3 +1301,37 @@
     width: 100%;
   }
 }
+
+.settings-category-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .settings-category {
+    width: 100%;
+    min-height: 64px;
+    align-items: center;
+  }
+
+  .settings-category-copy {
+    align-self: center;
+  }
+
+  .settings-category-copy strong {
+    display: block;
+    overflow: visible;
+    line-height: 1.25;
+    text-overflow: clip;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .settings-category-copy > span {
+    line-height: 1.25;
+    overflow-wrap: anywhere;
+  }
+
+  .settings-category-actions {
+    width: auto;
+    margin-left: 0;
+    flex: 0 0 68px;
+  }

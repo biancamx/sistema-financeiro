@@ -66,7 +66,7 @@ export async function http(method, path, { body, query } = {}) {
         body: body !== undefined ? JSON.stringify(body) : undefined,
       });
     } catch {
-      throw new ApiError(0, { error: { code: 'NETWORK', message: 'Não foi possível falar com a API. O backend está rodando em http://localhost:4000?' } });
+      throw new ApiError(0, { error: { code: 'NETWORK', message: 'Não foi possível falar com a API. Verifique sua conexão e aguarde o servidor voltar.' } });
     }
     if (res.status === 204) {
       if (!cacheable) notifySuccessfulMutation(method, path);
@@ -111,7 +111,7 @@ export async function postFormData(path, formData) {
       body: formData,
     });
   } catch {
-    throw new ApiError(0, { error: { code: 'NETWORK', message: 'Não foi possível falar com a API. O backend está rodando em http://localhost:4000?' } });
+    throw new ApiError(0, { error: { code: 'NETWORK', message: 'Não foi possível falar com a API. Verifique sua conexão e aguarde o servidor voltar.' } });
   }
   if (res.status === 204) return null;
   const json = await res.json().catch(() => null);

@@ -20,7 +20,10 @@ export function getVapidPublicKey() {
 
 function configureVapid() {
   if (!isPushConfigured()) {
-    throw new AppError(503, 'PUSH_NOT_CONFIGURED', 'Notificações push não estão configuradas no servidor.');
+    throw new AppError(503, 'PUSH_NOT_CONFIGURED', 'Notificações push não estão configuradas no servidor. Configure VAPID_PUBLIC_KEY e VAPID_PRIVATE_KEY no deploy.');
+  }
+  if (!/^mailto:/i.test(env.vapidSubject) && !/^https?:\/\//i.test(env.vapidSubject)) {
+    throw new AppError(503, 'VAPID_SUBJECT_INVALID', 'O VAPID_SUBJECT está inválido no servidor. Use mailto:email ou uma URL HTTPS.');
   }
   if (vapidConfigured) return;
   webPushClient.setVapidDetails(env.vapidSubject, env.vapidPublicKey, env.vapidPrivateKey);

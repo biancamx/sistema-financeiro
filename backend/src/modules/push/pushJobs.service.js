@@ -63,7 +63,8 @@ export async function sendDueAlerts(now = new Date()) {
   for (const user of users) {
     const { alerts } = await getSystemAlerts(user._id, now);
     const dueAlerts = alerts.filter((alert) =>
-      alert.type === 'card_invoice' && ['today', 'overdue'].includes(alert.status),
+      (alert.type === 'card_invoice' && ['today', 'overdue'].includes(alert.status))
+      || alert.type === 'birthday',
     );
     for (const alert of dueAlerts) {
       result.alerts += 1;

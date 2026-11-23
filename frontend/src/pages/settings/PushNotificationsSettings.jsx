@@ -139,7 +139,7 @@ export default function PushNotificationsSettings() {
         <div className="settings-icon"><Smartphone aria-hidden="true" /></div>
         <div className="settings-card-copy">
           <h2>Notificações no celular</h2>
-          <p>Receba no dispositivo avisos de faturas que vencem hoje ou estão atrasadas, mesmo com o app fechado.</p>
+          <p>Receba no dispositivo avisos de aniversários e de faturas que vencem hoje ou estão atrasadas, mesmo com o app fechado.</p>
         </div>
       </header>
       <div className="settings-push-content">

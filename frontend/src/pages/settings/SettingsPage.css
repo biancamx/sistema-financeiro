@@ -1254,4 +1254,50 @@
   .settings-saved {
     margin-right: 0;
   }
+
+  .settings-category-manager-modal {
+    width: calc(100% - 12px);
+  }
+
+  .settings-category-manager-modal .modal-head {
+    align-items: flex-start;
+  }
+
+  .settings-category-manager-modal .modal-head h2 {
+    min-width: 0;
+    line-height: 1.25;
+    overflow-wrap: anywhere;
+  }
+
+  .settings-category-manager-modal .modal-content {
+    max-height: calc(85vh - 124px);
+    padding: 12px;
+  }
+
+  .settings-category-form,
+  .settings-category-form .field {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .settings-category-form .input,
+  .settings-category-form select {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    box-sizing: border-box;
+  }
+
+  .settings-category-color-picker {
+    max-width: 100%;
+    overflow-wrap: anywhere;
+  }
+
+  .settings-category-manager-modal .modal-foot {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .settings-category-manager-modal .modal-foot .btn {
+    width: 100%;
+  }
 }

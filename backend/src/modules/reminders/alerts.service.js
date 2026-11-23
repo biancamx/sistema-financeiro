@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { SECTIONS } from '../budgets/budgets.defaults.js';
 import { ensureSubscriptionInstallments, getInvoiceDueDate, getInstallmentBalanceCents } from '../../lib/cardBilling.js';
 import { AlertDismissal } from '../../models/AlertDismissal.js';
+import { Birthday } from '../../models/Birthday.js';
 import { BudgetSheet } from '../../models/BudgetSheet.js';
 import { Installment } from '../../models/Installment.js';
 import { MonthStatus } from '../../models/MonthStatus.js';
@@ -88,6 +89,25 @@ async function getSystemAlerts(userId, today = new Date()) {
     });
   }
   alerts.push(...await getVehicleReminderAlerts(userId, `${today.getFullYear()}-${String(currentMonth).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`));
+  const birthdays = await Birthday.find({
+    userId,
+    day: today.getDate(),
+    month: currentMonth,
+  }).lean();
+  for (const birthday of birthdays) {
+    alerts.push({
+      id: `birthday-${birthday.personId ?? birthday._id}-${today.getFullYear()}`,
+      type: 'birthday',
+      title: `Aniversário de ${birthday.name}`,
+      description: `Hoje é o aniversário de ${birthday.name}.`,
+      amount: null,
+      dueDate: null,
+      status: 'today',
+      severity: 'info',
+      personName: birthday.name,
+      link: '/pessoas?tab=aniversarios',
+    });
+  }
   const severityOrder = { danger: 1, warning: 2, info: 3 };
   const keyedAlerts = alerts
     .sort((a, b) => severityOrder[a.severity] - severityOrder[b.severity] || (a.dueDate || '').localeCompare(b.dueDate || ''))

@@ -11,10 +11,11 @@ process.env.VAPID_PUBLIC_KEY = vapidKeys.publicKey;
 process.env.VAPID_PRIVATE_KEY = vapidKeys.privateKey;
 process.env.VAPID_SUBJECT = 'mailto:push-tests@example.invalid';
 
-const [{ createApp }, { PushSubscription }, { PushDelivery }, { Purchase }, { Installment }, { sendDueAlerts }, { sendPushToUser, webPushClient }] = await Promise.all([
+const [{ createApp }, { PushSubscription }, { PushDelivery }, { Birthday }, { Purchase }, { Installment }, { sendDueAlerts }, { sendPushToUser, webPushClient }] = await Promise.all([
   import('../src/app.js'),
   import('../src/models/PushSubscription.js'),
   import('../src/models/PushDelivery.js'),
+  import('../src/models/Birthday.js'),
   import('../src/models/Purchase.js'),
   import('../src/models/Installment.js'),
   import('../src/modules/push/pushJobs.service.js'),
@@ -173,6 +174,43 @@ test('assinaturas expiradas com resposta 404 ou 410 são removidas', async () =>
     const result = await sendPushToUser(owner.user._id, { title: 'Teste' });
     assert.equal(result.expired, 2);
     assert.equal(await PushSubscription.countDocuments({ userId: owner.user._id }), 0);
+  } finally {
+    webPushClient.sendNotification = originalSendNotification;
+  }
+});
+
+test('job envia notificação push no dia do aniversário e deduplica o envio', async () => {
+  const owner = await createTestAccount({ email: 'push-birthday@example.invalid' });
+  await PushSubscription.create({
+    userId: owner.user._id,
+    endpoint: 'https://push.example.invalid/subscription/birthday',
+    keys: { p256dh: 'public-key', auth: 'auth-key' },
+    userAgent: 'test',
+  });
+  await Birthday.create({
+    userId: owner.user._id,
+    personId: owner.person._id,
+    name: owner.person.name,
+    day: 22,
+    month: 11,
+  });
+
+  const originalSendNotification = webPushClient.sendNotification;
+  let sentPayload = null;
+  webPushClient.sendNotification = async (_subscription, payload) => {
+    sentPayload = JSON.parse(payload);
+  };
+  try {
+    const dueDate = new Date(2099, 10, 22, 12);
+    const first = await sendDueAlerts(dueDate);
+    assert.equal(first.alerts, 1);
+    assert.equal(first.sent, 1);
+    assert.equal(sentPayload.title, `Aniversário de ${owner.person.name}`);
+    assert.equal(sentPayload.url, '/pessoas?tab=aniversarios');
+
+    const repeated = await sendDueAlerts(dueDate);
+    assert.equal(repeated.skipped, 1);
+    assert.equal(await PushDelivery.countDocuments({ state: 'sent' }), 1);
   } finally {
     webPushClient.sendNotification = originalSendNotification;
   }

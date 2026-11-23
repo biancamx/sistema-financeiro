@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { BarChart3, Calculator, CheckCircle2, Clock3, Save, Trash2, TrendingDown } from 'lucide-react';
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { Button, Card, EmptyState, ErrorState, Field, PageHeader, Select, Spinner } from '../../components/ui/ui.jsx';
+import { Button, Card, EmptyState, ErrorState, Field, Modal, PageHeader, Select, Spinner } from '../../components/ui/ui.jsx';
 import { financialPlanningApi } from '../../services/api.js';
 import { useLookups } from '../../hooks/useLookups.js';
 import { money, parseMoney } from '../../lib/format.js';
@@ -35,6 +35,8 @@ export default function FinancialPlanningPage() {
   const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [confirmingConversion, setConfirmingConversion] = useState(false);
+  const [convertSimulationTarget, setConvertSimulationTarget] = useState(null);
 
   const set = (key) => (event) => setForm((current) => ({ ...current, [key]: event?.target ? event.target.value : event }));
 
@@ -112,13 +114,18 @@ export default function FinancialPlanningPage() {
     }
   }
 
-  async function convertSimulation(id) {
-    if (!window.confirm('Converter esta simulação em compra real? Esta ação criará um lançamento financeiro real.')) return;
+  async function convertSimulation() {
+    if (!convertSimulationTarget) return;
+    setConfirmingConversion(true);
+    setError('');
     try {
-      await financialPlanningApi.convert(id);
+      await financialPlanningApi.convert(convertSimulationTarget.id);
+      setConvertSimulationTarget(null);
       reloadHistory(personId);
     } catch (err) {
       setError(err?.message || 'Não foi possível converter a simulação');
+    } finally {
+      setConfirmingConversion(false);
     }
   }
 
@@ -162,13 +169,20 @@ export default function FinancialPlanningPage() {
             <Field label="Observações">{(id) => <textarea id={id} className="input" rows="3" value={form.observacoes} onChange={set('observacoes')} />}</Field>
           </div>
           <div className="planning-actions">
-            <Button onClick={() => analyze(false)} disabled={loading || !personId || !(parseMoney(form.valorTotal) > 0)}><Calculator aria-hidden="true" /> Calcular</Button>
-            <Button variant="primary" onClick={() => analyze(true)} disabled={loading || !personId || !(parseMoney(form.valorTotal) > 0)}><Save aria-hidden="true" /> Salvar simulação</Button>
+            <Button onClick={() => analyze(false)} disabled={loading || !personId || !(parseMoney(form.valorTotal) > 0)}><Calculator aria-hidden="true" /> {loading ? 'Calculando…' : 'Calcular'}</Button>
+            <Button variant="primary" onClick={() => analyze(true)} disabled={loading || !personId || !(parseMoney(form.valorTotal) > 0)}><Save aria-hidden="true" /> {loading ? 'Salvando…' : 'Salvar simulação'}</Button>
           </div>
         </Card>
 
-        <Card className="planning-result-card" title="Resultado da simulação">
-          {!analysis ? (
+        <Card className={`planning-result-card ${loading ? 'is-calculating' : ''}`} title="Resultado da simulação">
+          {loading ? (
+            <div className="planning-calculating" role="status" aria-live="polite">
+              <span className="planning-calculating-spinner" aria-hidden="true" />
+              <strong>Calculando projeção financeira</strong>
+              <span>Analisando receitas, despesas e compromissos futuros…</span>
+              <div className="planning-calculating-bars" aria-hidden="true"><i /><i /><i /><i /></div>
+            </div>
+          ) : !analysis ? (
             <EmptyState title="Informe os dados da compra" />
           ) : (
             <>
@@ -221,7 +235,7 @@ export default function FinancialPlanningPage() {
                   <small>{new Date(item.createdAt).toLocaleDateString('pt-BR')}</small>
                 </div>
                 <div className="planning-history-actions">
-                  {item.status !== 'convertida' && <Button size="sm" variant="primary" onClick={() => convertSimulation(item.id)}>Converter em compra</Button>}
+                  {item.status !== 'convertida' && <Button size="sm" variant="primary" onClick={() => setConvertSimulationTarget(item)}>Converter em compra</Button>}
                   {item.status !== 'aprovada' && item.status !== 'convertida' && <Button size="sm" onClick={() => updateStatus(item.id, 'aprovada')}>Aprovar</Button>}
                   {item.status !== 'descartada' && item.status !== 'convertida' && <Button size="sm" onClick={() => updateStatus(item.id, 'descartada')}>Descartar</Button>}
                   <Button size="sm" onClick={() => removeSimulation(item.id)} aria-label={`Excluir ${item.nome}`}><Trash2 aria-hidden="true" /></Button>
@@ -231,6 +245,25 @@ export default function FinancialPlanningPage() {
           </div>
         )}
       </Card>
+
+      {convertSimulationTarget && (
+        <Modal
+          open
+          title="Converter em compra real"
+          onClose={() => { if (!confirmingConversion) setConvertSimulationTarget(null); }}
+          footer={(
+            <>
+              <Button variant="ghost" onClick={() => setConvertSimulationTarget(null)} disabled={confirmingConversion}>Cancelar</Button>
+              <Button variant="primary" onClick={convertSimulation} disabled={confirmingConversion}>{confirmingConversion ? 'Convertendo…' : 'Confirmar conversão'}</Button>
+            </>
+          )}
+        >
+          <p>
+            A simulação <strong>{convertSimulationTarget.nome}</strong> será convertida em lançamento financeiro real.
+            Esta ação poderá criar parcelas ou registros conforme a modalidade escolhida.
+          </p>
+        </Modal>
+      )}
     </div>
   );
 }

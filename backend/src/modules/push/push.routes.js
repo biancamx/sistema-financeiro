@@ -4,6 +4,7 @@ import { asyncHandler } from '../../lib/errors.js';
 import { validate } from '../../middleware/validate.js';
 import { PushSubscription } from '../../models/PushSubscription.js';
 import { getVapidPublicKey, isPushConfigured } from './push.service.js';
+import { sendTestPush } from './pushJobs.service.js';
 
 const subscriptionBody = z.object({
   subscription: z.object({
@@ -54,6 +55,11 @@ export function pushRoutes() {
   router.delete('/subscriptions', validate({ body: removeSubscriptionBody }), asyncHandler(async (req, res) => {
     await PushSubscription.deleteOne({ userId: req.user._id, endpoint: req.body.endpoint });
     res.status(204).end();
+  }));
+
+  router.post('/test', asyncHandler(async (req, res) => {
+    const result = await sendTestPush(req.user._id);
+    res.json({ success: true, ...result });
   }));
 
   return router;

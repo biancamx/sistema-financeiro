@@ -154,6 +154,7 @@ export const pushApi = {
   getVapidPublicKey: () => get('/push/vapid-public-key').then((response) => response.data.publicKey),
   saveSubscription: (body) => post('/push/subscriptions', body),
   removeSubscription: (endpoint) => http('DELETE', '/push/subscriptions', { body: { endpoint } }),
+  sendTest: () => post('/push/test', {}).then((r) => r.data),
 };
 export const cardsApi = {
   ...crud('/cards', 'cards'),

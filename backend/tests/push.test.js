@@ -215,3 +215,24 @@ test('job envia notificação push no dia do aniversário e deduplica o envio', 
     webPushClient.sendNotification = originalSendNotification;
   }
 });
+
+test('usuário autenticado pode enviar notificação de teste para este dispositivo', async () => {
+  const owner = await createTestAccount({ email: 'push-self-test@example.invalid' });
+  await PushSubscription.create({
+    userId: owner.user._id,
+    endpoint: 'https://push.example.invalid/subscription/self-test',
+    keys: { p256dh: 'public-key', auth: 'auth-key' },
+  });
+  const ownerApi = createApiClient(apiBaseUrl, owner.cookie);
+  const originalSendNotification = webPushClient.sendNotification;
+  let payload = null;
+  webPushClient.sendNotification = async (_subscription, body) => { payload = JSON.parse(body); };
+  try {
+    const response = await ownerApi('POST', '/push/test', {});
+    assert.equal(response.status, 200, response.text);
+    assert.equal(response.json.sent, 1);
+    assert.equal(payload.title, 'Notificação de teste');
+  } finally {
+    webPushClient.sendNotification = originalSendNotification;
+  }
+});

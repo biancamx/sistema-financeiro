@@ -133,6 +133,22 @@ export default function PushNotificationsSettings() {
     }
   }
 
+  async function sendTest() {
+    if (!hasSubscription || busy) return;
+    setBusy(true);
+    setMessage('');
+    try {
+      const result = await pushApi.sendTest();
+      if (result.sent > 0) toast.success('Notificação de teste enviada ao celular.');
+      else toast.error('Nenhum dispositivo recebeu o teste. Verifique se as notificações estão ativadas neste celular.');
+    } catch (error) {
+      setMessage(error?.message || 'Não foi possível enviar a notificação de teste.');
+      toast.error(error);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <Card className="settings-card">
       <header className="settings-card-head">
@@ -153,9 +169,14 @@ export default function PushNotificationsSettings() {
         </p>
         <div className="settings-ai-actions">
           {hasSubscription ? (
-            <Button variant="ghost" onClick={deactivate} disabled={busy}>
-              <BellOff aria-hidden="true" /> {busy ? 'Desativando…' : 'Desativar neste dispositivo'}
-            </Button>
+            <>
+              <Button variant="primary" onClick={sendTest} disabled={busy}>
+                <BellRing aria-hidden="true" /> {busy ? 'Enviando…' : 'Enviar notificação de teste'}
+              </Button>
+              <Button variant="ghost" onClick={deactivate} disabled={busy}>
+                <BellOff aria-hidden="true" /> {busy ? 'Desativando…' : 'Desativar neste dispositivo'}
+              </Button>
+            </>
           ) : (
             <Button variant="primary" onClick={activate} disabled={!supported || status === 'checking' || status === 'blocked' || busy}>
               <BellRing aria-hidden="true" /> {busy ? 'Ativando…' : 'Ativar notificações no celular'}

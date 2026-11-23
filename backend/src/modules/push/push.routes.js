@@ -59,7 +59,15 @@ export function pushRoutes() {
 
   router.post('/test', asyncHandler(async (req, res) => {
     const result = await sendTestPush(req.user._id);
-    res.json({ success: true, ...result });
+    res.json({
+      success: true,
+      ...result,
+      message: result.sent > 0
+        ? 'Notificação de teste enviada.'
+        : result.attempted === 0
+          ? 'Nenhum dispositivo inscrito nesta conta.'
+          : 'Falha ao enviar para os dispositivos inscritos.',
+    });
   }));
 
   return router;

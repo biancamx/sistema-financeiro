@@ -139,8 +139,8 @@ export default function PushNotificationsSettings() {
     setMessage('');
     try {
       const result = await pushApi.sendTest();
-      if (result.sent > 0) toast.success('Notificação de teste enviada ao celular.');
-      else toast.error('Nenhum dispositivo recebeu o teste. Verifique se as notificações estão ativadas neste celular.');
+      if (result.sent > 0) toast.success(result.message || 'Notificação de teste enviada ao celular.');
+      else toast.error(result.message || 'Nenhum dispositivo recebeu o teste. Verifique se as notificações estão ativadas neste celular.');
     } catch (error) {
       setMessage(error?.message || 'Não foi possível enviar a notificação de teste.');
       toast.error(error);

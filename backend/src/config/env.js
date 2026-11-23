@@ -23,6 +23,14 @@ if (Boolean(vapidPublicKey) !== Boolean(vapidPrivateKey)) {
 
 const bool = (v, def) => (v === undefined || v === '' ? def : ['1', 'true', 'yes'].includes(String(v).toLowerCase()));
 
+function normalizeVapidSubject(value) {
+  const subject = String(value || '').trim();
+  if (!subject) return 'mailto:admin@example.com';
+  if (/^mailto:/i.test(subject) || /^https?:\/\//i.test(subject)) return subject;
+  if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(subject)) return `mailto:${subject}`;
+  return 'mailto:admin@example.com';
+}
+
 export const env = {
   nodeEnv,
   isProd,
@@ -48,7 +56,7 @@ export const env = {
   authRateLimitMax: Number(process.env.AUTH_RATE_LIMIT_MAX || 40),
   vapidPublicKey,
   vapidPrivateKey,
-  vapidSubject: process.env.VAPID_SUBJECT || 'mailto:admin@example.com',
+  vapidSubject: normalizeVapidSubject(process.env.VAPID_SUBJECT),
   jobsToken: process.env.JOBS_TOKEN || '',
   logLevel: process.env.LOG_LEVEL || 'info',
 };

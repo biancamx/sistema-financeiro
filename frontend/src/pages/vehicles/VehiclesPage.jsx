@@ -6,7 +6,7 @@ import { useFetch } from '../../hooks/useFetch.js';
 import { useLookups } from '../../hooks/useLookups.js';
 import { notifyFinanceChanged } from '../../hooks/useFinanceRefresh.js';
 import { vehiclesApi } from '../../services/api.js';
-import { Button, Card, EmptyState, ErrorState, Money, PageHeader, Select, Spinner } from '../../components/ui/ui.jsx';
+import { Button, Card, EmptyState, ErrorState, Modal, Money, PageHeader, Select, Spinner } from '../../components/ui/ui.jsx';
 import { PATHS } from '../../app/paths.js';
 import VehicleForm, { emptyVehicle, vehicleToForm } from './VehicleForm.jsx';
 import ExpenseForm, { emptyExpense, expenseToForm } from './ExpenseForm.jsx';
@@ -48,6 +48,9 @@ export default function VehiclesPage() {
   const [period, setPeriod] = useState('year');
   const [vehicleForm, setVehicleForm] = useState(null);
   const [expenseForm, setExpenseForm] = useState(null);
+  const [deleteVehicle, setDeleteVehicle] = useState(null);
+  const [deleteReminder, setDeleteReminder] = useState(null);
+  const [deleteDocument, setDeleteDocument] = useState(null);
   const [version, setVersion] = useState(0); // muda quando algo é gravado, para recarregar listas e painel
   const newExpenseHandled = useRef(false);
 
@@ -117,12 +120,17 @@ export default function VehiclesPage() {
       : editing ? 'Veículo atualizado' : 'Veículo cadastrado');
   };
   const removeVehicle = async () => {
-    const hist = vehicle.expensesCount > 0;
-    const msg = hist
-      ? `${vehicleLabel(vehicle)} tem ${vehicle.expensesCount} lançamento(s) (${vehicle.totalSpent.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}). Excluir apaga todo esse histórico.\n\nSe o carro só saiu da família, prefira Editar → Status “Vendido”. Excluir mesmo assim?`
-      : `Excluir ${vehicleLabel(vehicle)}?`;
-    if (!window.confirm(msg)) return;
-    try { await vehiclesApi.remove(vehicle.id, hist); toast.success('Veículo excluído'); pick(null); refresh(); } catch (e) { toast.error(e); }
+    if (!deleteVehicle) return;
+    const hist = deleteVehicle.expensesCount > 0;
+    try {
+      await vehiclesApi.remove(deleteVehicle.id, hist);
+      toast.success('Veículo excluído');
+      setDeleteVehicle(null);
+      pick(null);
+      refresh();
+    } catch (e) {
+      toast.error(e);
+    }
   };
 
   const saveExpense = async (body) => {
@@ -145,8 +153,7 @@ export default function VehiclesPage() {
     } catch (e) { toast.error(e); return false; }
   };
   const removeReminder = async (reminder) => {
-    if (!window.confirm(`Excluir o lembrete “${reminder.title}”?`)) return;
-    try { await vehiclesApi.removeReminder(reminder.id); toast.success('Lembrete excluído'); refresh(); } catch (e) { toast.error(e); }
+    setDeleteReminder(reminder);
   };
   const markReminderPaid = async (reminder) => {
     try { await vehiclesApi.markReminderPaid(reminder.id); toast.success('Lembrete marcado como pago'); refresh(); } catch (e) { toast.error(e); }
@@ -155,9 +162,18 @@ export default function VehiclesPage() {
     try { await vehiclesApi.createDocument(body); toast.success('Documento anexado'); refresh(); return true; }
     catch (e) { toast.error(e); return false; }
   };
-  const removeDocument = async (document) => {
-    if (!window.confirm(`Excluir o documento “${document.name}”?`)) return;
-    try { await vehiclesApi.removeDocument(document.id); toast.success('Documento excluído'); refresh(); } catch (e) { toast.error(e); }
+  const removeDocument = (document) => {
+    setDeleteDocument(document);
+  };
+
+  const confirmRemoveDocument = async () => {
+    if (!deleteDocument) return;
+    try {
+      await vehiclesApi.removeDocument(deleteDocument.id);
+      toast.success('Documento excluído');
+      setDeleteDocument(null);
+      refresh();
+    } catch (e) { toast.error(e); }
   };
   const registerReminder = (reminder) => {
     const category = { oil: 'oil', tires: 'tires', review: 'preventive', ipva: 'ipva', insurance: 'insurance', licensing: 'licensing', other: 'other' }[reminder.type];
@@ -165,6 +181,16 @@ export default function VehiclesPage() {
       vehicleId: reminder.vehicleId, category, description: `${reminder.title} — ${reminder.ruleLabel}`,
       reminderId: reminder.id,
     });
+  };
+
+  const confirmRemoveReminder = async () => {
+    if (!deleteReminder) return;
+    try {
+      await vehiclesApi.removeReminder(deleteReminder.id);
+      toast.success('Lembrete excluído');
+      setDeleteReminder(null);
+      refresh();
+    } catch (e) { toast.error(e); }
   };
 
   const cy = new Date().getFullYear();
@@ -233,7 +259,7 @@ export default function VehiclesPage() {
                 </div>
                 <div className="veh-hero-actions">
                   <Button size="sm" onClick={() => setVehicleForm(vehicleToForm(vehicle))}>Editar ficha</Button>
-                  <Button size="sm" variant="ghost" onClick={removeVehicle}>Excluir</Button>
+                  <Button size="sm" variant="ghost" onClick={() => setDeleteVehicle(vehicle)}>Excluir</Button>
                 </div>
               </div>
             </Card>
@@ -307,6 +333,54 @@ export default function VehiclesPage() {
 
       {vehicleForm && <VehicleForm value={vehicleForm} people={lookups.people} onClose={() => setVehicleForm(null)} onSubmit={saveVehicle} />}
       {expenseForm && <ExpenseForm value={expenseForm} onClose={() => setExpenseForm(null)} onSubmit={saveExpense} vehicles={list} people={lookups.people} categories={cats.data} cards={lookups.cards} />}
+
+      {deleteVehicle && (
+        <Modal
+          open
+          title="Excluir veículo"
+          onClose={() => setDeleteVehicle(null)}
+          footer={(
+            <>
+              <Button variant="ghost" onClick={() => setDeleteVehicle(null)}>Cancelar</Button>
+              <Button onClick={removeVehicle}>Excluir veículo</Button>
+            </>
+          )}
+        >
+          <p>Tem certeza que deseja excluir este veículo? Esta ação não pode ser desfeita.</p>
+        </Modal>
+      )}
+
+      {deleteReminder && (
+        <Modal
+          open
+          title="Excluir lembrete"
+          onClose={() => setDeleteReminder(null)}
+          footer={(
+            <>
+              <Button variant="ghost" onClick={() => setDeleteReminder(null)}>Cancelar</Button>
+              <Button onClick={confirmRemoveReminder}>Excluir lembrete</Button>
+            </>
+          )}
+        >
+          <p>Tem certeza que deseja excluir o lembrete <strong>{deleteReminder.title}</strong>? Esta ação não pode ser desfeita.</p>
+        </Modal>
+      )}
+
+      {deleteDocument && (
+        <Modal
+          open
+          title="Excluir documento"
+          onClose={() => setDeleteDocument(null)}
+          footer={(
+            <>
+              <Button variant="ghost" onClick={() => setDeleteDocument(null)}>Cancelar</Button>
+              <Button onClick={confirmRemoveDocument}>Excluir documento</Button>
+            </>
+          )}
+        >
+          <p>Tem certeza que deseja excluir o documento <strong>{deleteDocument.name}</strong>? Esta ação não pode ser desfeita.</p>
+        </Modal>
+      )}
     </>
   );
 }

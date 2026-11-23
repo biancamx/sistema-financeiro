@@ -3,7 +3,7 @@ import { useToast } from '../../context/ToastContext.jsx';
 import { useDebounced } from '../../hooks/useDebounced.js';
 import { useFetch } from '../../hooks/useFetch.js';
 import { vehiclesApi } from '../../services/api.js';
-import { Button, Card, EmptyState, ErrorState, Money, Select, Spinner } from '../../components/ui/ui.jsx';
+import { Button, Card, EmptyState, ErrorState, Modal, Money, Select, Spinner } from '../../components/ui/ui.jsx';
 import { money } from '../../lib/format.js';
 import { showDate, showKm } from './vehicles.js';
 
@@ -12,6 +12,7 @@ export default function ExpensesTab({ vehicleId, year, people, categories, onEdi
   const toast = useToast();
   const [f, setF] = useState({ group: '', category: '', personId: '', shared: '', search: '' });
   const [page, setPage] = useState(1);
+  const [deleteExpense, setDeleteExpense] = useState(null);
   const search = useDebounced(f.search);
   const set = (k) => (v) => { setF((s) => ({ ...s, [k]: v?.target ? v.target.value : v })); setPage(1); };
   const q = { vehicleId, year: year === 'all' ? '' : year, group: f.group, category: f.category, personId: f.personId, shared: f.shared, search };
@@ -21,9 +22,20 @@ export default function ExpensesTab({ vehicleId, year, people, categories, onEdi
     [vehicleId, year, f.group, f.category, f.personId, f.shared, search, page, version],
   );
 
-  const remove = async (e) => {
-    if (!window.confirm(`Excluir o gasto "${e.categoryLabel}${e.description ? ` — ${e.description}` : ''}" de ${money(e.amount)}?`)) return;
-    try { await vehiclesApi.removeExpense(e.id); toast.success('Gasto excluído'); onChanged(); } catch (err) { toast.error(err); }
+  const remove = (expense) => {
+    setDeleteExpense(expense);
+  };
+
+  const confirmRemove = async () => {
+    if (!deleteExpense) return;
+    try {
+      await vehiclesApi.removeExpense(deleteExpense.id);
+      toast.success('Gasto excluído');
+      setDeleteExpense(null);
+      onChanged();
+    } catch (err) {
+      toast.error(err);
+    }
   };
 
   const cats = categories.categories.filter((c) => !f.group || c.group === f.group);
@@ -118,6 +130,24 @@ export default function ExpensesTab({ vehicleId, year, people, categories, onEdi
           </div>
         )}
       </Card>
+
+      {deleteExpense && (
+        <Modal
+          open
+          title="Excluir gasto"
+          onClose={() => setDeleteExpense(null)}
+          footer={(
+            <>
+              <Button variant="ghost" onClick={() => setDeleteExpense(null)}>Cancelar</Button>
+              <Button onClick={confirmRemove}>Excluir gasto</Button>
+            </>
+          )}
+        >
+          <p>
+            Excluir o gasto <strong>{deleteExpense.categoryLabel}{deleteExpense.description ? ` — ${deleteExpense.description}` : ''}</strong> de <strong>{money(deleteExpense.amount)}</strong>? Esta ação não pode ser desfeita.
+          </p>
+        </Modal>
+      )}
     </>
   );
 }

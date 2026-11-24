@@ -61,7 +61,8 @@ body {
   overflow-x: hidden;
   touch-action: manipulation;
 }
-img, svg, video, canvas, iframe { display: block; max-width: 100%; height: auto; }
+img, svg, video, canvas { display: block; max-width: 100%; height: auto; }
+iframe { display: block; max-width: 100%; }
 a, button, input, select, textarea { max-width: 100%; touch-action: manipulation; }
 #root { max-width: 100%; height: 100%; overflow-x: hidden; }
 h1, h2, h3 { margin: 0; line-height: 1.2; font-weight: 600; letter-spacing: -0.01em; }
@@ -1537,8 +1538,8 @@ img, canvas { max-width: 100%; }
 }
 .login-google-button:hover:not(:disabled) { background: #f1f3f4; }
 .login-google-button:disabled { cursor: not-allowed; opacity: .8; }
-.login .google-slot { display: flex; width: 100%; min-width: 0; min-height: 44px; justify-content: center; }
-.login .google-slot iframe { max-width: 100%; }
+.login .google-slot { display: flex; width: 100%; min-width: 0; min-height: 44px; align-items: center; justify-content: center; }
+.login .google-slot iframe { max-width: 100%; height: 40px; }
 .login-google-hint { margin-top: 6px; color: var(--login-muted); }
 .login-divider { display: flex; align-items: center; gap: 12px; margin: 22px 0; color: #7d9490; font-size: 13px; }
 .login-divider::before, .login-divider::after { content: ''; flex: 1; height: 1px; background: var(--login-line); }

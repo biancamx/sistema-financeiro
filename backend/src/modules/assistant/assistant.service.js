@@ -17,11 +17,11 @@ const WRITE_TOOL_NAMES = new Set([
 
 function hasExplicitWriteIntent(message = '') {
   const normalized = message.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('pt-BR');
-  const negated = /\b(?:nao|nunca|sem)\b.{0,40}\b(?:registr\w*|cadastr\w*|adicion\w*|cri\w*|lanc\w*|pag\w*|marc\w*)/.test(normalized);
+  const negated = /\b(?:nao|nunca|sem)\b.{0,40}\b(?:registr\w*|cadastr\w*|adicion\w*|cri\w*|lanc\w*|pag\w*|marc\w*|mov\w*|migr\w*|transfer\w*|alter\w*|mud\w*|separ\w*|organiz\w*|realoc\w*|reposicion\w*|coloc\w*|ponh\w*)/.test(normalized);
   if (negated) return false;
 
-  const directAction = /\b(?:registre|registra|cadastre|cadastra|adicione|adiciona|crie|cria|lance|lanca|pague|paga|marque|marca)\b/.test(normalized);
-  const explicitRequest = /\b(?:quero|preciso|solicito|autorizo|confirmo|pode|poderia)\s+(?:por favor\s+)?(?:registrar|cadastrar|adicionar|criar|lancar|pagar|marcar)\b/.test(normalized);
+  const directAction = /\b(?:registre|registra|cadastre|cadastra|adicione|adiciona|crie|cria|lance|lanca|pague|paga|marque|marca|mova|move|migre|migra|transfira|transfere|altere|altera|mude|muda|separe|separa|organize|organiza|realoque|realoca|reposicione|reposiciona|coloque|coloca|ponha|poe)\b/.test(normalized);
+  const explicitRequest = /\b(?:quero|preciso|solicito|autorizo|confirmo|pode|poderia)\s+(?:por favor\s+)?(?:registrar|cadastrar|adicionar|criar|lancar|pagar|marcar|mover|migrar|transferir|alterar|mudar|separar|organizar|realocar|reposicionar|colocar|ponha)\b/.test(normalized);
   const informational = /\b(?:como|saber|explicar|posso|devo|quanto|qual|quais)\b/.test(normalized);
   return (directAction || explicitRequest) && (!informational || /\b(?:autorizo|confirmo)\b/.test(normalized));
 }
@@ -37,7 +37,7 @@ function hasWriteAuthorization(message, history) {
   const previousAssistant = history.at(-1);
   if (previousAssistant?.role !== 'assistant'
     || !/[?？]/.test(previousAssistant.content)
-    || !/\b(?:informe|qual|quais|confirme|faltam|me diga)\b/i.test(previousAssistant.content)) {
+    || !/\b(?:informe|qual|quais|confirm\w*|faltam|me diga|posso|pode)\b/i.test(previousAssistant.content)) {
     return false;
   }
   const previousUser = [...history].reverse().find((item) => item.role === 'user');

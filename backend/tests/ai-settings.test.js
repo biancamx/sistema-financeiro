@@ -415,6 +415,34 @@ test('perguntas não autorizam escrita e pedidos explícitos habilitam as ferram
   });
   assert.equal(declined.status, 200, declined.text);
   assert.equal(offeredTools.includes('cadastrarNovoCartao'), false);
+
+  requestCount = 0;
+  mockProviderFetch(async (_url, options) => {
+    const request = JSON.parse(options.body);
+    offeredTools = request.tools.flatMap((tool) => tool.functionDeclarations.map((item) => item.name));
+    return providerResponse('gemini', 200, 'A movimentação está pronta para ser executada.');
+  });
+  const moveRequested = await api('POST', '/assistant/chat', {
+    message: 'Migre a linha Moradia da planilha da Denize em 2026 para Despesas de veículos.',
+  });
+  assert.equal(moveRequested.status, 200, moveRequested.text);
+  assert.equal(offeredTools.includes('moverLinhaPlanilha'), true);
+
+  requestCount = 0;
+  mockProviderFetch(async (_url, options) => {
+    const request = JSON.parse(options.body);
+    offeredTools = request.tools.flatMap((tool) => tool.functionDeclarations.map((item) => item.name));
+    return providerResponse('gemini', 200, 'Movimentação confirmada.');
+  });
+  const moveConfirmed = await api('POST', '/assistant/chat', {
+    message: 'Sim.',
+    history: [
+      { role: 'user', text: 'Migre a linha Moradia da planilha da Denize em 2026 para Despesas de veículos.' },
+      { role: 'assistant', text: 'Posso confirmar essa movimentação para você?' },
+    ],
+  });
+  assert.equal(moveConfirmed.status, 200, moveConfirmed.text);
+  assert.equal(offeredTools.includes('moverLinhaPlanilha'), true);
 });
 
 test('assistente usa somente o provedor salvo por aquele usuário e exige configuração', async () => {

@@ -118,8 +118,8 @@ export default function BudgetPage() {
       const result = await purchasesApi.setMonthPaid(personId, month, year, paid);
       notifyFinanceChanged();
       toast.success(paid
-        ? `${result.data.updated} parcela(s) de ${MONTHS[month - 1]} marcada(s) como paga(s)`
-        : `${result.data.updated} parcela(s) de ${MONTHS[month - 1]} desmarcada(s)`);
+        ? `${result.data.updated} parcela(s) do cartão e ${result.data.updatedBudgetCells} despesa(s) de ${MONTHS[month - 1]} marcadas como pagas`
+        : `Pagamentos e despesas de ${MONTHS[month - 1]} desfeitos`);
     } catch (error) {
       toast.error(error);
       sheet.reload();
@@ -429,19 +429,18 @@ export default function BudgetPage() {
                     </tr>
                   ))}
                   <tr className="budget-month-payment-row">
-                    <td className="sticky-col">Pagamentos do cartão</td>
+                    <td className="sticky-col">Pagamento do mês</td>
                     {MONTHS_SHORT.map((month, index) => {
                       const monthNumber = index + 1;
-                      const status = d.cardPaymentStatuses[index];
-                      const hasCharges = status.hasCharges;
+                      const status = d.monthPaymentStatuses[index];
                       return (
                         <td key={month} className="budget-month-payment-cell">
                           <div className="budget-month-payment-actions">
                             <Button
                               size="sm"
                               variant={status.paid ? 'ghost' : 'primary'}
-                              disabled={!hasCharges || busyCardPayments}
-                              aria-label={`${status.paid ? 'Desfazer pagamento' : 'Pagar'} todas as cobranças de ${MONTHS[monthNumber - 1]}`}
+                              disabled={!status.hasItems || busyCardPayments}
+                              aria-label={`${status.paid ? 'Despagar' : 'Pagar'} despesas e cobranças de ${MONTHS[monthNumber - 1]}`}
                               onClick={() => setMonthCardPayments(monthNumber, !status.paid)}
                             >
                               {status.paid ? 'Despagar' : 'Pagar'}

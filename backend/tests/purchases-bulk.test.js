@@ -153,7 +153,7 @@ test('bulk payment API requires a session and restores available card limit', as
   assert.equal(restored.available, 800);
 });
 
-test('month payment only changes card installments for the selected person and month', async () => {
+test('month payment toggles card installments and expense checkboxes for selected person and month', async () => {
   const owner = await createAccount('bulk-month@example.invalid');
   const otherPerson = await Person.create({ userId: owner.user._id, name: 'Other person' });
   const purchase = await Purchase.create({
@@ -185,8 +185,20 @@ test('month payment only changes card installments for the selected person and m
     body: JSON.stringify({ personId: String(owner.person._id), month: 10, year: 2099, paid }),
   });
   const budgetUrl = `${baseUrl}/budgets?personId=${owner.person._id}&year=2099&month=10`;
+  const initialBudget = await fetch(budgetUrl, { headers }).then((response) => response.json());
+  const expenseRows = [
+    initialBudget.data.sections.find((section) => section.key === 'food').rows[0],
+    initialBudget.data.sections.find((section) => section.key === 'housing').rows[0],
+  ];
+  for (const [index, row] of expenseRows.entries()) {
+    const saved = await fetch(`${baseUrl}/budgets/rows/${row.id}/cells/10`, {
+      method: 'PUT', headers,
+      body: JSON.stringify({ value: index === 0 ? 77.75 : 15 }),
+    });
+    assert.equal(saved.status, 200);
+  }
   const statusBefore = await fetch(budgetUrl, { headers }).then((response) => response.json());
-  assert.deepEqual(statusBefore.data.cardPaymentStatuses[9], { hasCharges: true, paid: false });
+  assert.deepEqual(statusBefore.data.monthPaymentStatuses[9], { hasItems: true, paid: false });
   const cardUsed = async () => {
     const response = await fetch(`${baseUrl}/cards?month=10&year=2099`, { headers }).then((result) => result.json());
     return response.data.find((card) => card.id === String(owner.card._id)).used;
@@ -195,10 +207,15 @@ test('month payment only changes card installments for the selected person and m
 
   const paid = await request(true);
   assert.equal(paid.status, 200);
-  assert.deepEqual((await paid.json()).data, { updated: 2 });
+  assert.deepEqual((await paid.json()).data, { updated: 2, updatedBudgetCells: 2 });
   assert.equal(await cardUsed(), 200);
   const statusAfterPay = await fetch(budgetUrl, { headers }).then((response) => response.json());
-  assert.deepEqual(statusAfterPay.data.cardPaymentStatuses[9], { hasCharges: true, paid: true });
+  assert.deepEqual(statusAfterPay.data.monthPaymentStatuses[9], { hasItems: true, paid: true });
+  for (const row of expenseRows) {
+    const updatedRow = statusAfterPay.data.sections.find((section) => section.key === row.section).rows.find((item) => item.id === row.id);
+    assert.equal(updatedRow.paidMonths[9], true);
+    assert.equal(updatedRow.paidMonths[8], false);
+  }
   assert.deepEqual(
     await Promise.all([selected, secondSelected, otherMonth, otherPersonInstallment].map(async (item) => {
       const current = await Installment.findById(item._id).lean();
@@ -209,10 +226,14 @@ test('month payment only changes card installments for the selected person and m
 
   const unmarked = await request(false);
   assert.equal(unmarked.status, 200);
-  assert.deepEqual((await unmarked.json()).data, { updated: 2 });
+  assert.deepEqual((await unmarked.json()).data, { updated: 2, updatedBudgetCells: 2 });
   assert.equal(await cardUsed(), 400);
   const reset = await Installment.findById(selected._id).lean();
   assert.deepEqual([reset.paid, reset.paidAmount], [false, 0]);
   const statusAfterUnpay = await fetch(budgetUrl, { headers }).then((response) => response.json());
-  assert.deepEqual(statusAfterUnpay.data.cardPaymentStatuses[9], { hasCharges: true, paid: false });
+  assert.deepEqual(statusAfterUnpay.data.monthPaymentStatuses[9], { hasItems: true, paid: false });
+  for (const row of expenseRows) {
+    const updatedRow = statusAfterUnpay.data.sections.find((section) => section.key === row.section).rows.find((item) => item.id === row.id);
+    assert.equal(updatedRow.paidMonths[9], false);
+  }
 });

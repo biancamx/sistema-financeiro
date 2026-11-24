@@ -8,6 +8,8 @@ import { Category } from '../../models/Category.js';
 import { Installment } from '../../models/Installment.js';
 import { Person } from '../../models/Person.js';
 import { Purchase } from '../../models/Purchase.js';
+import { BudgetSheet } from '../../models/BudgetSheet.js';
+import { SECTIONS } from '../budgets/budgets.defaults.js';
 
 export const buildSchedule = generateInstallments;
 export { splitWeighted };
@@ -480,10 +482,10 @@ export function createPurchasesService() {
       await assertOwned(Person, personId, userId, 'Pessoa');
       const purchases = await Purchase.find({ userId, personId, cardId: { $ne: null } }).select('_id').lean();
       const purchaseIds = purchases.map((purchase) => purchase._id);
-      if (!purchaseIds.length) return { updated: 0 };
 
       const session = await mongoose.startSession();
       let updated = 0;
+      let updatedBudgetCells = 0;
       try {
         await session.withTransaction(async () => {
           const installments = await Installment.find({
@@ -495,11 +497,24 @@ export function createPurchasesService() {
             await installment.save({ session });
           }
           updated = installments.length;
+
+          updatedBudgetCells = 0;
+          const sheet = await BudgetSheet.findOne({ userId, personId, year }).session(session);
+          if (!sheet) return;
+          for (const row of sheet.rows) {
+            const section = SECTIONS.find((item) => item.key === row.section);
+            if (section?.kind !== 'expense' || section.computed) continue;
+            const cell = row.cells.find((item) => item.month === month);
+            if (!cell || cell.value <= 0) continue;
+            cell.paid = paid;
+            updatedBudgetCells++;
+          }
+          if (updatedBudgetCells) await sheet.save({ session });
         });
       } finally {
         await session.endSession();
       }
-      return { updated };
+      return { updated, updatedBudgetCells };
     },
     async exportCsv(userId) {
       const purchases = await populatePurchases({ userId }, { _id: 1 });

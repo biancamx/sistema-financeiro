@@ -36,6 +36,8 @@ const googleCredentialBody = z.object({
 const googleCallbackBody = googleCredentialBody.extend({
   g_csrf_token: z.string().max(1024).optional(),
   select_by: z.string().max(40).optional(),
+  clientId: z.string().max(256).optional(),
+  client_id: z.string().max(256).optional(),
 });
 const sessionParams = z.object({
   sessionId: z.string().regex(/^[A-Za-z0-9_-]{43}$/, 'Sessão inválida'),

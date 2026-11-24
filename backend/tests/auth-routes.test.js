@@ -218,6 +218,20 @@ test('Google login requires an explicitly verified email claim', () => {
   assert.doesNotThrow(() => ensureGoogleAccountLink('same-google-id', 'same-google-id'));
 });
 
+test('Google redirect callback accepts client ID metadata and still enforces CSRF', async () => {
+  const response = await fetch(`${baseUrl}/auth/google/callback`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      credential: 'unverified-test-credential',
+      clientId: 'test-client-id',
+      client_id: 'test-client-id',
+    }),
+  });
+  assert.equal(response.status, 403);
+  assert.equal((await response.json()).error, 'Token CSRF do Google inválido');
+});
+
 test('logout clears current and legacy session cookies', async () => {
   const logout = await fetch(`${baseUrl}/auth/logout`, { method: 'POST' });
   assert.equal(logout.status, 200);

@@ -1840,6 +1840,12 @@ img, canvas { max-width: 100%; }
 @media (max-width: 900px) {
   .global-search { display: none; }
   .system-clock { display: grid; }
+  .tour-trigger { display: none; }
+}
+@media (max-width: 420px) {
+  .system-clock time { display: none; }
+  .period .input-ghost:first-of-type { width: 54px; max-width: 54px; }
+  .period .input-ghost:last-of-type { width: 42px; max-width: 42px; }
 }
 .global-search-clear { position: absolute; right: 5px; display: grid; width: 28px; height: 28px; place-items: center; border: 0; border-radius: 6px; background: transparent; color: var(--muted); cursor: pointer; }
 .global-search-clear svg { width: 15px; height: 15px; }

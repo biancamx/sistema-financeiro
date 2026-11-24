@@ -227,6 +227,7 @@ export function analyzeSpreadsheet(fileBuffer) {
     const norm = normalizeText(s).replace(/\s+/g, '');
     return !['bancodedados', 'dados', 'dashboard', 'dahbordcartoes', 'financeirogeral'].includes(norm);
   });
+  const personYears = new Map();
 
   for (const pSheet of personSheets) {
     const sheet = workbook.Sheets[pSheet];
@@ -240,6 +241,7 @@ export function analyzeSpreadsheet(fileBuffer) {
     if (yMatch) detectedYear = parseInt(yMatch[1], 10);
 
     const detectedPerson = pSheet.replace(/financeiro/i, '').trim();
+    personYears.set(normalizeText(detectedPerson), { name: detectedPerson, year: detectedYear });
 
     let currentSection = null;
     let sectionCounts = { receitas: 0 };
@@ -327,6 +329,83 @@ export function analyzeSpreadsheet(fileBuffer) {
           diff: Math.round((got - exp) * 100) / 100,
         });
       }
+    }
+  }
+
+  // 4b. ABA "Financeiro Geral": importa apenas linhas que não sejam cartões
+  const generalFinanceSheet = sheetNames.find(
+    (s) => normalizeText(s).replace(/\s+/g, '') === 'financeirogeral',
+  );
+  if (generalFinanceSheet) {
+    const rows = XLSX.utils.sheet_to_json(workbook.Sheets[generalFinanceSheet], {
+      header: 1, raw: false, defval: '',
+    });
+    const defaultYear = personYears.values().next().value?.year ?? 2026;
+    const peopleByName = new Map(
+      report.people.map((name) => [normalizeText(name), { name, year: defaultYear }]),
+    );
+    for (const person of personYears.values()) {
+      peopleByName.set(normalizeText(person.name), person);
+    }
+    const cardNames = new Set([
+      ...report.cards,
+      ...report.purchasesGrouped.map((purchase) => purchase.cardName),
+    ].map(normalizeText));
+    let currentPerson = null;
+    let monthColumns = [];
+
+    for (let index = 0; index < rows.length; index++) {
+      const row = rows[index];
+      const label = String(row[0] ?? '').trim();
+      const normalizedLabel = normalizeText(label);
+      const person = peopleByName.get(normalizedLabel);
+      const nextRowIsMonthHeader = normalizeText(rows[index + 1]?.[0]) === 'mes';
+      if (person || (label && nextRowIsMonthHeader)) {
+        currentPerson = person ?? { name: label, year: defaultYear };
+        if (!person) {
+          peopleByName.set(normalizedLabel, currentPerson);
+          if (!report.people.some((name) => normalizeText(name) === normalizedLabel)) {
+            report.people.push(label);
+          }
+        }
+        monthColumns = [];
+        continue;
+      }
+      if (!currentPerson || !normalizedLabel) continue;
+      if (normalizedLabel === 'mes') {
+        monthColumns = row.slice(1, 13)
+          .map((value, index) => ({ month: MONTHS_MAP[normalizeText(value)], column: index + 1 }))
+          .filter(({ month }) => month);
+        continue;
+      }
+      if (!monthColumns.length || normalizedLabel === 'status'
+        || normalizedLabel.startsWith('total') || cardNames.has(normalizedLabel)) {
+        continue;
+      }
+
+      const hasValues = monthColumns.some(({ column }) => {
+        const value = row[column];
+        return value !== '' && value !== null
+          && !(typeof value === 'string' && value.trim() === '-');
+      });
+      if (!hasValues) continue;
+
+      report.monthlyBudgets.push({
+        person: currentPerson.name,
+        year: currentPerson.year,
+        section: 'despesas_variaveis',
+        label,
+        months: monthColumns.map(({ month, column }) => {
+          const value = row[column];
+          return {
+            month,
+            amount: value === '' || (typeof value === 'string' && value.trim() === '-')
+              ? null
+              : parseMoney(value),
+          };
+        }),
+      });
+      report.summaryCounts.budgetLinesCount++;
     }
   }
 

@@ -113,6 +113,50 @@ test('spreadsheet analysis preserves monthly categories and workbook values', as
   assert.equal(await Installment.countDocuments({ userId: account.user._id }), 3);
 });
 
+test('Financeiro Geral imports non-card monthly rows into each person budget', async () => {
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([
+    ['ID', 'Cartão', 'Pessoa', 'Outro', 'Categoria'],
+    ['1', 'Nubank', 'Brena', '', ''],
+  ]), 'Dados');
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([
+    ['Brena'],
+    ['', 'Brena 2027'],
+    ['Categoria'],
+    [''],
+    [''],
+  ]), 'Financeiro Brena');
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([
+    ['Brena'],
+    ['Mês', 'janeiro', 'fevereiro', 'março'],
+    ['Nubank', 200, 210, 220],
+    ['Veículo / Fixos', 15, 30, 0],
+    ['Total Mês', 215, 240, 220],
+    ['Status', 'Pendente', 'Pago', 'Pago'],
+  ]), 'Financeiro Geral');
+
+  const report = analyzeSpreadsheet(XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' }));
+  assert.deepEqual(report.monthlyBudgets.map(({ person, year, section, label }) => (
+    { person, year, section, label }
+  )), [{
+    person: 'Brena',
+    year: 2027,
+    section: 'despesas_variaveis',
+    label: 'Veículo / Fixos',
+  }]);
+
+  const account = await createTestAccount({ email: 'general-finance-import@example.invalid' });
+  const userId = String(account.user._id);
+  await executeSpreadsheetImport(userId, report);
+  const person = await Person.findOne({ userId, name: 'Brena' });
+  const sheet = await createBudgetsService().getSheet(userId, String(person._id), 2027);
+  const fixed = sheet.sections.find((section) => section.key === 'fixed');
+
+  assert.deepEqual(fixed.rows.find((row) => row.label === 'Veículo / Fixos').values.slice(0, 3), [15, 30, 0]);
+  assert.equal(fixed.rows.some((row) => row.label === 'Nubank'), false);
+  assert.equal(fixed.rows.some((row) => row.label === 'Total Mês' || row.label === 'Status'), false);
+});
+
 test('spreadsheet import upserts purchases, installments and budgets in MongoDB', async () => {
   const account = await createTestAccount({ email: 'spreadsheet-writer@example.invalid' });
   const analyzedData = {

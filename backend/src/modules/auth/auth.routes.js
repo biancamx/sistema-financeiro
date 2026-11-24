@@ -88,6 +88,7 @@ function logGoogleAuthFailure(req, error, fallbackStage) {
   const errorCode = error.googleAuthCauseCode ?? (error instanceof AppError ? error.code : undefined);
   if (errorCode !== undefined) fields.errorCode = errorCode;
   if (error.googleAuthCauseCodeName) fields.errorCodeName = error.googleAuthCauseCodeName;
+  if (error.googleAuthDuplicateKeyFields) fields.duplicateKeyFields = error.googleAuthDuplicateKeyFields;
   if (error.googleAuthCauseStatus) fields.upstreamStatus = error.googleAuthCauseStatus;
 
   if (error instanceof AppError && error.status < 500) {

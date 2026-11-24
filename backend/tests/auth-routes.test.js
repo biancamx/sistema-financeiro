@@ -219,18 +219,22 @@ test('Google login requires an explicitly verified email claim', () => {
   assert.doesNotThrow(() => ensureGoogleAccountLink('same-google-id', 'same-google-id'));
 });
 
-test('Google auth diagnostics retain Mongo codes without provider error messages', async () => {
+test('Google auth diagnostics expose duplicate index fields without sensitive values', async () => {
   const mongoError = Object.assign(new Error('sensitive database detail'), {
     name: 'MongoServerError',
-    code: 13,
-    codeName: 'Unauthorized',
+    code: 11000,
+    codeName: 'DuplicateKey',
+    keyPattern: { userId: 1 },
+    keyValue: { userId: 'sensitive-user-id' },
   });
   await assert.rejects(
     withGoogleAuthStage('create_google_session', async () => { throw mongoError; }),
     (error) => {
       assert.equal(error.googleAuthStage, 'create_google_session');
-      assert.equal(error.googleAuthCauseCode, 13);
-      assert.equal(error.googleAuthCauseCodeName, 'Unauthorized');
+      assert.equal(error.googleAuthCauseCode, 11000);
+      assert.equal(error.googleAuthCauseCodeName, 'DuplicateKey');
+      assert.deepEqual(error.googleAuthDuplicateKeyFields, ['userId']);
+      assert.equal('keyValue' in error, false);
       assert.equal(error.message.includes('sensitive database detail'), false);
       return true;
     },

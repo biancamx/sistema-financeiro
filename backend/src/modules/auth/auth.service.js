@@ -98,6 +98,11 @@ export async function withGoogleAuthStage(stage, operation) {
     if (typeof error?.codeName === 'string' && /^[A-Za-z][A-Za-z0-9_]{0,79}$/.test(error.codeName)) {
       stagedError.googleAuthCauseCodeName = error.codeName;
     }
+    if (error?.code === 11000 && error.keyPattern && typeof error.keyPattern === 'object') {
+      const fields = Object.keys(error.keyPattern)
+        .filter((field) => /^[A-Za-z][A-Za-z0-9_.]{0,79}$/.test(field));
+      if (fields.length) stagedError.googleAuthDuplicateKeyFields = fields;
+    }
     const status = Number(error?.response?.status || error?.status);
     if (Number.isInteger(status) && status >= 400 && status <= 599) {
       stagedError.googleAuthCauseStatus = status;

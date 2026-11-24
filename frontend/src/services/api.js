@@ -1,4 +1,4 @@
-import { get, post, put, patch, del, apiUrl, postFormData, http, downloadFile } from './http.js';
+import { get, post, put, patch, del, apiUrl, postFormData, http } from './http.js';
 import { refreshLookup } from './lookupRefresh.js';
 
 // Um objeto por "módulo" da API (espelha as pastas do backend).
@@ -10,8 +10,6 @@ export const authApi = {
   register: (b) => post('/auth/register', b),
   google: (credential) => post('/auth/google', { credential }),
   logout: () => post('/auth/logout'),
-  securityAlerts: () => get('/auth/security-alerts').then((r) => r.data),
-  markSecurityAlertsRead: () => patch('/auth/security-alerts/read'),
 };
 export const adminApi = {
   users: () => get('/admin/users').then((r) => r.data),
@@ -52,7 +50,6 @@ export const purchasesApi = {
   updateObservation: (id, observation) => patch(`/purchases/${id}/observation`, { observation }),
   setManyPaid: (ids, paid) => post(`/purchases/installments/${paid ? 'pay' : 'unpay'}-selected`, { ids }),
   exportUrl: () => apiUrl('/purchases/export.csv'),
-  downloadCsv: () => downloadFile('/purchases/export.csv', 'lancamentos.csv'),
 };
 
 export const cashLedgerApi = {
@@ -69,7 +66,6 @@ export const cashLedgerApi = {
   undoReceipt: (receiptId) => del(`/cash-ledger/receipts/${receiptId}`),
   setRefundStatus: (id, status) => patch(`/cash-ledger/entries/${id}/refund-status`, { status }).then((r) => r.data),
   exportUrl: () => apiUrl('/cash-ledger/export.csv'),
-  downloadCsv: () => downloadFile('/cash-ledger/export.csv', 'avulsos.csv'),
 };
 
 export const vehiclesApi = {
@@ -110,10 +106,6 @@ export const vehiclesApi = {
   updateExpense: (id, b) => put(`/vehicles/expenses/${id}`, b).then((r) => r.data),
   removeExpense: (id) => del(`/vehicles/expenses/${id}`),
   exportUrl: (q = {}) => apiUrl('/vehicles/expenses/export.csv') + (Object.keys(q).length ? '?' + new URLSearchParams(q) : ''),
-  downloadCsv: (q = {}) => downloadFile(
-    `/vehicles/expenses/export.csv${Object.keys(q).length ? `?${new URLSearchParams(q)}` : ''}`,
-    'gastos-veiculos.csv',
-  ),
 };
 
 export const budgetApi = {
@@ -145,19 +137,7 @@ const crud = (base, lookupName) => ({
     return result;
   },
 });
-export const peopleApi = {
-  ...crud('/people', 'people'),
-  async createShareLink(id) {
-    const result = await post(`/people/${id}/share-link`).then((r) => r.data);
-    refreshLookup('people');
-    return result;
-  },
-  async revokeShareLink(id) {
-    const result = await del(`/people/${id}/share-link`);
-    refreshLookup('people');
-    return result;
-  },
-};
+export const peopleApi = crud('/people', 'people');
 export const portalApi = {
   get: (token) => get(`/portal/${encodeURIComponent(token)}`).then((r) => r.data),
 };

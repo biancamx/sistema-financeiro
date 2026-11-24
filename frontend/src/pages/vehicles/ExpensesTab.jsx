@@ -41,13 +41,6 @@ export default function ExpensesTab({ vehicleId, year, people, categories, onEdi
   const cats = categories.categories.filter((c) => !f.group || c.group === f.group);
   const pages = data ? Math.max(1, Math.ceil(data.total / data.pageSize)) : 1;
   const exportQ = Object.fromEntries(Object.entries(q).filter(([, v]) => v !== '' && v !== undefined));
-  const downloadCsv = async () => {
-    try {
-      await vehiclesApi.downloadCsv(exportQ);
-    } catch (err) {
-      if (err.code !== 'REAUTH_REQUIRED') toast.error(err);
-    }
-  };
 
   return (
     <>
@@ -60,7 +53,7 @@ export default function ExpensesTab({ vehicleId, year, people, categories, onEdi
           <Select value={f.shared} onChange={set('shared')} placeholder="Individuais e compartilhados" options={[{ value: 'false', label: 'Só individuais' }, { value: 'true', label: 'Só compartilhados' }]} aria-label="Tipo" />
         </div>
         {data && <span className="muted small">Total filtrado: <strong>{money(data.sum)}</strong></span>}
-        <button type="button" className="btn btn-ghost" onClick={downloadCsv}>Exportar CSV</button>
+        <a className="btn btn-ghost" href={vehiclesApi.exportUrl(exportQ)}>Exportar CSV</a>
       </div>
 
       <Card className={loading ? 'is-loading' : ''}>

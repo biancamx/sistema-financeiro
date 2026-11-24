@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo } from 'react';
 import { Link, NavLink, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useFetch } from '../../hooks/useFetch.js';
 import { peopleApi, remindersApi } from '../../services/api.js';
@@ -89,67 +89,22 @@ export function PersonSummaryPage() {
 export function PersonPortalPage() {
   const { personId } = useParams();
   const people = useFetch(() => peopleApi.list(), [], { cacheKey: 'lookup:people', refreshEvent: 'people:refresh' });
-  const [issuedLink, setIssuedLink] = useState(null);
-  const [linkActive, setLinkActive] = useState(null);
-  const [portalError, setPortalError] = useState(null);
-  const [busy, setBusy] = useState(false);
   if (people.error) return <ErrorState error={people.error} onRetry={people.reload} />;
   if (!people.data) return <Spinner />;
   const person = people.data.find((item) => item.id === personId);
   if (!person) return <EmptyState title="Pessoa não encontrada"><Link to={PATHS.people}>Voltar para Pessoas</Link></EmptyState>;
-  const url = issuedLink ? `${window.location.origin}/portal/${issuedLink.token}` : null;
-  const createLink = async () => {
-    setBusy(true);
-    setPortalError(null);
-    try {
-      const result = await peopleApi.createShareLink(person.id);
-      setIssuedLink(result);
-      setLinkActive(true);
-    } catch (error) {
-      setPortalError(error);
-    } finally {
-      setBusy(false);
-    }
-  };
-  const revokeLink = async () => {
-    setBusy(true);
-    setPortalError(null);
-    try {
-      await peopleApi.revokeShareLink(person.id);
-      setIssuedLink(null);
-      setLinkActive(false);
-    } catch (error) {
-      setPortalError(error);
-    } finally {
-      setBusy(false);
-    }
-  };
+  const url = `${window.location.origin}/portal/${person.share_token}`;
   return (
     <>
       <PageHeader title="Portal do participante" subtitle="Portal de consulta da pessoa." />
       <Card title="Portal do participante">
         <p>Este link permite consultar os dados disponíveis para {person.name}, sem acessar as demais áreas da conta.</p>
-        {portalError && <ErrorState error={portalError} onRetry={createLink} />}
-        {url ? (
-          <>
-            <p className="person-portal-url"><a href={url} target="_blank" rel="noreferrer">{url}</a></p>
-            <p className="muted small">Este link só será exibido nesta tela e expira em {new Date(issuedLink.expiresAt).toLocaleDateString('pt-BR')}.</p>
-          </>
-        ) : (
-          <p className="muted">O link ativo não pode ser recuperado. Gere um novo para renovar o acesso.</p>
-        )}
+        <p className="person-portal-url"><a href={url} target="_blank" rel="noreferrer">{url}</a></p>
         <div className="inline">
-          {url ? (
-            <>
-              <Button variant="primary" onClick={() => window.open(url, '_blank', 'noopener,noreferrer')}>Abrir portal</Button>
-              <Button onClick={async () => {
-                try { await navigator.clipboard.writeText(url); } catch (error) { setPortalError(error); }
-              }}>Copiar link</Button>
-            </>
-          ) : (
-            <Button variant="primary" disabled={busy} onClick={createLink}>{busy ? 'Gerando…' : (linkActive ?? person.share_enabled) ? 'Renovar link' : 'Gerar link'}</Button>
-          )}
-          {(linkActive ?? person.share_enabled) && <Button variant="ghost" disabled={busy} onClick={revokeLink}>Revogar link ativo</Button>}
+          <Button variant="primary" onClick={() => window.open(url, '_blank', 'noopener,noreferrer')}>Abrir portal</Button>
+          <Button onClick={async () => {
+            try { await navigator.clipboard.writeText(url); } catch (error) { console.error('Falha ao copiar link do portal:', error); }
+          }}>Copiar link</Button>
         </div>
       </Card>
     </>

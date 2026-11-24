@@ -86,13 +86,6 @@ export default function PurchasesPage() {
   const newActionHandled = useRef(false);
   const period = usePeriod();
   const toast = useToast();
-  const downloadCsv = async () => {
-    try {
-      await purchasesApi.downloadCsv();
-    } catch (error) {
-      if (error.code !== 'REAUTH_REQUIRED') toast.error(error);
-    }
-  };
   const lookups = useLookups();
   const [tab, setTab] = useState('month');
   const [subscriptionStatus, setSubscriptionStatusFilter] = useState('active');
@@ -298,9 +291,9 @@ export default function PurchasesPage() {
         title="Compras e parcelas"
         subtitle={<span className="purchase-page-subtitle">Compras no cartão e suas parcelas</span>}
         actions={<>
-          <button type="button" className="btn btn-ghost purchase-export" onClick={downloadCsv} aria-label="Exportar CSV">
+          <a className="btn btn-ghost purchase-export" href={purchasesApi.exportUrl()} aria-label="Exportar CSV">
             <Download size={16} aria-hidden="true" /><span>Exportar CSV</span>
-          </button>
+          </a>
           <Button className="purchase-new" variant="primary" onClick={() => setForm(emptyPurchase(period))} disabled={!lookups.ready}>
             <Plus size={17} aria-hidden="true" /> Nova compra
           </Button>

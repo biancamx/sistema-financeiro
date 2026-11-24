@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { asyncHandler } from '../../lib/errors.js';
-import { requireAuth, requireRecentAuth } from '../../middleware/auth.js';
+import { requireAuth } from '../../middleware/auth.js';
 import { validate } from '../../middleware/validate.js';
 import {
   getAiSettings,
@@ -25,14 +25,14 @@ export function settingsRoutes() {
     res.json({ success: true, data: await getAiSettings(req.user.id) });
   }));
 
-  router.put('/ai', requireRecentAuth(), validate({
+  router.put('/ai', validate({
     body: providerModel.extend({ apiKey: apiKeyField.optional(), consent: z.boolean() }),
   }), asyncHandler(async (req, res) => {
     const data = await saveAiSettings(req.user.id, req.body);
     res.json({ success: true, data });
   }));
 
-  router.delete('/ai', requireRecentAuth(), asyncHandler(async (req, res) => {
+  router.delete('/ai', asyncHandler(async (req, res) => {
     await removeAiSettings(req.user.id);
     res.json({ success: true, data: { configured: false } });
   }));
@@ -44,7 +44,7 @@ export function settingsRoutes() {
     res.json({ success: true, data });
   }));
 
-  router.post('/ai/test', requireRecentAuth(), validate({
+  router.post('/ai/test', validate({
     body: providerModel.extend({ apiKey: apiKeyField }),
   }), asyncHandler(async (req, res) => {
     await testAiProvider(req.body);

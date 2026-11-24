@@ -27,7 +27,6 @@ import { refreshAllLookups } from '../../services/lookupRefresh.js';
 import { MONTHS_SHORT, money } from '../../lib/format.js';
 import { categoriesApi, importApi, settingsAiApi, systemApi, vehiclesApi } from '../../services/api.js';
 import PushNotificationsSettings from './PushNotificationsSettings.jsx';
-import SecurityAlertsPanel from './SecurityAlertsPanel.jsx';
 import './SettingsPage.css';
 
 const IMPORT_COUNT_CARDS = [
@@ -47,7 +46,7 @@ const PDF_IMPORT_COUNT_CARDS = [
   ['Novas compras', (data) => data.deduplication?.newCount ?? data.summaryCounts.purchasesCount],
   ['Já existentes', (data) => data.deduplication?.existingCount ?? 0],
 ];
-const SETTINGS_TABS = ['categories', 'import', 'ai', 'vehicle-reminders', 'push', 'security', 'danger'];
+const SETTINGS_TABS = ['categories', 'import', 'ai', 'vehicle-reminders', 'push', 'danger'];
 const pdfPeriodLabel = (month, year) => `${MONTHS_SHORT[month - 1]}/${year}`;
 
 function SettingsPanels({ standaloneImport, open, title, onClose, footer, children }) {
@@ -701,27 +700,6 @@ export default function SettingsPage({ initialSection = 'categories', standalone
             </section>
 
             <section className="settings-group">
-              <h2>Segurança</h2>
-              <div className="settings-group-card">
-                <button
-                  id="settings-tab-security"
-                  type="button"
-                  className="settings-option-row"
-                  aria-haspopup="dialog"
-                  aria-expanded={activeSection === 'security'}
-                  onClick={() => setActiveSection('security')}
-                >
-                  <span className="settings-option-icon"><ShieldCheck aria-hidden="true" /></span>
-                  <span className="settings-option-copy">
-                    <strong>Alertas de segurança</strong>
-                    <small>Atividade suspeita e alterações da conta</small>
-                  </span>
-                  <ChevronRight className="settings-option-chevron" aria-hidden="true" />
-                </button>
-              </div>
-            </section>
-
-            <section className="settings-group">
               <h2>Conta</h2>
               <div className="settings-group-card">
                 <button
@@ -756,16 +734,14 @@ export default function SettingsPage({ initialSection = 'categories', standalone
         )}
         <SettingsPanels
           standaloneImport={standaloneImport}
-          open={['import', 'ai', 'vehicle-reminders', 'push', 'security'].includes(activeSection)}
+          open={['import', 'ai', 'vehicle-reminders', 'push'].includes(activeSection)}
           title={activeSection === 'import'
             ? 'Importador de planilhas e faturas'
             : activeSection === 'ai'
               ? 'Chave de IA'
               : activeSection === 'vehicle-reminders'
                 ? 'Lembretes de veículos'
-                : activeSection === 'push'
-                  ? 'Notificações no celular'
-                  : 'Alertas de segurança'}
+                : 'Notificações no celular'}
           onClose={closeSettingsModal}
           footer={(
             activeSection === 'vehicle-reminders'
@@ -777,7 +753,7 @@ export default function SettingsPage({ initialSection = 'categories', standalone
                   </Button>
                 </>
               )
-              : <Button onClick={closeSettingsModal}>{['push', 'security'].includes(activeSection) ? 'Fechar' : 'Cancelar'}</Button>
+              : <Button onClick={closeSettingsModal}>{activeSection === 'push' ? 'Fechar' : 'Cancelar'}</Button>
           )}
         >
       <section
@@ -860,17 +836,6 @@ export default function SettingsPage({ initialSection = 'categories', standalone
         hidden={activeSection !== 'push'}
       >
         <PushNotificationsSettings />
-      </section>
-
-      <section
-        id="settings-security"
-        className="settings-section"
-        role="tabpanel"
-        aria-labelledby="settings-tab-security"
-        tabIndex="0"
-        hidden={activeSection !== 'security'}
-      >
-        <SecurityAlertsPanel />
       </section>
 
       <section

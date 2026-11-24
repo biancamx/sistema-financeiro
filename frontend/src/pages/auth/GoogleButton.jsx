@@ -3,7 +3,7 @@ import { apiUrl } from '../../services/http.js';
 
 /**
  * Botão "Entrar com Google" (Google Identity Services).
- * Só é renderizado quando o backend informa GOOGLE_CLIENT_ID.
+ * Só é renderizado quando o backend informa GOOGLE_CLIENT_ID — por enquanto está desativado.
  */
 export default function GoogleButton({ clientId, onError }) {
   const box = useRef(null);

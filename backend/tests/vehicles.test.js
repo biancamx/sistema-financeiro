@@ -338,7 +338,7 @@ test('documentos são privados e criam/removem lembretes de validade', async () 
   form.append('dueDate', dateAfter(20));
   form.append('file', new Blob(['%PDF-1.4\nvehicle document'], { type: 'application/pdf' }), 'crlv.pdf');
   const uploaded = await fetch(`${base}/vehicles/documents`, {
-    method: 'POST', headers: { Cookie: cookie, Origin: 'http://localhost:5173' }, body: form,
+    method: 'POST', headers: { Cookie: cookie }, body: form,
   });
   const document = await uploaded.json();
   assert.equal(uploaded.status, 201, JSON.stringify(document));
@@ -371,7 +371,7 @@ test('documentos são privados e criam/removem lembretes de validade', async () 
   resetForm.append('type', 'other');
   resetForm.append('file', new Blob(['%PDF-1.4\nreset test'], { type: 'application/pdf' }), 'comprovante.pdf');
   const resetDocument = await fetch(`${base}/vehicles/documents`, {
-    method: 'POST', headers: { Cookie: cookie, Origin: 'http://localhost:5173' }, body: resetForm,
+    method: 'POST', headers: { Cookie: cookie }, body: resetForm,
   });
   const resetDocumentData = await resetDocument.json();
   assert.equal(resetDocument.status, 201, JSON.stringify(resetDocumentData));
@@ -426,11 +426,7 @@ test('foto do veículo é privada, pode ser substituída e removida', async () =
     const form = new FormData();
     form.append('photo', new Blob([image], { type: 'image/png' }), 'photo.png');
     form.append('thumbnail', new Blob([image], { type: 'image/png' }), 'thumb.png');
-    return fetch(`${base}/vehicles/${vehicle.id}/photo`, {
-      method: 'POST',
-      headers: { Cookie: cookie, Origin: 'http://localhost:5173' },
-      body: form,
-    });
+    return fetch(`${base}/vehicles/${vehicle.id}/photo`, { method: 'POST', headers: { Cookie: cookie }, body: form });
   };
   const first = await upload();
   assert.equal(first.status, 200);

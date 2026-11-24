@@ -3,7 +3,6 @@ import multer from 'multer';
 import { pipeline } from 'node:stream/promises';
 import { z } from 'zod';
 import { asyncHandler, badRequest } from '../../lib/errors.js';
-import { recordAuditEvent } from '../../lib/auditEvent.js';
 import { validate } from '../../middleware/validate.js';
 import { createVehiclesService } from './vehicles.service.js';
 import { detectImageContentType } from './vehicle-files.validation.js';
@@ -211,7 +210,7 @@ export function vehiclesRoutes() {
     res.set({
       'Content-Type': document.contentType,
       'Content-Disposition': `${download ? 'attachment' : 'inline'}; filename="${filename}"`,
-      'Cache-Control': 'private, no-store',
+      'Cache-Control': 'private, max-age=3600',
       'X-Content-Type-Options': 'nosniff',
     });
     await pipeline(stream, res);
@@ -243,24 +242,17 @@ export function vehiclesRoutes() {
   }));
   r.get('/:id/photo', validate({ params: idParam }), asyncHandler(async (req, res) => {
     const { file, stream } = await svc.getVehiclePhoto(req.user._id, req.params.id);
-    res.set({ 'Content-Type': file.contentType, 'Content-Disposition': 'inline', 'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff' });
+    res.set({ 'Content-Type': file.contentType, 'Content-Disposition': 'inline', 'Cache-Control': 'private, max-age=3600', 'X-Content-Type-Options': 'nosniff' });
     await pipeline(stream, res);
   }));
   r.get('/:id/photo/thumbnail', validate({ params: idParam }), asyncHandler(async (req, res) => {
     const { file, stream } = await svc.getVehiclePhoto(req.user._id, req.params.id, true);
-    res.set({ 'Content-Type': file.contentType, 'Content-Disposition': 'inline', 'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff' });
+    res.set({ 'Content-Type': file.contentType, 'Content-Disposition': 'inline', 'Cache-Control': 'private, max-age=3600', 'X-Content-Type-Options': 'nosniff' });
     await pipeline(stream, res);
   }));
 
   // Lançamentos (declarados antes de /:id para não colidir)
   r.get('/expenses/export.csv', validate({ query: exportQuery }), asyncHandler(async (req, res) => {
-    await recordAuditEvent({
-      eventType: 'data.exported',
-      actorUserId: req.user._id,
-      targetUserId: req.user._id,
-      targetId: 'vehicle-expenses',
-      requestId: req.id,
-    });
     res.set('Content-Type', 'text/csv; charset=utf-8').set('Content-Disposition', 'attachment; filename="gastos-veiculos.csv"');
     res.send('﻿' + await svc.exportCsv(req.user._id, req.query));
   }));

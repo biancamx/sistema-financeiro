@@ -3,7 +3,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { asyncHandler, conflict, notFound } from '../../lib/errors.js';
 import { validate } from '../../middleware/validate.js';
-import { Person, generatePortalToken, hashPortalToken } from '../../models/Person.js';
+import { Person } from '../../models/Person.js';
 import { Birthday } from '../../models/Birthday.js';
 import { Purchase } from '../../models/Purchase.js';
 import { VehicleExpense } from '../../models/VehicleExpense.js';
@@ -14,10 +14,6 @@ import { CashEntry } from '../../models/CashEntry.js';
 import { Card } from '../../models/Card.js';
 import { Vehicle } from '../../models/Vehicle.js';
 import { User } from '../../models/User.js';
-import { recordAuditEvent } from '../../lib/auditEvent.js';
-import { requireRecentAuth } from '../../middleware/auth.js';
-
-const PORTAL_TOKEN_TTL_MS = 90 * 24 * 60 * 60 * 1000;
 
 const birthDate = z.string()
   .regex(/^\d{4}-\d{2}-\d{2}$/, 'Data de nascimento inválida')
@@ -41,9 +37,6 @@ const body = z.object({
 const idParam = z.object({ id: z.string().regex(/^[\da-f]{24}$/i) });
 
 function personJson(person, purchases = 0) {
-  const shareEnabled = Boolean((person.shareTokenHash || person.shareToken)
-    && !person.shareTokenRevokedAt
-    && (!person.shareTokenExpiresAt || person.shareTokenExpiresAt > new Date()));
   return {
     id: String(person._id),
     name: person.name,
@@ -53,9 +46,7 @@ function personJson(person, purchases = 0) {
     pix_key: person.pixKey,
     avatar: person.avatar,
     notes: person.notes,
-    share_token: shareEnabled ? person.shareToken || null : null,
-    share_enabled: shareEnabled,
-    share_expires_at: person.shareTokenExpiresAt || null,
+    share_token: person.shareToken,
     purchases,
   };
 }
@@ -76,7 +67,7 @@ async function syncBirthday(userId, person, session) {
 export function peopleRoutes() {
   const r = Router();
   r.get('/', asyncHandler(async (req, res) => {
-    const people = await Person.find({ userId: req.user._id }).select('+shareTokenHash').sort({ name: 1 }).lean();
+    const people = await Person.find({ userId: req.user._id }).sort({ name: 1 }).lean();
     const counts = await Purchase.aggregate([
       { $match: { userId: req.user._id, personId: { $in: people.map((person) => person._id) } } },
       { $group: { _id: '$personId', count: { $sum: 1 } } },
@@ -107,51 +98,12 @@ export function peopleRoutes() {
     }
     res.status(201).json({ data: personJson(created) });
   }));
-  r.post('/:id/share-link', requireRecentAuth(), validate({ params: idParam }), asyncHandler(async (req, res) => {
-    const person = await Person.findOne({ _id: req.params.id, userId: req.user._id }).select('+shareTokenHash');
-    if (!person) throw notFound('Pessoa não encontrada');
-
-    const token = generatePortalToken();
-    const expiresAt = new Date(Date.now() + PORTAL_TOKEN_TTL_MS);
-    person.set('shareToken', undefined);
-    person.shareTokenHash = hashPortalToken(token);
-    person.shareTokenExpiresAt = expiresAt;
-    person.shareTokenRevokedAt = null;
-    await person.save();
-    await recordAuditEvent({
-      eventType: 'share.link.created',
-      actorUserId: req.user._id,
-      targetUserId: req.user._id,
-      targetId: String(person._id),
-      requestId: req.id,
-    });
-    res.set('Cache-Control', 'no-store').json({ data: { token, expiresAt } });
-  }));
-  r.delete('/:id/share-link', requireRecentAuth(), validate({ params: idParam }), asyncHandler(async (req, res) => {
-    const person = await Person.findOne({ _id: req.params.id, userId: req.user._id });
-    if (!person) throw notFound('Pessoa não encontrada');
-    person.set('shareToken', undefined);
-    person.shareTokenHash = undefined;
-    person.shareTokenExpiresAt = null;
-    person.shareTokenRevokedAt = new Date();
-    await person.save();
-    await recordAuditEvent({
-      eventType: 'share.link.revoked',
-      actorUserId: req.user._id,
-      targetUserId: req.user._id,
-      targetId: String(person._id),
-      requestId: req.id,
-    });
-    res.status(204).end();
-  }));
   r.put('/:id', validate({ params: idParam, body }), asyncHandler(async (req, res) => {
     const session = await mongoose.startSession();
     let updated;
     try {
       await session.withTransaction(async () => {
-        const current = await Person.findOne({ _id: req.params.id, userId: req.user._id })
-          .select('+shareTokenHash')
-          .session(session);
+        const current = await Person.findOne({ _id: req.params.id, userId: req.user._id }).session(session);
         if (!current) throw notFound('Pessoa não encontrada');
         current.name = req.body.name;
         for (const key of ['phone', 'email', 'birthDate', 'pixKey', 'avatar', 'notes']) {

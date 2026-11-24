@@ -1,21 +1,12 @@
 import { OAuth2Client } from 'google-auth-library';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
-import { randomBytes } from 'node:crypto';
 import { env } from '../../config/env.js';
 import { AppError, conflict, unauthorized } from '../../lib/errors.js';
-import { AuthSession } from '../../models/AuthSession.js';
 import { User } from '../../models/User.js';
-import { recordAuditEvent } from '../../lib/auditEvent.js';
-import { raiseSecurityAlerts } from '../../lib/securityAlerts.js';
 
-const client = new OAuth2Client(env.googleClientId);
+const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 const adminEmail = env.adminEmail;
-const sessionJwtOptions = {
-  algorithm: 'HS256',
-  issuer: 'caderno-contas',
-  audience: 'caderno-contas-web',
-};
 
 function ensureEmailAllowed(email) {
   const normalizedEmail = email.toLowerCase().trim();
@@ -39,27 +30,11 @@ function newAccountAccessFields(email) {
 }
 
 async function promoteConfiguredAdmin(user) {
-  if (!adminEmail || user.email.toLowerCase() !== adminEmail || !user.googleId) return;
+  if (!adminEmail || user.email.toLowerCase() !== adminEmail) return;
   if (user.role !== 'admin' || user.status !== 'active') {
-    const previousRole = user.role;
-    const previousStatus = user.status;
     user.role = 'admin';
     user.status = 'active';
     await user.save();
-    await recordAuditEvent({
-      eventType: 'admin.role_changed',
-      targetUserId: user._id,
-      targetId: user._id.toString(),
-      previousRole,
-      newRole: user.role,
-      previousStatus,
-      newStatus: user.status,
-    });
-    await raiseSecurityAlerts({
-      alertType: 'admin_account_change',
-      userIds: [user._id],
-      dedupeId: `configured-admin:${user._id}:${Date.now()}`,
-    });
   }
 }
 
@@ -74,97 +49,68 @@ function publicUser(user) {
   };
 }
 
-export async function withGoogleAuthStage(stage, operation) {
-  try {
-    return await operation();
-  } catch (error) {
-    if (error instanceof AppError) {
-      error.googleAuthStage = stage;
-      throw error;
-    }
-
-    const stagedError = new Error('Google authentication step failed');
-    stagedError.name = 'GoogleAuthError';
-    stagedError.googleAuthStage = stage;
-    stagedError.googleAuthCauseName = typeof error?.name === 'string'
-      && /^[A-Za-z][A-Za-z0-9_]{0,79}$/.test(error.name)
-      ? error.name
-      : 'UnknownError';
-    if (typeof error?.code === 'string' && /^[A-Z0-9_-]{1,80}$/.test(error.code)) {
-      stagedError.googleAuthCauseCode = error.code;
-    } else if (Number.isInteger(error?.code) && error.code >= 0 && error.code <= 999999) {
-      stagedError.googleAuthCauseCode = error.code;
-    }
-    if (typeof error?.codeName === 'string' && /^[A-Za-z][A-Za-z0-9_]{0,79}$/.test(error.codeName)) {
-      stagedError.googleAuthCauseCodeName = error.codeName;
-    }
-    if (error?.code === 11000 && error.keyPattern && typeof error.keyPattern === 'object') {
-      const fields = Object.keys(error.keyPattern)
-        .filter((field) => /^[A-Za-z][A-Za-z0-9_.]{0,79}$/.test(field));
-      if (fields.length) stagedError.googleAuthDuplicateKeyFields = fields;
-    }
-    const status = Number(error?.response?.status || error?.status);
-    if (Number.isInteger(status) && status >= 400 && status <= 599) {
-      stagedError.googleAuthCauseStatus = status;
-    }
-    throw stagedError;
-  }
-}
-
 export async function loginWithGoogle(credential) {
-  if (!env.googleClientId) {
+  if (!process.env.GOOGLE_CLIENT_ID) {
     throw new Error('GOOGLE_CLIENT_ID não configurado no backend');
   }
 
-  const ticket = await withGoogleAuthStage('verify_google_id_token', () => client.verifyIdToken({
+  // 1. Valida o token recebido diretamente com os servidores do Google
+  const ticket = await client.verifyIdToken({
     idToken: credential,
-    audience: env.googleClientId,
-  }));
+    audience: process.env.GOOGLE_CLIENT_ID,
+  });
 
   const payload = ticket.getPayload();
-  await withGoogleAuthStage('validate_google_claims', async () => {
-    if (!payload?.email || !payload?.sub) {
-      throw unauthorized('O Google não retornou uma identidade válida.');
-    }
-    ensureGoogleEmailVerified(payload);
-  });
+  if (!payload || !payload.email) {
+    throw new Error('Token do Google inválido ou sem e-mail');
+  }
+  ensureGoogleEmailVerified(payload);
 
   const { sub: googleId, email, name, picture } = payload;
   const cleanEmail = email.toLowerCase().trim();
-  await withGoogleAuthStage('authorize_google_account', async () => {
-    ensureEmailAllowed(cleanEmail);
-  });
+  ensureEmailAllowed(cleanEmail);
 
-  let user = await withGoogleAuthStage('lookup_google_user', () => User.findOne({ email: cleanEmail }));
+  // 2. Busca ou Cria o usuário no MongoDB Atlas
+  let user = await User.findOne({ email: cleanEmail });
 
   if (!user) {
-    user = await withGoogleAuthStage('create_google_user', () => User.create({
+    // Cria novo usuário com a foto oficial do Google
+    user = await User.create({
       name: name || cleanEmail.split('@')[0],
       email: cleanEmail,
       googleId,
       avatar: picture || null,
       ...newAccountAccessFields(cleanEmail),
-    }));
+    });
+    console.log(`🎉 Novo usuário registrado via Google no MongoDB: ${cleanEmail}`);
   } else {
-    await withGoogleAuthStage('verify_google_account_link', async () => {
-      ensureGoogleAccountLink(user.googleId, googleId);
-    });
-    await withGoogleAuthStage('update_google_user', async () => {
-      let updated = false;
-      if (!user.googleId) {
-        user.googleId = googleId;
-        updated = true;
-      }
-      if (picture && user.avatar !== picture) {
-        user.avatar = picture;
-        updated = true;
-      }
-      if (updated) await user.save();
-    });
+    // Se o usuário já existe, atualiza os dados do Google e a foto se necessário
+    let updated = false;
+    if (!user.googleId) {
+      user.googleId = googleId;
+      updated = true;
+    }
+    if (picture && user.avatar !== picture) {
+      user.avatar = picture;
+      updated = true;
+    }
+    if (updated) await user.save();
   }
-  await withGoogleAuthStage('apply_google_admin_policy', () => promoteConfiguredAdmin(user));
+  await promoteConfiguredAdmin(user);
 
-  const token = await withGoogleAuthStage('create_google_session', () => generateToken(user));
+  // 3. Emite o JWT de sessão assinado
+  const token = jwt.sign(
+    {
+      sub: user._id.toString(),
+      email: user.email,
+      name: user.name,
+      avatar: user.avatar,
+      role: user.role || 'user',
+      status: user.status || 'pending',
+    },
+    env.jwtSecret,
+    { expiresIn: env.jwtExpiresIn }
+  );
 
   return {
     token,
@@ -173,12 +119,10 @@ export async function loginWithGoogle(credential) {
 }
 
 // Gera o token JWT da sessão
-export async function generateToken(user) {
-  const userId = user._id ? user._id.toString() : user.id;
-  const tokenId = randomBytes(32).toString('base64url');
-  const token = jwt.sign(
+export function generateToken(user) {
+  return jwt.sign(
     {
-      sub: userId,
+      sub: user._id ? user._id.toString() : user.id,
       email: user.email,
       name: user.name,
       avatar: user.avatar,
@@ -186,32 +130,8 @@ export async function generateToken(user) {
       role: user.role || 'user',
     },
     env.jwtSecret,
-    { ...sessionJwtOptions, expiresIn: env.jwtExpiresIn, jwtid: tokenId },
+    { expiresIn: env.jwtExpiresIn }
   );
-  const { exp } = jwt.decode(token);
-  await AuthSession.create({
-    userId,
-    tokenId,
-    expiresAt: new Date(exp * 1000),
-  });
-  return token;
-}
-
-export function verifySessionToken(token) {
-  const payload = jwt.verify(token, env.jwtSecret, {
-    algorithms: ['HS256'],
-    issuer: sessionJwtOptions.issuer,
-    audience: sessionJwtOptions.audience,
-  });
-  if (!payload || typeof payload !== 'object'
-    || typeof payload.sub !== 'string'
-    || !Number.isInteger(payload.exp)
-    || !Number.isInteger(payload.iat)
-    || typeof payload.jti !== 'string'
-    || !/^[A-Za-z0-9_-]{43}$/.test(payload.jti)) {
-    throw new jwt.JsonWebTokenError('Invalid session claims');
-  }
-  return payload;
 }
 
 export function ensureGoogleEmailVerified(payload) {
@@ -220,19 +140,10 @@ export function ensureGoogleEmailVerified(payload) {
   }
 }
 
-export function ensureGoogleAccountLink(existingGoogleId, incomingGoogleId) {
-  if (existingGoogleId && existingGoogleId !== incomingGoogleId) {
-    throw unauthorized('Esta conta está vinculada a outra identidade Google.');
-  }
-}
-
 // 2. CADASTRO TRADICIONAL COM E-MAIL E SENHA
 export async function registerWithEmail(name, email, password) {
   const cleanEmail = email.toLowerCase().trim();
   ensureEmailAllowed(cleanEmail);
-  if (adminEmail && cleanEmail === adminEmail) {
-    throw new AppError(403, 'ADMIN_EMAIL_GOOGLE_REQUIRED', 'Esta conta deve ser validada pelo provedor de identidade autorizado.');
-  }
 
   const existing = await User.findOne({ email: cleanEmail });
   if (existing) {
@@ -256,7 +167,7 @@ export async function registerWithEmail(name, email, password) {
     throw error;
   }
 
-  const token = await generateToken(user);
+  const token = generateToken(user);
   return {
     user: publicUser(user),
     token,
@@ -272,9 +183,6 @@ export async function loginWithEmail(email, password) {
   if (!user || !user.passwordHash) {
     throw unauthorized('E-mail ou senha incorretos.');
   }
-  if (adminEmail && cleanEmail === adminEmail && !user.googleId) {
-    throw unauthorized('E-mail ou senha incorretos.');
-  }
 
   const matches = await bcrypt.compare(password, user.passwordHash);
   if (!matches) {
@@ -282,7 +190,7 @@ export async function loginWithEmail(email, password) {
   }
 
   await promoteConfiguredAdmin(user);
-  const token = await generateToken(user);
+  const token = generateToken(user);
   return {
     user: publicUser(user),
     token,

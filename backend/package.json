@@ -13,8 +13,6 @@
     "start": "node src/server.js",
     "seed": "node scripts/seed.js",
     "backup": "node scripts/backup.js",
-    "restore:backup": "node scripts/restore-backup.js",
-    "migrate:security": "node scripts/migrate-security.js",
     "generate:vapid": "web-push generate-vapid-keys",
     "test": "node --test --test-concurrency=1 tests/*.test.js"
   },

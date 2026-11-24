@@ -44,7 +44,7 @@ export function systemRoutes() {
     clientLogLimiter,
     validate({ body: z.object({ message: z.string().max(500), stack: z.string().max(4000).optional(), url: z.string().max(300).optional(), componentStack: z.string().max(4000).optional() }) }),
     (req, res) => {
-      req.log.error({ requestId: req.id }, 'erro reportado pelo frontend');
+      req.log.error({ clientError: req.body }, 'erro no frontend');
       res.status(202).json({ received: true });
     },
   );

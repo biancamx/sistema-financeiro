@@ -1,14 +1,16 @@
 import mongoose from 'mongoose';
-import { createHash, randomBytes } from 'node:crypto';
+import crypto from 'node:crypto';
 
-export const LEGACY_SHARE_TOKEN_PATTERN = /^[23456789abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ]{6,64}$/;
+const SHARE_TOKEN_CHARS = '23456789abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ';
+const SHARE_TOKEN_PATTERN = /^[23456789abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ]{6,64}$/;
 
-export function generatePortalToken() {
-  return randomBytes(32).toString('base64url');
+export function generateShortToken(length = 10) {
+  const bytes = crypto.randomBytes(length);
+  return Array.from({ length }, (_, index) => SHARE_TOKEN_CHARS[bytes[index] % SHARE_TOKEN_CHARS.length]).join('');
 }
 
-export function hashPortalToken(token) {
-  return createHash('sha256').update(token, 'utf8').digest('hex');
+function isValidShareToken(token) {
+  return typeof token === 'string' && SHARE_TOKEN_PATTERN.test(token);
 }
 
 const personSchema = new mongoose.Schema(
@@ -23,29 +25,43 @@ const personSchema = new mongoose.Schema(
     notes: { type: String, default: null },
     shareToken: {
       type: String,
-      default: undefined,
+      unique: true,
+      default: () => generateShortToken(10),
     },
-    shareTokenHash: { type: String, default: undefined, select: false },
-    shareTokenExpiresAt: { type: Date, default: null },
-    shareTokenRevokedAt: { type: Date, default: null },
   },
   { timestamps: true }
 );
 
+personSchema.pre('validate', function ensureShareToken() {
+  if (!isValidShareToken(this.shareToken)) {
+    this.shareToken = generateShortToken(10);
+  }
+});
+
+personSchema.pre('save', function ensureShareTokenOnSave() {
+  if (!isValidShareToken(this.shareToken)) {
+    this.shareToken = generateShortToken(10);
+  }
+});
+
 // Garante isolamento: o nome é único por usuário, não no banco inteiro!
 personSchema.index({ userId: 1, name: 1 }, { unique: true });
 personSchema.index({ userId: 1, email: 1 });
-personSchema.index(
-  { shareToken: 1 },
-  {
-    unique: true,
-    partialFilterExpression: { shareToken: { $type: 'string' } },
-    name: 'shareToken_string_unique',
-  },
-);
-personSchema.index(
-  { shareTokenHash: 1 },
-  { unique: true, partialFilterExpression: { shareTokenHash: { $type: 'string' } } },
-);
+
+export async function ensurePersonShareTokens() {
+  const people = await Person.find({}).select('_id shareToken').lean();
+  for (const person of people) {
+    if (!isValidShareToken(person.shareToken)) {
+      let token = generateShortToken(10);
+      let tries = 0;
+      while (await Person.exists({ shareToken: token, _id: { $ne: person._id } })) {
+        token = generateShortToken(10);
+        tries += 1;
+        if (tries > 20) throw new Error('Não foi possível gerar token único para pessoa');
+      }
+      await Person.updateOne({ _id: person._id }, { $set: { shareToken: token } });
+    }
+  }
+}
 
 export const Person = mongoose.model('Person', personSchema);

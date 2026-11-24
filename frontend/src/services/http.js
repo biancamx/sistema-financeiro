@@ -35,34 +35,6 @@ let onUnauthorized = () => {};
 export const setUnauthorizedHandler = (fn) => (onUnauthorized = fn);
 let onAccountPending = () => {};
 export const setAccountPendingHandler = (fn) => (onAccountPending = fn);
-let onReauthRequired = () => {};
-export const setReauthRequiredHandler = (fn) => (onReauthRequired = fn);
-let reauthPromise = null;
-
-async function handleReauthRequired() {
-  if (!reauthPromise) {
-    reauthPromise = Promise.resolve(onReauthRequired()).finally(() => {
-      reauthPromise = null;
-    });
-  }
-  await reauthPromise;
-}
-
-async function handleErrorResponse(res, json, path) {
-  if (res.status === 401) {
-    clearHttpCache();
-    if (!path.startsWith('/auth/')) onUnauthorized();
-  }
-  if (json?.error?.code === 'ACCOUNT_PENDING') {
-    clearHttpCache();
-    onAccountPending();
-  }
-  if (json?.error?.code === 'REAUTH_REQUIRED') {
-    clearHttpCache();
-    await handleReauthRequired();
-  }
-  throw new ApiError(res.status, json);
-}
 
 function notifySuccessfulMutation(method, path) {
   if (path.startsWith('/auth/') || path.startsWith('/tools/') || path === '/assistant/chat' || path === '/import/preview' || path === '/system/client-errors' || path === '/reminders/alerts/dismiss') return;
@@ -102,7 +74,15 @@ export async function http(method, path, { body, query } = {}) {
     }
     const json = await res.json().catch(() => null);
     if (!res.ok) {
-      await handleErrorResponse(res, json, path);
+      if (res.status === 401) {
+        clearHttpCache();
+        if (!path.startsWith('/auth/')) onUnauthorized();
+      }
+      if (json?.error?.code === 'ACCOUNT_PENDING') {
+        clearHttpCache();
+        onAccountPending();
+      }
+      throw new ApiError(res.status, json);
     }
     if (cacheable && requestVersion === cacheVersion) {
       if (getCache.size >= 100) getCache.delete(getCache.keys().next().value);
@@ -136,32 +116,17 @@ export async function postFormData(path, formData) {
   if (res.status === 204) return null;
   const json = await res.json().catch(() => null);
   if (!res.ok) {
-    await handleErrorResponse(res, json, path);
+    if (res.status === 401) {
+      clearHttpCache();
+      if (!path.startsWith('/auth/')) onUnauthorized();
+    }
+    if (json?.error?.code === 'ACCOUNT_PENDING') {
+      clearHttpCache();
+      onAccountPending();
+    }
+    throw new ApiError(res.status, json);
   }
   return json;
-}
-
-export async function downloadFile(path, filename) {
-  clearHttpCache({ preserveLookups: true });
-  let res;
-  try {
-    res = await fetch(`${BASE}${path}`, { credentials: 'include' });
-  } catch {
-    throw new ApiError(0, { error: { code: 'NETWORK', message: 'Não foi possível falar com a API. Verifique sua conexão e aguarde o servidor voltar.' } });
-  }
-  if (!res.ok) {
-    const json = await res.json().catch(() => null);
-    await handleErrorResponse(res, json, path);
-  }
-  const blob = await res.blob();
-  const objectUrl = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = objectUrl;
-  link.download = filename;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
 }
 
 export const get = (p, query) => http('GET', p, { query });

@@ -11,13 +11,7 @@ export const requestLogger = pinoHttp({
   },
   customLogLevel: (_req, res, err) => (err || res.statusCode >= 500 ? 'error' : res.statusCode >= 400 ? 'warn' : 'info'),
   serializers: {
-    req: (r) => ({
-      id: r.id,
-      method: r.method,
-      url: r.url.split('?')[0]
-        .replace(/\/api\/auth\/sessions\/[A-Za-z0-9_-]{43}/, '/api/auth/sessions/:sessionId')
-        .replace(/\/api\/portal\/[A-Za-z0-9_-]+/, '/api/portal/:token'),
-    }),
+    req: (r) => ({ id: r.id, method: r.method, url: r.url }),
     res: (r) => ({ statusCode: r.statusCode }),
   },
   autoLogging: { ignore: (req) => req.url === '/api/system/health' },

@@ -375,13 +375,12 @@ export default function PeoplePage({
   };
 
   const copyPortalLink = async (person) => {
+    const portalUrl = `${window.location.origin}/portal/${person.share_token}`;
     try {
-      const { token } = await peopleApi.createShareLink(person.id);
-      const portalUrl = `${window.location.origin}/portal/${token}`;
       await navigator.clipboard.writeText(portalUrl);
       toast.success(`Link do portal de ${person.name} copiado.`);
-    } catch (error) {
-      toast.error(error);
+    } catch {
+      toast.error(new Error('Não foi possível copiar o link. Verifique a permissão da área de transferência.'));
     }
   };
   const copyPixKey = async (person) => {

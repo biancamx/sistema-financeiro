@@ -10,34 +10,9 @@ function required(name, fallback, mandatory = isProd) {
   return fallback;
 }
 
-function validateProductionSecret(name, value) {
-  if (!isProd) return;
-  const distinctBytes = new Set(Buffer.from(value, 'utf8')).size;
-  if (Buffer.byteLength(value, 'utf8') < 32 || distinctBytes < 12
-    || /substitua|change.?me|replace.?me|your.?secret|example/i.test(value)) {
-    throw new Error(`${name} deve ser um segredo aleatório com pelo menos 32 bytes em produção.`);
-  }
-}
-
-const jwtSecret = required('JWT_SECRET', '', nodeEnv !== 'test');
-validateProductionSecret('JWT_SECRET', jwtSecret);
-
 const aiKeySecret = required('AI_KEY_SECRET', '0'.repeat(64), nodeEnv !== 'test');
 if (!/^[\da-f]{64}$/i.test(aiKeySecret)) {
   throw new Error('AI_KEY_SECRET deve conter exatamente 64 caracteres hexadecimais.');
-}
-validateProductionSecret('AI_KEY_SECRET', aiKeySecret);
-if (isProd && aiKeySecret.toLowerCase() === jwtSecret.toLowerCase()) {
-  throw new Error('AI_KEY_SECRET deve ser diferente de JWT_SECRET.');
-}
-
-const jobsToken = required('JOBS_TOKEN', '', isProd);
-validateProductionSecret('JOBS_TOKEN', jobsToken);
-if (isProd && jobsToken === jwtSecret) {
-  throw new Error('JOBS_TOKEN deve ser diferente de JWT_SECRET.');
-}
-if (isProd && jobsToken.toLowerCase() === aiKeySecret.toLowerCase()) {
-  throw new Error('JOBS_TOKEN deve ser diferente de AI_KEY_SECRET.');
 }
 
 const vapidPublicKey = process.env.VAPID_PUBLIC_KEY || '';
@@ -62,7 +37,7 @@ export const env = {
   isTest: nodeEnv === 'test',
   port: Number(process.env.PORT || 4000),
   frontendUrls: (process.env.FRONTEND_URL || 'http://localhost:5173,http://127.0.0.1:5173').split(',').map((s) => s.trim()),
-  jwtSecret,
+  jwtSecret: required('JWT_SECRET', '', nodeEnv !== 'test'),
   aiKeySecret,
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || '7d',
   adminEmail: (process.env.ADMIN_EMAIL || '').trim().toLowerCase(),
@@ -82,6 +57,6 @@ export const env = {
   vapidPublicKey,
   vapidPrivateKey,
   vapidSubject: normalizeVapidSubject(process.env.VAPID_SUBJECT),
-  jobsToken,
+  jobsToken: process.env.JOBS_TOKEN || '',
   logLevel: process.env.LOG_LEVEL || 'info',
 };

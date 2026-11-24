@@ -8,20 +8,10 @@ export const securityHeaders = helmet({
   crossOriginOpenerPolicy: { policy: 'same-origin-allow-popups' },
   contentSecurityPolicy: {
     directives: {
-      defaultSrc: ["'self'"],
-      baseUri: ["'self'"],
-      objectSrc: ["'none'"],
-      frameAncestors: ["'self'"],
       scriptSrc: ["'self'", 'https://accounts.google.com/gsi/client'],
       frameSrc: ["'self'", 'https://accounts.google.com/gsi/'],
       connectSrc: ["'self'", 'https://accounts.google.com/gsi/'],
       imgSrc: ["'self'", 'data:', 'blob:', 'https://lh3.googleusercontent.com', 'https://*.googleusercontent.com'],
-      fontSrc: ["'self'"],
-      styleSrc: ["'self'"],
-      styleSrcElem: ["'self'", "'unsafe-inline'", 'https://accounts.google.com/gsi/style'],
-      styleSrcAttr: ["'unsafe-inline'"],
-      formAction: ["'self'"],
-      ...(env.isProd ? { upgradeInsecureRequests: [] } : {}),
     },
   },
 });
@@ -52,25 +42,10 @@ export function originCheck(req, _res, next) {
   const googleCredentialCallback = req.method === 'POST'
     && req.path === '/api/auth/google/callback';
   if (googleCredentialCallback) return next();
-  if (safe) return next();
-
-  if (origin && !isAllowedOrigin(origin)) {
+  if (!safe && origin && !isAllowedOrigin(origin)) {
     req.log?.warn({ origin }, 'Origem de escrita bloqueada');
     return next(forbidden('Origem não permitida'));
   }
-
-  if (!origin && (req.cookies?.caderno_token || req.cookies?.fin_token)) {
-    let refererOrigin;
-    try {
-      refererOrigin = new URL(req.headers.referer).origin;
-    } catch {
-      return next(forbidden('A origem da requisição não pôde ser validada'));
-    }
-    if (!isAllowedOrigin(refererOrigin)) {
-      return next(forbidden('Origem não permitida'));
-    }
-  }
-
   next();
 }
 

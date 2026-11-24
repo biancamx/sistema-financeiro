@@ -6,28 +6,13 @@ import { Installment } from '../../models/Installment.js';
 import { MonthStatus } from '../../models/MonthStatus.js';
 import { Person } from '../../models/Person.js';
 import { User } from '../../models/User.js';
-import { hashPortalToken } from '../../models/Person.js';
 
 const expenseSections = new Set(
   SECTIONS.filter((section) => section.kind === 'expense' && !section.computed).map((section) => section.key),
 );
 
 export async function getParticipantPortal(token) {
-  const now = new Date();
-  const person = await Person.findOne({
-    $or: [
-      {
-        shareTokenHash: hashPortalToken(token),
-        shareTokenRevokedAt: null,
-        shareTokenExpiresAt: { $gt: now },
-      },
-      {
-        shareToken: token,
-        shareTokenRevokedAt: null,
-        $or: [{ shareTokenExpiresAt: null }, { shareTokenExpiresAt: { $gt: now } }],
-      },
-    ],
-  }).lean();
+  const person = await Person.findOne({ shareToken: token }).lean();
   if (!person) return null;
 
   const [admin, installmentsWithPurchase, sheets, statuses] = await Promise.all([
@@ -126,6 +111,7 @@ export async function getParticipantPortal(token) {
   let grandPaid = 0;
   let grandPending = 0;
   let grandFuture = 0;
+  const now = new Date();
   const currentIndex = now.getFullYear() * 12 + now.getMonth() + 1;
 
   for (const installment of installments) {

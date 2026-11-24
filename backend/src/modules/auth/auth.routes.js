@@ -72,6 +72,30 @@ function hasValidGoogleCsrfToken(req) {
   return cookieBuffer.length === bodyBuffer.length && timingSafeEqual(cookieBuffer, bodyBuffer);
 }
 
+function googleLoginRedirectUrl(failed = false) {
+  const baseUrl = env.isProd ? 'https://login.invalid' : (env.frontendUrls[0] || 'http://localhost:5173');
+  const url = new URL('/login', baseUrl);
+  if (failed) url.searchParams.set('google_error', 'failed');
+  return env.isProd ? `${url.pathname}${url.search}` : url.toString();
+}
+
+function logGoogleAuthFailure(req, error, fallbackStage) {
+  const fields = {
+    stage: error.googleAuthStage || fallbackStage,
+    errorName: error.googleAuthCauseName || error.name,
+    requestId: req.id,
+  };
+  const errorCode = error.googleAuthCauseCode || (error instanceof AppError ? error.code : undefined);
+  if (errorCode) fields.errorCode = errorCode;
+  if (error.googleAuthCauseStatus) fields.upstreamStatus = error.googleAuthCauseStatus;
+
+  if (error instanceof AppError && error.status < 500) {
+    req.log?.warn(fields, 'Google sign-in rejected');
+  } else {
+    req.log?.error(fields, 'Google sign-in failed');
+  }
+}
+
 export function authRoutes() {
   const router = Router();
 
@@ -134,17 +158,19 @@ export function authRoutes() {
 
   // Login com Google
   router.post('/google', authLimiter, validate({ body: googleCredentialBody }), async (req, res, next) => {
+    let stage = 'authenticate_google_user';
     try {
       const { credential } = req.body;
       if (!credential) {
         return res.status(400).json({ error: 'Token do Google obrigatório' });
       }
 
-      if (!process.env.GOOGLE_CLIENT_ID) {
+      if (!env.googleClientId) {
         return res.status(501).json({ error: 'Login com Google não está configurado' });
       }
 
       const { token, user } = await loginWithGoogle(credential);
+      stage = 'record_google_login_audit';
       await recordAuditEvent({
         eventType: 'auth.login.succeeded',
         actorUserId: user.id,
@@ -152,44 +178,46 @@ export function authRoutes() {
         requestId: req.id,
       });
 
+      stage = 'set_google_session_cookie';
       setSessionCookie(res, token);
 
       res.json({ data: { user } });
     } catch (err) {
+      logGoogleAuthFailure(req, err, stage);
       if (err instanceof AppError) return next(err);
-      req.log?.error({ errorName: err.name }, 'Google authentication failed');
-      res.status(401).json({ error: 'Falha ao autenticar com o Google' });
+      return next(new AppError(401, 'GOOGLE_AUTH_FAILED', 'Não foi possível concluir o login com Google.'));
     }
   });
 
-  router.post('/google/callback', authLimiter, validate({ body: googleCallbackBody }), async (req, res, next) => {
+  router.post('/google/callback', authLimiter, validate({ body: googleCallbackBody }), async (req, res) => {
     if (!hasValidGoogleCsrfToken(req)) {
-      return res.status(403).json({ error: 'Token CSRF do Google inválido' });
+      req.log?.warn({ stage: 'validate_google_csrf', requestId: req.id }, 'Google sign-in rejected');
+      return res.redirect(303, googleLoginRedirectUrl(true));
     }
     if (!req.body?.credential) {
       return res.status(400).json({ error: 'Token do Google obrigatório' });
     }
-    if (!process.env.GOOGLE_CLIENT_ID) {
+    if (!env.googleClientId) {
       return res.status(501).json({ error: 'Login com Google não está configurado' });
     }
 
+    let stage = 'authenticate_google_user';
     try {
       const { token, user } = await loginWithGoogle(req.body.credential);
+      stage = 'record_google_login_audit';
       await recordAuditEvent({
         eventType: 'auth.login.succeeded',
         actorUserId: user.id,
         targetUserId: user.id,
         requestId: req.id,
       });
+      stage = 'set_google_session_cookie';
       setSessionCookie(res, token);
-      const loginRedirect = env.isProd
-        ? '/login'
-        : (env.frontendUrls[0] ? new URL('/login', env.frontendUrls[0]).toString() : '/login');
-      return res.redirect(303, loginRedirect);
+      stage = 'redirect_after_google_login';
+      return res.redirect(303, googleLoginRedirectUrl());
     } catch (err) {
-      if (err instanceof AppError) return next(err);
-      req.log?.error({ errorName: err.name, requestId: req.id }, 'Erro no callback de login Google');
-      return res.status(401).json({ error: 'Falha ao autenticar com o Google' });
+      logGoogleAuthFailure(req, err, stage);
+      return res.redirect(303, googleLoginRedirectUrl(true));
     }
   });
 

@@ -29,6 +29,20 @@ export default function LoginPage() {
     setReauthRequired(window.sessionStorage.getItem('auth:reauthRequired') === '1');
   }, [location.state]);
 
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    if (params.get('google_error') !== 'failed') return;
+
+    setErr(new Error('Não foi possível concluir o login com Google. Tente novamente ou entre com e-mail e senha.'));
+    params.delete('google_error');
+    const search = params.toString();
+    nav({
+      pathname: location.pathname,
+      search: search ? `?${search}` : '',
+      hash: location.hash,
+    }, { replace: true, state: location.state });
+  }, [location.hash, location.pathname, location.search, location.state, nav]);
+
   const run = async (fn, registration = false) => {
     setBusy(true);
     setErr(null);

@@ -10,6 +10,7 @@ process.env.ADMIN_EMAIL = 'admin@example.com';
 process.env.ALLOWED_DOMAINS = '';
 process.env.ENABLE_LOCAL_LOGIN = 'false';
 process.env.AUTH_RATE_LIMIT_MAX = '1000';
+process.env.GOOGLE_CLIENT_ID = 'test-client-id.apps.googleusercontent.com';
 
 const [{ createApp }, { User }, { AuthSession }, { AuditEvent }, { SecurityAlert }, { ensureGoogleEmailVerified, ensureGoogleAccountLink }] = await Promise.all([
   import('../src/app.js'),
@@ -218,7 +219,7 @@ test('Google login requires an explicitly verified email claim', () => {
   assert.doesNotThrow(() => ensureGoogleAccountLink('same-google-id', 'same-google-id'));
 });
 
-test('Google redirect callback accepts client ID metadata and still enforces CSRF', async () => {
+test('Google redirect callback returns users to login when the CSRF token is invalid', async () => {
   const response = await fetch(`${baseUrl}/auth/google/callback`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -227,9 +228,34 @@ test('Google redirect callback accepts client ID metadata and still enforces CSR
       clientId: 'test-client-id',
       client_id: 'test-client-id',
     }),
+    redirect: 'manual',
   });
-  assert.equal(response.status, 403);
-  assert.equal((await response.json()).error, 'Token CSRF do Google inválido');
+  assert.equal(response.status, 303);
+  const redirect = new URL(response.headers.get('location'), baseUrl);
+  assert.equal(redirect.pathname, '/login');
+  assert.equal(redirect.searchParams.get('google_error'), 'failed');
+});
+
+test('Google callback accepts its metadata and redirects generic token failures safely', async () => {
+  const response = await fetch(`${baseUrl}/auth/google/callback`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      Cookie: 'g_csrf_token=test-csrf-token',
+    },
+    body: new URLSearchParams({
+      credential: 'not.a.real-token',
+      g_csrf_token: 'test-csrf-token',
+      clientId: 'test-client-id',
+      client_id: 'test-client-id',
+    }),
+    redirect: 'manual',
+  });
+  assert.equal(response.status, 303);
+  const redirect = new URL(response.headers.get('location'), baseUrl);
+  assert.equal(redirect.pathname, '/login');
+  assert.equal(redirect.searchParams.get('google_error'), 'failed');
+  assert.equal(redirect.searchParams.has('credential'), false);
 });
 
 test('logout clears current and legacy session cookies', async () => {

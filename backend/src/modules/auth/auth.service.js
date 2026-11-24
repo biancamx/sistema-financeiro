@@ -9,7 +9,7 @@ import { User } from '../../models/User.js';
 import { recordAuditEvent } from '../../lib/auditEvent.js';
 import { raiseSecurityAlerts } from '../../lib/securityAlerts.js';
 
-const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+const client = new OAuth2Client(env.googleClientId);
 const adminEmail = env.adminEmail;
 const sessionJwtOptions = {
   algorithm: 'HS256',
@@ -74,57 +74,87 @@ function publicUser(user) {
   };
 }
 
+async function withGoogleAuthStage(stage, operation) {
+  try {
+    return await operation();
+  } catch (error) {
+    if (error instanceof AppError) {
+      error.googleAuthStage = stage;
+      throw error;
+    }
+
+    const stagedError = new Error('Google authentication step failed');
+    stagedError.name = 'GoogleAuthError';
+    stagedError.googleAuthStage = stage;
+    stagedError.googleAuthCauseName = typeof error?.name === 'string'
+      && /^[A-Za-z][A-Za-z0-9_]{0,79}$/.test(error.name)
+      ? error.name
+      : 'UnknownError';
+    if (typeof error?.code === 'string' && /^[A-Z0-9_-]{1,80}$/.test(error.code)) {
+      stagedError.googleAuthCauseCode = error.code;
+    }
+    const status = Number(error?.response?.status || error?.status);
+    if (Number.isInteger(status) && status >= 400 && status <= 599) {
+      stagedError.googleAuthCauseStatus = status;
+    }
+    throw stagedError;
+  }
+}
+
 export async function loginWithGoogle(credential) {
-  if (!process.env.GOOGLE_CLIENT_ID) {
+  if (!env.googleClientId) {
     throw new Error('GOOGLE_CLIENT_ID não configurado no backend');
   }
 
-  // 1. Valida o token recebido diretamente com os servidores do Google
-  const ticket = await client.verifyIdToken({
+  const ticket = await withGoogleAuthStage('verify_google_id_token', () => client.verifyIdToken({
     idToken: credential,
-    audience: process.env.GOOGLE_CLIENT_ID,
-  });
+    audience: env.googleClientId,
+  }));
 
   const payload = ticket.getPayload();
-  if (!payload || !payload.email) {
-    throw new Error('Token do Google inválido ou sem e-mail');
-  }
-  ensureGoogleEmailVerified(payload);
+  await withGoogleAuthStage('validate_google_claims', async () => {
+    if (!payload?.email || !payload?.sub) {
+      throw unauthorized('O Google não retornou uma identidade válida.');
+    }
+    ensureGoogleEmailVerified(payload);
+  });
 
   const { sub: googleId, email, name, picture } = payload;
   const cleanEmail = email.toLowerCase().trim();
-  ensureEmailAllowed(cleanEmail);
+  await withGoogleAuthStage('authorize_google_account', async () => {
+    ensureEmailAllowed(cleanEmail);
+  });
 
-  // 2. Busca ou Cria o usuário no MongoDB Atlas
-  let user = await User.findOne({ email: cleanEmail });
+  let user = await withGoogleAuthStage('lookup_google_user', () => User.findOne({ email: cleanEmail }));
 
   if (!user) {
-    // Cria novo usuário com a foto oficial do Google
-    user = await User.create({
+    user = await withGoogleAuthStage('create_google_user', () => User.create({
       name: name || cleanEmail.split('@')[0],
       email: cleanEmail,
       googleId,
       avatar: picture || null,
       ...newAccountAccessFields(cleanEmail),
-    });
+    }));
   } else {
-    ensureGoogleAccountLink(user.googleId, googleId);
-    // Se o usuário já existe, atualiza os dados do Google e a foto se necessário
-    let updated = false;
-    if (!user.googleId) {
-      user.googleId = googleId;
-      updated = true;
-    }
-    if (picture && user.avatar !== picture) {
-      user.avatar = picture;
-      updated = true;
-    }
-    if (updated) await user.save();
+    await withGoogleAuthStage('verify_google_account_link', async () => {
+      ensureGoogleAccountLink(user.googleId, googleId);
+    });
+    await withGoogleAuthStage('update_google_user', async () => {
+      let updated = false;
+      if (!user.googleId) {
+        user.googleId = googleId;
+        updated = true;
+      }
+      if (picture && user.avatar !== picture) {
+        user.avatar = picture;
+        updated = true;
+      }
+      if (updated) await user.save();
+    });
   }
-  await promoteConfiguredAdmin(user);
+  await withGoogleAuthStage('apply_google_admin_policy', () => promoteConfiguredAdmin(user));
 
-  // 3. Emite o JWT de sessão assinado
-  const token = await generateToken(user);
+  const token = await withGoogleAuthStage('create_google_session', () => generateToken(user));
 
   return {
     token,

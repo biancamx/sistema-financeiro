@@ -131,12 +131,14 @@ O arquivo `backend/.env.example` contém a lista atualizada e os valores ilustra
 
 ## Login e acesso
 
-O login Google é habilitado por `GOOGLE_CLIENT_ID`. No cliente OAuth do console do Google, configure a origem JavaScript do frontend (somente esquema e domínio, sem caminho) e o URI de redirecionamento do backend:
+O login Google é habilitado por `GOOGLE_CLIENT_ID`. O frontend lê esse ID do endpoint público `/api/auth/config`; assim, não há um segundo ID para manter no bundle. O fluxo usa o ID token do Google Identity Services e o valida no backend, portanto não faz troca de authorization code e não exige `GOOGLE_CLIENT_SECRET`. No cliente OAuth do tipo **Aplicativo da Web** no console do Google, configure a origem JavaScript do frontend e o URI de redirecionamento do backend:
 
 ```text
-Origem JavaScript: https://SEU_DOMINIO
-URI de redirecionamento: https://SEU_DOMINIO/api/auth/google/callback
+Origem JavaScript autorizada: https://SEU_DOMINIO
+URI de redirecionamento autorizado: https://SEU_DOMINIO/api/auth/google/callback
 ```
+
+As origens e os URIs precisam corresponder exatamente aos domínios usados em produção. O callback valida o cookie `g_csrf_token`, verifica o token assinado e o `aud` contra `GOOGLE_CLIENT_ID`, valida e-mail verificado, localiza/cria a conta e emite a sessão. Falhas são registradas no backend por etapa (`verify_google_id_token`, `lookup_google_user`, `create_google_session` etc.) sem registrar tokens, cookies, e-mails ou mensagens do provedor. O callback retorna à tela de login com uma mensagem genérica quando a autenticação falha.
 
 O valor de `ADMIN_EMAIL` identifica a conta administradora e só é promovido após autenticação Google com e-mail verificado. O cadastro por senha não pode reivindicar essa identidade. Contas novas podem depender de aprovação, conforme o fluxo de acessos do sistema.
 

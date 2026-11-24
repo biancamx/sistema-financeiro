@@ -110,6 +110,7 @@ test('respostas da API aplicam CSP restrita e cache no-store', async () => {
   assert.match(csp, /default-src 'self'/);
   assert.match(csp, /object-src 'none'/);
   assert.match(csp, /style-src 'self'/);
+  assert.match(csp, /style-src-elem 'self' 'unsafe-inline' https:\/\/accounts\.google\.com\/gsi\/style/);
   assert.match(csp, /style-src-attr 'unsafe-inline'/);
 
   const { person, client } = await setup('portal-cache@test.invalid');

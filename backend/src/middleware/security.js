@@ -18,6 +18,7 @@ export const securityHeaders = helmet({
       imgSrc: ["'self'", 'data:', 'blob:', 'https://lh3.googleusercontent.com', 'https://*.googleusercontent.com'],
       fontSrc: ["'self'"],
       styleSrc: ["'self'"],
+      styleSrcElem: ["'self'", "'unsafe-inline'", 'https://accounts.google.com/gsi/style'],
       styleSrcAttr: ["'unsafe-inline'"],
       formAction: ["'self'"],
       ...(env.isProd ? { upgradeInsecureRequests: [] } : {}),

@@ -131,10 +131,11 @@ O arquivo `backend/.env.example` contém a lista atualizada e os valores ilustra
 
 ## Login e acesso
 
-O login Google é habilitado por `GOOGLE_CLIENT_ID`. No console do Google, configure a origem do frontend e o URI de callback do backend:
+O login Google é habilitado por `GOOGLE_CLIENT_ID`. No cliente OAuth do console do Google, configure a origem JavaScript do frontend (somente esquema e domínio, sem caminho) e o URI de redirecionamento do backend:
 
 ```text
-https://SEU_DOMINIO/api/auth/google/callback
+Origem JavaScript: https://SEU_DOMINIO
+URI de redirecionamento: https://SEU_DOMINIO/api/auth/google/callback
 ```
 
 O valor de `ADMIN_EMAIL` identifica a conta administradora e só é promovido após autenticação Google com e-mail verificado. O cadastro por senha não pode reivindicar essa identidade. Contas novas podem depender de aprovação, conforme o fluxo de acessos do sistema.
@@ -199,7 +200,7 @@ Para validar a restauração, configure `RESTORE_MONGODB_URI` para uma instânci
 - Faça e valide um backup do MongoDB antes do deploy desta etapa: ela adiciona as coleções `AuthSession`, `AuditEvent` e `SecurityAlert` e migra índices/tokens do Portal. Após o deploy, sessões JWT antigas serão invalidadas e os usuários precisarão entrar novamente.
 - Antes da publicação, gere `BACKUP_ENCRYPTION_KEY`, configure-a no ambiente e faça backup/restauração em uma instância isolada. Rode a migração de segurança somente após confirmar o backup.
 - A coleção `AuditEvent` registra autenticações, alterações administrativas, exportações e criação/revogação do Portal sem armazenar tokens ou dados financeiros. O acesso de leitura ao histórico é restrito a administradores; a aplicação só permite inserções.
-- A CSP permite o script do Google Identity Services e atributos `style` exigidos pelos componentes React atuais; folhas e scripts inline permanecem bloqueados. SRI não é aplicável ao script dinâmico do Google sem suporte do provedor.
+- A CSP permite o script e a folha de estilos do Google Identity Services, além de estilos inline necessários ao botão Google. Scripts inline permanecem bloqueados. SRI não é aplicável ao script dinâmico do Google sem suporte do provedor.
 - Use HTTPS em produção, especialmente para autenticação, PWA e Web Push.
 - O token dos jobs deve ser enviado apenas pelo servidor/agendador, nunca pelo frontend público.
 - Restrinja origens e domínios permitidos às necessidades da implantação.

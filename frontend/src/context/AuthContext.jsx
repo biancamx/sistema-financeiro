@@ -1,6 +1,10 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { authApi } from '../services/api.js';
-import { setAccountPendingHandler, setUnauthorizedHandler } from '../services/http.js';
+import {
+  setAccountPendingHandler,
+  setReauthRequiredHandler,
+  setUnauthorizedHandler,
+} from '../services/http.js';
 
 const AuthContext = createContext(null);
 export const useAuth = () => useContext(AuthContext);
@@ -12,6 +16,13 @@ export function AuthProvider({ children }) {
 
   useEffect(() => {
     setUnauthorizedHandler(() => setUser(null));
+    setReauthRequiredHandler(async () => {
+      const returnTo = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+      if (returnTo !== '/login') window.sessionStorage.setItem('auth:returnTo', returnTo);
+      window.sessionStorage.setItem('auth:reauthRequired', '1');
+      await authApi.logout().catch(() => {});
+      setUser(null);
+    });
     setAccountPendingHandler(() => {
       if (!accountRefresh.current) {
         accountRefresh.current = authApi.me()

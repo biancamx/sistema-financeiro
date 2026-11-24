@@ -50,7 +50,7 @@ async function createAccount(email) {
   const user = await User.create({ name: email, email, status: 'active' });
   const person = await Person.create({ userId: user._id, name: 'Person' });
   const card = await Card.create({ userId: user._id, name: 'Card', limit: 1000 });
-  return { user, person, card, cookie: `caderno_token=${generateToken(user)}` };
+  return { user, person, card, cookie: `caderno_token=${await generateToken(user)}` };
 }
 
 function installmentsFor(user, purchase, startMonth = 10) {
@@ -128,7 +128,11 @@ test('bulk payment API requires a session and restores available card limit', as
   });
   assert.equal(anonymous.status, 401);
 
-  const headers = { 'Content-Type': 'application/json', Cookie: owner.cookie };
+  const headers = {
+    'Content-Type': 'application/json',
+    Cookie: owner.cookie,
+    Origin: 'http://localhost:5173',
+  };
   const before = await fetch(`${baseUrl}/cards?month=10&year=2099`, { headers }).then((response) => response.json());
   assert.equal(before.data.find((card) => card.id === String(owner.card._id)).used, 200);
 

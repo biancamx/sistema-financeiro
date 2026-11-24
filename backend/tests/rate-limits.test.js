@@ -2,6 +2,7 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import jwt from 'jsonwebtoken';
 import mongoose from 'mongoose';
+import { randomBytes } from 'node:crypto';
 
 process.env.NODE_ENV = 'test';
 process.env.JWT_SECRET = 'test-secret-for-rate-limits';
@@ -13,18 +14,33 @@ const [{ createApp }, { User }, { env }] = await Promise.all([
   import('../src/models/User.js'),
   import('../src/config/env.js'),
 ]);
+const { AuthSession } = await import('../src/models/AuthSession.js');
 
 const originalFindById = User.findById;
+const originalSessionFindOne = AuthSession.findOne;
 const users = new Map();
+const sessions = new Map();
 let server;
 let baseUrl;
 
 User.findById = (id) => ({
   select: async () => users.get(id.toString()) || null,
 });
+AuthSession.findOne = (filter) => {
+  const query = {
+    select: () => query,
+    lean: async () => {
+      const session = sessions.get(filter.tokenId);
+      return session && String(session.userId) === String(filter.userId) ? session : null;
+    },
+  };
+  return query;
+};
 
 function createUserToken() {
   const id = new mongoose.Types.ObjectId();
+  const tokenId = randomBytes(32).toString('base64url');
+  sessions.set(tokenId, { userId: id });
   users.set(id.toString(), {
     _id: id,
     email: `${id}@example.com`,
@@ -33,7 +49,13 @@ function createUserToken() {
     status: 'active',
     role: 'user',
   });
-  return jwt.sign({ sub: id.toString() }, env.jwtSecret);
+  return jwt.sign({ sub: id.toString() }, env.jwtSecret, {
+    algorithm: 'HS256',
+    issuer: 'caderno-contas',
+    audience: 'caderno-contas-web',
+    jwtid: tokenId,
+    expiresIn: '1h',
+  });
 }
 
 function forwardedIp(index) {
@@ -49,6 +71,7 @@ before(async () => {
 after(async () => {
   await new Promise((resolve) => server.close(resolve));
   User.findById = originalFindById;
+  AuthSession.findOne = originalSessionFindOne;
 });
 
 test('applies the global API rate limit', async () => {

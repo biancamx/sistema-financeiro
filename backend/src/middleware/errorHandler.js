@@ -1,9 +1,11 @@
 import { ZodError } from 'zod';
 import { AppError } from '../lib/errors.js';
 import { logger } from '../lib/logger.js';
+import { raiseUnavailableRecordAlerts, securitySourceKey } from '../lib/securityAlerts.js';
+import { recordAuditEvent } from '../lib/auditEvent.js';
 
 export function notFoundHandler(req, _res, next) {
-  next(new AppError(404, 'NOT_FOUND', `Rota não encontrada: ${req.method} ${req.originalUrl}`));
+  next(new AppError(404, 'NOT_FOUND', 'Rota não encontrada'));
 }
 
 // Camada "Error Tracking": todo erro passa por aqui, vira log estruturado com requestId.
@@ -30,8 +32,36 @@ export function errorHandler(err, req, res, _next) {
   }
 
   const log = req.log || logger;
-  if (status >= 500) log.error({ err, requestId: req.id }, 'erro não tratado');
-  else log.warn({ code: body.code, status, requestId: req.id }, body.message);
+  if (status === 404 && req.user && req.route) {
+    const targetId = Object.values(req.params || {}).find((value) => /^[\da-f]{24}$/i.test(String(value)));
+    if (targetId) {
+      void recordUnavailableRecordAttempt(req, targetId).catch((auditError) => {
+        log.error({ errorName: auditError.name, requestId: req.id }, 'Falha ao registrar tentativa de acesso negada');
+      });
+    }
+  }
+  if (status >= 500) {
+    log.error({ errorName: err.name, errorCode: err.code, requestId: req.id }, 'erro não tratado');
+  } else {
+    log.warn({ code: body.code, status, requestId: req.id }, 'requisição rejeitada');
+  }
 
   res.status(status).json({ error: { ...body, requestId: req.id } });
+}
+
+async function recordUnavailableRecordAttempt(req, targetId) {
+  const sourceKey = securitySourceKey(req.ip);
+  await recordAuditEvent({
+    eventType: 'access.denied',
+    actorUserId: req.user._id,
+    targetUserId: req.user._id,
+    targetId,
+    sourceKey,
+    requestId: req.id,
+  });
+  await raiseUnavailableRecordAlerts({
+    actorUserId: req.user._id,
+    sourceKey,
+    requestId: req.id,
+  });
 }

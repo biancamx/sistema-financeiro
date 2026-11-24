@@ -113,8 +113,9 @@ O arquivo `backend/.env.example` contém a lista atualizada e os valores ilustra
 | `PORT` | Porta HTTP do backend |
 | `MONGODB_URI` | URI de conexão com o MongoDB |
 | `FRONTEND_URL` | Origem ou origens permitidas para o frontend |
-| `JWT_SECRET` | Segredo usado para assinar tokens de sessão |
+| `JWT_SECRET` | Segredo usado para assinar tokens; em produção deve ter ao menos 32 bytes aleatórios |
 | `AI_KEY_SECRET` | Segredo persistente usado para proteger chaves de IA armazenadas |
+| `BACKUP_ENCRYPTION_KEY` | Chave exclusiva de 32 bytes para cifrar/restaurar backups AES-256-GCM |
 | `JWT_EXPIRES_IN` | Duração da sessão |
 | `GOOGLE_CLIENT_ID` | Habilita a autenticação Google quando configurado |
 | `ADMIN_EMAIL` | E-mail autorizado como administrador |
@@ -124,7 +125,7 @@ O arquivo `backend/.env.example` contém a lista atualizada e os valores ilustra
 | `RATE_LIMIT_MAX`, `AUTH_RATE_LIMIT_MAX` | Limites de requisições gerais e de autenticação |
 | `LOG_LEVEL` | Nível de detalhamento dos logs |
 | `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | Configuração do Web Push |
-| `JOBS_TOKEN` | Token secreto para proteger os endpoints `/jobs` |
+| `JOBS_TOKEN` | Segredo exclusivo para proteger `/jobs`; obrigatório em produção e diferente de `JWT_SECRET` |
 
 `VITE_API_URL` é uma variável do frontend, não do backend: configure-a no ambiente usado para compilar o frontend quando a API estiver em outra origem. Em produção, defina explicitamente `ENABLE_LOCAL_LOGIN=false` se o login local não for desejado. Configure `FRONTEND_URL` com as origens reais e use HTTPS.
 
@@ -136,13 +137,19 @@ O login Google é habilitado por `GOOGLE_CLIENT_ID`. No console do Google, confi
 https://SEU_DOMINIO/api/auth/google/callback
 ```
 
-O valor de `ADMIN_EMAIL` identifica a conta administradora. Contas novas podem depender de aprovação, conforme o fluxo de acessos do sistema.
+O valor de `ADMIN_EMAIL` identifica a conta administradora e só é promovido após autenticação Google com e-mail verificado. O cadastro por senha não pode reivindicar essa identidade. Contas novas podem depender de aprovação, conforme o fluxo de acessos do sistema.
+
+Cada login cria uma sessão individual no backend. `POST /api/auth/logout` revoga a sessão atual; `GET /api/auth/sessions` lista sessões ativas; `DELETE /api/auth/sessions/:sessionId` revoga uma sessão; `POST /api/auth/logout-all` encerra todas as sessões da conta. JWTs antigos, sem emissor, público e identificador de sessão, deixam de ser aceitos após esta atualização; usuários precisarão autenticar novamente.
+
+Somente alterações relacionadas à segurança — mudanças administrativas de conta, gestão de sessões, chaves de IA e links compartilhados — exigem login emitido nos últimos cinco minutos. Exportações, importações e operações de dados não encerram a sessão nem pedem novo login. Os alertas de segurança aparecem em **Mais → Configurações → Alertas de segurança** e, quando há assinatura Web Push, também no dispositivo. O push contém apenas uma mensagem genérica. São monitoradas cinco falhas de login em 15 minutos, reutilização de sessão revogada, três tentativas em 15 minutos de acessar registros indisponíveis e alterações administrativas. `GET /api/auth/security-alerts` e `PATCH /api/auth/security-alerts/read` são restritos à conta autenticada.
+
+Links do Portal do participante usam tokens aleatórios de 256 bits, armazenados como hash e com expiração de 90 dias. O link em texto claro é exibido somente quando criado/renovado; se for perdido, gere outro, o que revoga o anterior. Para migrar os links existentes, faça primeiro um backup criptografado e verificado e, antes de publicar a nova versão, execute `npm --prefix backend run migrate:security` com `SECURITY_MIGRATION_BACKUP_VERIFIED=true`. A migração converte os links legados e ajusta índices sem apagar registros financeiros.
 
 ## PWA e notificações Web Push
 
 O frontend inclui um manifest PWA com modo `standalone` e um service worker que recebe e exibe notificações. Para usar no iPhone/iPad, publique o sistema em HTTPS, abra-o no Safari e adicione-o à Tela de Início. O suporte a Web Push no iOS/iPadOS requer a versão 16.4 ou posterior e o uso do app instalado.
 
-As notificações push atuais avisam o usuário autenticado sobre faturas de cartão que vencem no dia ou estão atrasadas. Elas não são enviadas às pessoas cadastradas nem acionam a cobrança por WhatsApp.
+As notificações push avisam o usuário autenticado sobre faturas de cartão que vencem no dia ou estão atrasadas e, se habilitadas, sobre eventos de segurança. Alertas de segurança usam conteúdo genérico e não incluem informações financeiras. As notificações não são enviadas às pessoas cadastradas nem acionam a cobrança por WhatsApp.
 
 1. Gere as chaves VAPID:
 
@@ -170,7 +177,7 @@ npm test
 npm run build
 ```
 
-O workflow do GitHub Actions também executa os testes do backend e o build do frontend. Para uma instalação em um único serviço Node:
+O workflow do GitHub Actions também executa os testes do backend, auditoria das dependências e build do frontend. O Dependabot verifica atualizações semanais de dependências npm e GitHub Actions. Para uma instalação em um único serviço Node:
 
 ```bash
 npm run setup
@@ -180,12 +187,20 @@ npm start
 
 O backend serve o frontend compilado quando `frontend/dist` existe. Se frontend e API forem publicados separadamente, configure `VITE_API_URL` para o endereço da API antes de executar o build e ajuste `FRONTEND_URL` no backend.
 
-O endpoint de saúde da API é `/api/system/health`. Para backup do MongoDB, o backend disponibiliza `npm --prefix backend run backup`; verifique se as ferramentas do MongoDB estão instaladas e se o destino do backup está configurado antes de executar.
+O endpoint de saúde da API é `/api/system/health`. O backup do MongoDB é cifrado com AES-256-GCM. Configure uma `BACKUP_ENCRYPTION_KEY` aleatória de 32 bytes (64 caracteres hexadecimais) e guarde-a separadamente dos arquivos de backup; perda dessa chave impede a restauração. Execute `npm --prefix backend run backup` e mantenha os arquivos `.archive.gz.enc` em armazenamento seguro.
+
+Para validar a restauração, configure `RESTORE_MONGODB_URI` para uma instância MongoDB isolada, defina `RESTORE_TARGET_ACK=isolated-nonproduction` e execute `npm --prefix backend run restore:backup -- <caminho-do-arquivo>`. O processo restaura em `security_restore_test` sem `--drop`; não use um destino que contenha dados necessários.
 
 ## Segurança e operação
 
 - Não versione `.env`, chaves VAPID, tokens, credenciais OAuth ou backups.
 - Mantenha `JWT_SECRET`, `AI_KEY_SECRET` e `JOBS_TOKEN` fortes e fora do código. Preserve uma cópia segura de `AI_KEY_SECRET`; trocá-la pode impedir o acesso às chaves de IA já criptografadas.
+- Em produção, o backend recusa `JWT_SECRET`, `AI_KEY_SECRET` ou `JOBS_TOKEN` ausentes/fracos e exige segredos diferentes. Gere-os com um gerador criptograficamente seguro.
+- Faça e valide um backup do MongoDB antes do deploy desta etapa: ela adiciona as coleções `AuthSession`, `AuditEvent` e `SecurityAlert` e migra índices/tokens do Portal. Após o deploy, sessões JWT antigas serão invalidadas e os usuários precisarão entrar novamente.
+- Antes da publicação, gere `BACKUP_ENCRYPTION_KEY`, configure-a no ambiente e faça backup/restauração em uma instância isolada. Rode a migração de segurança somente após confirmar o backup.
+- A coleção `AuditEvent` registra autenticações, alterações administrativas, exportações e criação/revogação do Portal sem armazenar tokens ou dados financeiros. O acesso de leitura ao histórico é restrito a administradores; a aplicação só permite inserções.
+- A CSP permite o script do Google Identity Services e atributos `style` exigidos pelos componentes React atuais; folhas e scripts inline permanecem bloqueados. SRI não é aplicável ao script dinâmico do Google sem suporte do provedor.
 - Use HTTPS em produção, especialmente para autenticação, PWA e Web Push.
 - O token dos jobs deve ser enviado apenas pelo servidor/agendador, nunca pelo frontend público.
 - Restrinja origens e domínios permitidos às necessidades da implantação.
+- MFA, permissões mínimas, regras de rede e backups criptografados/restauráveis precisam ser configurados e verificados nos consoles do GitHub, Render e MongoDB Atlas; não são alteráveis por este repositório.

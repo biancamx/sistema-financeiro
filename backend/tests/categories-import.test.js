@@ -60,7 +60,7 @@ test('prévia de categorias em PDF separa novas das já cadastradas e importa se
   formData.append('file', new Blob(['%PDF-1.4 test document'], { type: 'application/pdf' }), 'categorias.pdf');
   const previewResponse = await fetch(`${baseUrl}/categories/import/preview`, {
     method: 'POST',
-    headers: { Cookie: account.cookie },
+    headers: { Cookie: account.cookie, Origin: 'http://localhost:5173' },
     body: formData,
   });
   const preview = await previewResponse.json();
@@ -85,7 +85,7 @@ test('prévia de categorias rejeita arquivos que não sejam PDF', async () => {
   formData.append('file', new Blob(['not a PDF'], { type: 'application/pdf' }), 'categorias.pdf');
   const response = await fetch(`${baseUrl}/categories/import/preview`, {
     method: 'POST',
-    headers: { Cookie: account.cookie },
+    headers: { Cookie: account.cookie, Origin: 'http://localhost:5173' },
     body: formData,
   });
   const result = await response.json();

@@ -4,15 +4,21 @@ import jwt from 'jsonwebtoken';
 import { z } from 'zod';
 import { AppError, asyncHandler } from '../../lib/errors.js';
 import { env } from '../../config/env.js';
-import { requireAuth } from '../../middleware/auth.js';
+import { getSessionToken, requireAuth, requireRecentAuth } from '../../middleware/auth.js';
 import { authLimiter } from '../../middleware/rateLimit.js';
 import { validate } from '../../middleware/validate.js';
+import { AuthSession } from '../../models/AuthSession.js';
+import { recordAuditEvent } from '../../lib/auditEvent.js';
+import { User } from '../../models/User.js';
+import { SecurityAlert } from '../../models/SecurityAlert.js';
+import { raiseLoginFailureAlerts, securitySourceKey } from '../../lib/securityAlerts.js';
 import {
   generateToken,
   getOrCreateDemoUser,
   loginWithEmail,
   loginWithGoogle,
   registerWithEmail,
+  verifySessionToken,
 } from './auth.service.js';
 
 const registerBody = z.object({
@@ -23,6 +29,16 @@ const registerBody = z.object({
 const loginBody = z.object({
   email: z.string().trim().email('Informe um e-mail válido').max(254),
   password: z.string().min(1, 'Informe sua senha').max(128),
+});
+const googleCredentialBody = z.object({
+  credential: z.string().min(1).max(8192),
+});
+const googleCallbackBody = googleCredentialBody.extend({
+  g_csrf_token: z.string().max(1024).optional(),
+  select_by: z.string().max(40).optional(),
+});
+const sessionParams = z.object({
+  sessionId: z.string().regex(/^[A-Za-z0-9_-]{43}$/, 'Sessão inválida'),
 });
 
 const sessionCookieOptions = {
@@ -74,18 +90,48 @@ export function authRoutes() {
 
   router.post('/register', authLimiter, validate({ body: registerBody }), asyncHandler(async (req, res) => {
     const { user, token } = await registerWithEmail(req.body.name, req.body.email, req.body.password);
+    await recordAuditEvent({
+      eventType: 'auth.account.registered',
+      actorUserId: user.id,
+      targetUserId: user.id,
+      requestId: req.id,
+    });
     setSessionCookie(res, token);
     res.status(201).json({ data: { user } });
   }));
 
   router.post('/login', authLimiter, validate({ body: loginBody }), asyncHandler(async (req, res) => {
-    const { user, token } = await loginWithEmail(req.body.email, req.body.password);
+    let result;
+    try {
+      result = await loginWithEmail(req.body.email, req.body.password);
+    } catch (error) {
+      if (error instanceof AppError && error.status === 401) {
+        const sourceKey = securitySourceKey(req.ip);
+        const email = req.body.email.toLowerCase().trim();
+        const target = await User.findOne({ email }, '_id');
+        await recordAuditEvent({
+          eventType: 'auth.login.failed',
+          targetUserId: target?._id || null,
+          sourceKey,
+          requestId: req.id,
+        });
+        await raiseLoginFailureAlerts({ sourceKey, targetUserId: target?._id, requestId: req.id });
+      }
+      throw error;
+    }
+    const { user, token } = result;
+    await recordAuditEvent({
+      eventType: 'auth.login.succeeded',
+      actorUserId: user.id,
+      targetUserId: user.id,
+      requestId: req.id,
+    });
     setSessionCookie(res, token);
     res.json({ data: { user } });
   }));
 
   // Login com Google
-  router.post('/google', authLimiter, async (req, res, next) => {
+  router.post('/google', authLimiter, validate({ body: googleCredentialBody }), async (req, res, next) => {
     try {
       const { credential } = req.body;
       if (!credential) {
@@ -97,18 +143,24 @@ export function authRoutes() {
       }
 
       const { token, user } = await loginWithGoogle(credential);
+      await recordAuditEvent({
+        eventType: 'auth.login.succeeded',
+        actorUserId: user.id,
+        targetUserId: user.id,
+        requestId: req.id,
+      });
 
       setSessionCookie(res, token);
 
       res.json({ data: { user } });
     } catch (err) {
       if (err instanceof AppError) return next(err);
-      console.error('Erro no login Google:', err.message);
+      req.log?.error({ errorName: err.name }, 'Google authentication failed');
       res.status(401).json({ error: 'Falha ao autenticar com o Google' });
     }
   });
 
-  router.post('/google/callback', authLimiter, async (req, res, next) => {
+  router.post('/google/callback', authLimiter, validate({ body: googleCallbackBody }), async (req, res, next) => {
     if (!hasValidGoogleCsrfToken(req)) {
       return res.status(403).json({ error: 'Token CSRF do Google inválido' });
     }
@@ -120,28 +172,146 @@ export function authRoutes() {
     }
 
     try {
-      const { token } = await loginWithGoogle(req.body.credential);
+      const { token, user } = await loginWithGoogle(req.body.credential);
+      await recordAuditEvent({
+        eventType: 'auth.login.succeeded',
+        actorUserId: user.id,
+        targetUserId: user.id,
+        requestId: req.id,
+      });
       setSessionCookie(res, token);
-      return res.redirect(303, env.isProd ? '/' : (env.frontendUrls[0] || '/'));
+      const loginRedirect = env.isProd
+        ? '/login'
+        : (env.frontendUrls[0] ? new URL('/login', env.frontendUrls[0]).toString() : '/login');
+      return res.redirect(303, loginRedirect);
     } catch (err) {
       if (err instanceof AppError) return next(err);
-      req.log?.error({ err }, 'Erro no callback de login Google');
+      req.log?.error({ errorName: err.name, requestId: req.id }, 'Erro no callback de login Google');
       return res.status(401).json({ error: 'Falha ao autenticar com o Google' });
     }
   });
 
   // Usuário autenticado
   router.get('/me', requireAuth(), (req, res) => {
+    res.set('Cache-Control', 'no-store');
     res.json({ data: { user: req.user } });
   });
 
   // Logout
-  router.post('/logout', (req, res) => {
+  router.post('/logout', async (req, res, next) => {
+    const token = getSessionToken(req);
+    if (token) {
+      try {
+        const claims = verifySessionToken(token);
+        await AuthSession.updateOne(
+          { userId: claims.sub, tokenId: claims.jti, revokedAt: null },
+          { $set: { revokedAt: new Date() } },
+        );
+        await recordAuditEvent({
+          eventType: 'auth.session.revoked',
+          actorUserId: claims.sub,
+          targetUserId: claims.sub,
+          targetId: claims.jti,
+          requestId: req.id,
+        });
+      } catch (error) {
+        if (error.name !== 'JsonWebTokenError' && error.name !== 'TokenExpiredError' && error.name !== 'NotBeforeError') {
+          return next(error);
+        }
+      }
+    }
     for (const name of ['caderno_token', 'fin_token']) {
       res.clearCookie(name, sessionCookieOptions);
       res.clearCookie(name, { ...sessionCookieOptions, path: '/api/auth' });
     }
     res.json({ message: 'Desconectado com sucesso' });
+  });
+
+  router.get('/sessions', requireAuth(), async (req, res, next) => {
+    try {
+      const sessions = await AuthSession.find({
+        userId: req.user._id,
+        revokedAt: null,
+        expiresAt: { $gt: new Date() },
+      }).select('tokenId createdAt expiresAt').sort({ createdAt: -1 }).lean();
+      res.set('Cache-Control', 'no-store');
+      res.json({
+        data: sessions.map((session) => ({
+          id: session.tokenId,
+          createdAt: session.createdAt,
+          expiresAt: session.expiresAt,
+          current: session.tokenId === req.authSessionId,
+        })),
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.get('/security-alerts', requireAuth(), asyncHandler(async (req, res) => {
+    const alerts = await SecurityAlert.find({ userId: req.user._id })
+      .select('alertType readAt createdAt')
+      .sort({ createdAt: -1 })
+      .limit(50)
+      .lean();
+    res.set('Cache-Control', 'no-store').json({ data: alerts });
+  }));
+
+  router.patch('/security-alerts/read', requireAuth(), asyncHandler(async (req, res) => {
+    await SecurityAlert.updateMany(
+      { userId: req.user._id, readAt: null },
+      { $set: { readAt: new Date() } },
+    );
+    res.status(204).end();
+  }));
+
+  router.delete('/sessions/:sessionId', requireAuth(), requireRecentAuth(), validate({ params: sessionParams }), async (req, res, next) => {
+    try {
+      const result = await AuthSession.updateOne(
+        {
+          userId: req.user._id,
+          tokenId: req.params.sessionId,
+          revokedAt: null,
+        },
+        { $set: { revokedAt: new Date() } },
+      );
+      if (result.modifiedCount === 0) {
+        return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Sessão não encontrada.' } });
+      }
+      await recordAuditEvent({
+        eventType: 'auth.session.revoked',
+        actorUserId: req.user._id,
+        targetUserId: req.user._id,
+        targetId: req.params.sessionId,
+        requestId: req.id,
+      });
+      req.log?.info({ userId: req.user.id }, 'User revoked a session');
+      return res.status(204).end();
+    } catch (error) {
+      return next(error);
+    }
+  });
+
+  router.post('/logout-all', requireAuth(), requireRecentAuth(), async (req, res, next) => {
+    try {
+      await AuthSession.updateMany(
+        { userId: req.user._id, revokedAt: null },
+        { $set: { revokedAt: new Date() } },
+      );
+      await recordAuditEvent({
+        eventType: 'auth.sessions.revoked',
+        actorUserId: req.user._id,
+        targetUserId: req.user._id,
+        requestId: req.id,
+      });
+      for (const name of ['caderno_token', 'fin_token']) {
+        res.clearCookie(name, sessionCookieOptions);
+        res.clearCookie(name, { ...sessionCookieOptions, path: '/api/auth' });
+      }
+      return res.json({ message: 'Todas as sessões foram encerradas.' });
+    } catch (error) {
+      return next(error);
+    }
   });
 
   // Modo local
@@ -151,7 +321,7 @@ export function authRoutes() {
         return res.status(404).json({ error: 'Rota não encontrada' });
       }
       const user = await getOrCreateDemoUser();
-      const token = generateToken(user);
+      const token = await generateToken(user);
       setSessionCookie(res, token);
       res.json({ data: { user } });
     } catch (error) {

@@ -23,6 +23,13 @@ export default function CashLedgerPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const period = usePeriod();
   const toast = useToast();
+  const downloadCsv = async () => {
+    try {
+      await cashLedgerApi.downloadCsv();
+    } catch (error) {
+      if (error.code !== 'REAUTH_REQUIRED') toast.error(error);
+    }
+  };
   const lookups = useLookups();
   const vehicles = useFetch(() => vehiclesApi.list(), []);
   const [tab, setTab] = useState(() => searchParams.size ? 'all' : 'month');
@@ -209,9 +216,9 @@ export default function CashLedgerPage() {
         title="Dinheiro e empréstimos"
         subtitle={<span className="cash-page-subtitle">Entradas e saídas fora dos cartões de crédito. Gastos em dinheiro dos veículos também aparecem aqui.</span>}
         actions={<>
-          <a className="btn btn-ghost cash-export" href={cashLedgerApi.exportUrl()} aria-label="Exportar CSV">
+          <button type="button" className="btn btn-ghost cash-export" onClick={downloadCsv} aria-label="Exportar CSV">
             <Download size={16} aria-hidden="true" /><span>Exportar CSV</span>
-          </a>
+          </button>
           <Button className="cash-new" variant="primary" onClick={() => setForm(emptyCashEntry())}>
             <Plus size={17} aria-hidden="true" /> Novo registro
           </Button>

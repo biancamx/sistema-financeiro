@@ -273,9 +273,9 @@ a { color: var(--primary); }
   .mobile-bottom-symbol { stroke-width: 1.9; transition: transform .15s ease, color .15s ease; }
   .mobile-bottom-link.active .mobile-bottom-symbol { transform: scale(1.1); color: var(--primary); stroke-width: 2.3; }
   .topbar-actions > .new-action-trigger { display: none; }
-  .new-action-mobile { display: inline-flex; flex: 1 1 0; min-width: 0; height: 52px; flex-direction: column; gap: 0; padding: 4px 2px; border-radius: 8px; font-size: 10px; }
+  .new-action-mobile { display: inline-flex; flex: 0 0 56px; width: 56px; min-width: 56px; height: 52px; flex-direction: column; gap: 0; padding: 4px 2px; border-radius: 8px; font-size: 10px; }
   .new-action-mobile svg { width: 21px; height: 21px; margin-bottom: 4px; }
-  .new-action-mobile > span { overflow: hidden; font-size: 10px; line-height: 1.1; text-overflow: ellipsis; }
+  .new-action-mobile > span { overflow: hidden; font-size: 10px; line-height: 1.1; text-overflow: ellipsis; white-space: nowrap; }
   .mobile-drawer { position: fixed; z-index: var(--z-modal); inset: 0; display: block; }
   .mobile-drawer-backdrop { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: rgb(0 0 0 / .55); }
   .mobile-drawer-panel { position: absolute; top: 0; bottom: 0; left: 0; display: flex; width: min(320px, 84vw); flex-direction: column; overflow: hidden; background: var(--side); color: var(--side-ink); box-shadow: 12px 0 32px rgb(0 0 0 / .24); }
@@ -1856,17 +1856,10 @@ img, canvas { max-width: 100%; }
 .new-action-list button:hover { background: var(--hover); }
 .new-action-list svg { width: 17px; height: 17px; color: var(--primary); }
 @media (max-width: 767px) {
-  .global-search { width: clamp(100px, 31vw, 150px); min-width: 0; flex: 0 1 auto; }
-  .global-search > .input { min-height: 34px; padding-right: 28px; padding-left: 30px; font-size: 12px; }
+  .global-search { display: none; }
   .new-action-mobile svg { width: 21px; height: 21px; margin-bottom: 4px; }
   .new-action-mobile > span { overflow: hidden; font-size: 10px; line-height: 1.1; text-overflow: ellipsis; }
 }
-@media (max-width: 420px) {
-  .global-search { width: 100px; }
-  .global-search > .input { padding-left: 28px; }
-  .global-search > svg { left: 8px; }
-}
-
 /* ───────── Atenção e formulários em camadas ───────── */
 .attention-panel { margin-bottom: 16px; }
 .attention-list { display: grid; gap: 6px; }

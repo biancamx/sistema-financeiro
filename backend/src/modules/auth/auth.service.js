@@ -1,12 +1,21 @@
 import { OAuth2Client } from 'google-auth-library';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
+import { randomBytes } from 'node:crypto';
 import { env } from '../../config/env.js';
 import { AppError, conflict, unauthorized } from '../../lib/errors.js';
+import { AuthSession } from '../../models/AuthSession.js';
 import { User } from '../../models/User.js';
+import { recordAuditEvent } from '../../lib/auditEvent.js';
+import { raiseSecurityAlerts } from '../../lib/securityAlerts.js';
 
 const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 const adminEmail = env.adminEmail;
+const sessionJwtOptions = {
+  algorithm: 'HS256',
+  issuer: 'caderno-contas',
+  audience: 'caderno-contas-web',
+};
 
 function ensureEmailAllowed(email) {
   const normalizedEmail = email.toLowerCase().trim();
@@ -30,11 +39,27 @@ function newAccountAccessFields(email) {
 }
 
 async function promoteConfiguredAdmin(user) {
-  if (!adminEmail || user.email.toLowerCase() !== adminEmail) return;
+  if (!adminEmail || user.email.toLowerCase() !== adminEmail || !user.googleId) return;
   if (user.role !== 'admin' || user.status !== 'active') {
+    const previousRole = user.role;
+    const previousStatus = user.status;
     user.role = 'admin';
     user.status = 'active';
     await user.save();
+    await recordAuditEvent({
+      eventType: 'admin.role_changed',
+      targetUserId: user._id,
+      targetId: user._id.toString(),
+      previousRole,
+      newRole: user.role,
+      previousStatus,
+      newStatus: user.status,
+    });
+    await raiseSecurityAlerts({
+      alertType: 'admin_account_change',
+      userIds: [user._id],
+      dedupeId: `configured-admin:${user._id}:${Date.now()}`,
+    });
   }
 }
 
@@ -82,8 +107,8 @@ export async function loginWithGoogle(credential) {
       avatar: picture || null,
       ...newAccountAccessFields(cleanEmail),
     });
-    console.log(`🎉 Novo usuário registrado via Google no MongoDB: ${cleanEmail}`);
   } else {
+    ensureGoogleAccountLink(user.googleId, googleId);
     // Se o usuário já existe, atualiza os dados do Google e a foto se necessário
     let updated = false;
     if (!user.googleId) {
@@ -99,18 +124,7 @@ export async function loginWithGoogle(credential) {
   await promoteConfiguredAdmin(user);
 
   // 3. Emite o JWT de sessão assinado
-  const token = jwt.sign(
-    {
-      sub: user._id.toString(),
-      email: user.email,
-      name: user.name,
-      avatar: user.avatar,
-      role: user.role || 'user',
-      status: user.status || 'pending',
-    },
-    env.jwtSecret,
-    { expiresIn: env.jwtExpiresIn }
-  );
+  const token = await generateToken(user);
 
   return {
     token,
@@ -119,10 +133,12 @@ export async function loginWithGoogle(credential) {
 }
 
 // Gera o token JWT da sessão
-export function generateToken(user) {
-  return jwt.sign(
+export async function generateToken(user) {
+  const userId = user._id ? user._id.toString() : user.id;
+  const tokenId = randomBytes(32).toString('base64url');
+  const token = jwt.sign(
     {
-      sub: user._id ? user._id.toString() : user.id,
+      sub: userId,
       email: user.email,
       name: user.name,
       avatar: user.avatar,
@@ -130,8 +146,32 @@ export function generateToken(user) {
       role: user.role || 'user',
     },
     env.jwtSecret,
-    { expiresIn: env.jwtExpiresIn }
+    { ...sessionJwtOptions, expiresIn: env.jwtExpiresIn, jwtid: tokenId },
   );
+  const { exp } = jwt.decode(token);
+  await AuthSession.create({
+    userId,
+    tokenId,
+    expiresAt: new Date(exp * 1000),
+  });
+  return token;
+}
+
+export function verifySessionToken(token) {
+  const payload = jwt.verify(token, env.jwtSecret, {
+    algorithms: ['HS256'],
+    issuer: sessionJwtOptions.issuer,
+    audience: sessionJwtOptions.audience,
+  });
+  if (!payload || typeof payload !== 'object'
+    || typeof payload.sub !== 'string'
+    || !Number.isInteger(payload.exp)
+    || !Number.isInteger(payload.iat)
+    || typeof payload.jti !== 'string'
+    || !/^[A-Za-z0-9_-]{43}$/.test(payload.jti)) {
+    throw new jwt.JsonWebTokenError('Invalid session claims');
+  }
+  return payload;
 }
 
 export function ensureGoogleEmailVerified(payload) {
@@ -140,10 +180,19 @@ export function ensureGoogleEmailVerified(payload) {
   }
 }
 
+export function ensureGoogleAccountLink(existingGoogleId, incomingGoogleId) {
+  if (existingGoogleId && existingGoogleId !== incomingGoogleId) {
+    throw unauthorized('Esta conta está vinculada a outra identidade Google.');
+  }
+}
+
 // 2. CADASTRO TRADICIONAL COM E-MAIL E SENHA
 export async function registerWithEmail(name, email, password) {
   const cleanEmail = email.toLowerCase().trim();
   ensureEmailAllowed(cleanEmail);
+  if (adminEmail && cleanEmail === adminEmail) {
+    throw new AppError(403, 'ADMIN_EMAIL_GOOGLE_REQUIRED', 'Esta conta deve ser validada pelo provedor de identidade autorizado.');
+  }
 
   const existing = await User.findOne({ email: cleanEmail });
   if (existing) {
@@ -167,7 +216,7 @@ export async function registerWithEmail(name, email, password) {
     throw error;
   }
 
-  const token = generateToken(user);
+  const token = await generateToken(user);
   return {
     user: publicUser(user),
     token,
@@ -183,6 +232,9 @@ export async function loginWithEmail(email, password) {
   if (!user || !user.passwordHash) {
     throw unauthorized('E-mail ou senha incorretos.');
   }
+  if (adminEmail && cleanEmail === adminEmail && !user.googleId) {
+    throw unauthorized('E-mail ou senha incorretos.');
+  }
 
   const matches = await bcrypt.compare(password, user.passwordHash);
   if (!matches) {
@@ -190,7 +242,7 @@ export async function loginWithEmail(email, password) {
   }
 
   await promoteConfiguredAdmin(user);
-  const token = generateToken(user);
+  const token = await generateToken(user);
   return {
     user: publicUser(user),
     token,

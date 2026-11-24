@@ -200,6 +200,47 @@
   gap: 14px;
 }
 
+.settings-security-alerts {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.settings-security-alerts li {
+  display: flex;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.settings-security-alerts li.is-unread {
+  border-color: color-mix(in srgb, var(--primary) 45%, var(--line));
+  background: color-mix(in srgb, var(--primary-soft) 35%, var(--surface));
+}
+
+.settings-security-alerts li > svg {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  color: var(--primary);
+}
+
+.settings-security-alerts li > div {
+  display: grid;
+  gap: 4px;
+}
+
+.settings-security-alerts p,
+.settings-security-alerts time {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .settings-push-status {
   display: flex;
   align-items: flex-start;

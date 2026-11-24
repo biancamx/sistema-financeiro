@@ -1,5 +1,45 @@
 # Histórico de versões — Sistema Financeiro
 
+## Etapa de fortalecimento de segurança — 24/11/2026
+
+### Implementado no repositório
+
+- Sessões JWT individuais com algoritmo, emissor, público, expiração e identificador verificados; armazenamento revogável com expiração TTL no MongoDB.
+- Endpoints para listar sessões ativas, revogar uma sessão, encerrar a sessão atual e encerrar todas as sessões.
+- Revogação das sessões quando uma conta deixa de estar ativa e após bloqueio administrativo.
+- Proteção da identidade `ADMIN_EMAIL`: cadastro por senha não pode reivindicá-la; promoção depende de Google OAuth com e-mail verificado, e uma identidade Google conflitante é rejeitada.
+- Verificação de `Origin`/`Referer` para escritas autenticadas por cookie, além dos cookies HttpOnly/SameSite existentes.
+- Validação de segredos de produção e exigência de `JOBS_TOKEN` aleatório, distinto do JWT.
+- Registro de alterações de status administrativo sem registrar e-mails de novos usuários Google.
+- Auditoria de dependências em CI, permissões de leitura mínima no workflow e atualizações semanais via Dependabot.
+
+### Validação
+
+- `npm test`: 114 testes aprovados.
+- `npm run build`: concluído.
+- `npm --prefix backend audit` e `npm --prefix frontend audit`: zero vulnerabilidades.
+- `git diff --check`: aprovado.
+
+### Escopo ainda pendente
+
+Esta etapa não equivale à conclusão de toda a especificação. Ainda requer auditoria completa de propriedade/validação em cada rota e modelo, reautenticação para ações críticas, secret scanning e alertas. MFA, restrições de rede, rotação de credenciais e revisão das variáveis de produção dependem dos consoles e operações do GitHub, Render e MongoDB Atlas. Faça e teste backup do MongoDB antes de publicar a nova coleção `AuthSession`.
+
+## Complemento de segurança — Portal, auditoria e backups
+
+- Tokens do Portal migrados para hash SHA-256 de tokens aleatórios de 256 bits, expiração em 90 dias, renovação e revogação por proprietário; migração legada idempotente e protegida por confirmação de backup.
+- Registro append-only no MongoDB para autenticação, alterações administrativas, exportações e ciclo de vida de links compartilhados; erros do frontend não registram stack, URL ou corpo.
+- Cache financeiro `no-store`; CSP restrita para scripts, fontes, frames e conexões, preservando atributos de estilo usados pelo React e Google OAuth.
+- Backup streaming com AES-256-GCM e ferramenta de restauração para banco isolado; testes verificam autenticação e detecção de adulteração.
+
+Antes do deploy, configure `BACKUP_ENCRYPTION_KEY`, produza e verifique um backup, execute a migração com `SECURITY_MIGRATION_BACKUP_VERIFIED=true` e valide a restauração em banco não produtivo. Os controles externos de Atlas/Render/GitHub e a cobertura completa de isolamento ainda precisam de configuração ou revisão operacional; não considerar o sistema plenamente auditado até esses passos.
+
+## Confirmação de identidade e alertas de segurança
+
+- Alterações administrativas de conta, gestão de sessões, alteração/remoção/teste de chaves de IA e gestão de links compartilhados exigem autenticação emitida nos últimos cinco minutos. Exportações, importações e operações de dados não forçam novo login. O fluxo de reautenticação preserva somente destinos internos e retorna ao local de origem após novo login, inclusive no callback Google.
+- Alertas persistidos por usuário para cinco falhas de login em 15 minutos, reutilização de sessão revogada, três tentativas de acesso a registros indisponíveis em 15 minutos e mudanças administrativas. As notificações in-app podem ser marcadas como lidas e o Web Push é genérico, sem dados financeiros.
+- Os alertas são consultados e reconhecidos somente pelo próprio usuário; eventos operacionais guardam hash HMAC da origem, não o IP ou segredos. A migração de segurança cria os índices das novas coleções `AuditEvent` e `SecurityAlert`.
+- Testes cobrem limite de autenticação recente, deduplicação/limiar de alertas e isolamento da listagem. A configuração de MFA, rede, backups e segredos nos consoles Atlas/Render/GitHub continua operacional e externa ao repositório.
+
 ## Versão 2.0 — Reorganização, melhorias de interface e Web Push
 
 **Status:** Pendente de revisão e commit

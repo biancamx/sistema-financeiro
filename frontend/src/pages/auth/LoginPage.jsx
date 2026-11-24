@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { useFetch } from '../../hooks/useFetch.js';
 import { authApi } from '../../services/api.js';
@@ -7,9 +7,11 @@ import { Field, Spinner } from '../../components/ui/ui.jsx';
 import { PATHS } from '../../app/paths.js';
 import GoogleButton from './GoogleButton.jsx';
 import { useToast } from '../../context/ToastContext.jsx';
+import { safeAuthReturnTo } from '../../app/authReturnTo.js';
 
 export default function LoginPage() {
   const nav = useNavigate();
+  const location = useLocation();
   const { login, register } = useAuth();
   const toast = useToast();
   const { data: cfg, loading, error } = useFetch(() => authApi.config(), []);
@@ -17,6 +19,15 @@ export default function LoginPage() {
   const [form, setForm] = useState({ name: '', email: '', password: '' });
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
+  const [reauthRequired, setReauthRequired] = useState(false);
+
+  useEffect(() => {
+    const from = location.state?.from;
+    if (from) {
+      window.sessionStorage.setItem('auth:returnTo', `${from.pathname}${from.search || ''}${from.hash || ''}`);
+    }
+    setReauthRequired(window.sessionStorage.getItem('auth:reauthRequired') === '1');
+  }, [location.state]);
 
   const run = async (fn, registration = false) => {
     setBusy(true);
@@ -28,7 +39,11 @@ export default function LoginPage() {
           ? 'Cadastro concluído. Sua conta já está liberada.'
           : 'Cadastro enviado. O administrador precisa liberar seu acesso antes do primeiro login.');
       }
-      nav(PATHS.dashboard, { replace: true });
+      const returnTo = window.sessionStorage.getItem('auth:returnTo');
+      const destination = safeAuthReturnTo(returnTo || location.state?.from?.pathname || PATHS.dashboard);
+      window.sessionStorage.removeItem('auth:returnTo');
+      window.sessionStorage.removeItem('auth:reauthRequired');
+      nav(destination, { replace: true });
     } catch (e) {
       setErr(e);
     } finally {
@@ -60,6 +75,11 @@ export default function LoginPage() {
       <section className="login-panel">
         <div className="login-card">
           <h2>{mode === 'login' ? 'Entre na sua conta' : 'Solicite seu cadastro'}</h2>
+          {reauthRequired && (
+            <p className="field-hint" role="status">
+              Entre novamente para confirmar sua identidade. Depois, repita a operação.
+            </p>
+          )}
           {loading && <Spinner />}
           {error && <div className="state state-error" role="alert"><strong>API indisponível</strong><p>{error.message}</p></div>}
 

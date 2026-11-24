@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { asyncHandler } from '../../lib/errors.js';
+import { recordAuditEvent } from '../../lib/auditEvent.js';
 import { validate } from '../../middleware/validate.js';
 import { createCashLedgerService } from './cashLedger.service.js';
 
@@ -67,6 +68,13 @@ export function cashLedgerRoutes() {
   const receiptParam = z.object({ receiptId: id });
 
   router.get('/export.csv', asyncHandler(async (req, res) => {
+    await recordAuditEvent({
+      eventType: 'data.exported',
+      actorUserId: req.user._id,
+      targetUserId: req.user._id,
+      targetId: 'cash-ledger',
+      requestId: req.id,
+    });
     res.set('Content-Type', 'text/csv; charset=utf-8').set('Content-Disposition', 'attachment; filename="avulsos.csv"');
     res.send(`\uFEFF${await service.exportCsv(req.user._id)}`);
   }));

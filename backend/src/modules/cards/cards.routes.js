@@ -27,6 +27,7 @@ const body = z.object({
   closingDayEqual: z.enum(['current', 'next']).default('next'),
 });
 const idParam = z.object({ id: z.string().regex(/^[\da-f]{24}$/i) });
+const updateBody = body.extend({ id: z.string().regex(/^[\da-f]{24}$/i).optional() });
 const paymentBody = z.object({
   month: z.coerce.number().int().min(1).max(12),
   year: z.coerce.number().int().min(2000).max(2100),
@@ -74,7 +75,8 @@ export function cardsRoutes() {
     });
     res.status(201).json({ data: { id: String(card._id), ...req.body } });
   }));
-  r.put('/:id', validate({ params: idParam, body }), asyncHandler(async (req, res) => {
+  r.put('/:id', validate({ params: idParam, body: updateBody }), asyncHandler(async (req, res) => {
+    if (req.body.id && req.body.id !== req.params.id) throw badRequest('ID do cartão não corresponde à rota.');
     const userId = req.user._id;
     await assertOwner(req.body.ownerId, userId);
     const session = await mongoose.startSession();

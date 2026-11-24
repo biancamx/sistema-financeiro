@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext.jsx';
 import { Spinner } from '../components/ui/ui.jsx';
 import AppLayout from '../components/layout/AppLayout.jsx';
 import { PATHS } from './paths.js';
+import { safeAuthReturnTo } from './authReturnTo.js';
 import { loadRoute } from './routeLoaders.js';
 
 const Login = lazy(() => import('../pages/auth/LoginPage.jsx'));
@@ -33,8 +34,9 @@ const FinancialPlanning = lazy(loadRoute(PATHS.financialPlanning));
 
 function Protected() {
   const { user, booting } = useAuth();
+  const location = useLocation();
   if (booting) return <Spinner />;
-  if (!user) return <Navigate to={PATHS.login} replace />;
+  if (!user) return <Navigate to={PATHS.login} state={{ from: location }} replace />;
   return user.status === 'active' ? <Outlet /> : <AccountStatus />;
 }
 
@@ -46,7 +48,13 @@ function AdminOnly() {
 function PublicOnly() {
   const { user, booting } = useAuth();
   if (booting) return <Spinner />;
-  return user ? <Navigate to={PATHS.dashboard} replace /> : <Outlet />;
+  if (!user) return <Outlet />;
+  const returnTo = window.sessionStorage.getItem('auth:returnTo');
+  if (returnTo) {
+    window.sessionStorage.removeItem('auth:returnTo');
+    return <Navigate to={safeAuthReturnTo(returnTo)} replace />;
+  }
+  return <Navigate to={PATHS.dashboard} replace />;
 }
 
 function LegacyPersonRedirect({ tab }) {

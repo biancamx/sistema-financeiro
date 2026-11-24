@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { asyncHandler } from '../../lib/errors.js';
+import { recordAuditEvent } from '../../lib/auditEvent.js';
 import { validate } from '../../middleware/validate.js';
 import { createPurchasesService } from './purchases.service.js';
 
@@ -75,6 +76,13 @@ export function purchasesRoutes() {
     res.json(await svc.listSubscriptions(req.user._id, req.query)),
   ));
   r.get('/export.csv', asyncHandler(async (req, res) => {
+    await recordAuditEvent({
+      eventType: 'data.exported',
+      actorUserId: req.user._id,
+      targetUserId: req.user._id,
+      targetId: 'purchases',
+      requestId: req.id,
+    });
     res.set('Content-Type', 'text/csv; charset=utf-8').set('Content-Disposition', 'attachment; filename="lancamentos.csv"');
     res.send('\uFEFF' + await svc.exportCsv(req.user._id));
   }));

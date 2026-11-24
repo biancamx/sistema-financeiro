@@ -277,10 +277,10 @@ export default function BudgetPage() {
                     {sec.rows.map((r) => (
                       <tr key={r.id} className={r.paidMonths[selectedMonth - 1] ? 'row-dim' : ''}>
                         <td className="budget-month-label">
-                          {sec.computed
-                            ? r.label
+                          {sec.computed || r.computed
+                            ? <>{r.label}{r.computed && !sec.computed && <span className="pill">automático</span>}</>
                             : <input className="cell cell-label" defaultValue={r.label} title={r.label} onBlur={(e) => rename(r, e.target.value)} aria-label="Nome da linha" />}
-                          {!sec.computed && (
+                          {!sec.computed && !r.computed && (
                             <span className="budget-month-row-actions">
                               <button className="icon-btn" disabled={!lastEdit[r.id]} onClick={() => fill(r)} title="Repetir o último valor digitado até dezembro" aria-label="Repetir até dezembro">⇥</button>
                               <button className="icon-btn" onClick={() => removeRow(r)} title="Remover linha" aria-label="Remover linha">×</button>
@@ -288,12 +288,12 @@ export default function BudgetPage() {
                           )}
                         </td>
                         <td className={`num ${r.values[selectedMonth - 1] < 0 ? 'neg' : ''}`}>
-                          {sec.computed
+                          {sec.computed || r.computed
                             ? (r.values[selectedMonth - 1] ? moneyPlain(r.values[selectedMonth - 1]) : '')
                             : <MoneyCell value={r.values[selectedMonth - 1]} onSave={(value) => saveCell(r, selectedMonth, value)} />}
                         </td>
                         <td className="budget-paid-cell">
-                          {sec.kind === 'expense' && !sec.computed && r.values[selectedMonth - 1] > 0 && (
+                          {sec.kind === 'expense' && !sec.computed && !r.computed && r.values[selectedMonth - 1] > 0 && (
                             <input
                               className="budget-paid-checkbox"
                               type="checkbox"
@@ -354,13 +354,15 @@ export default function BudgetPage() {
                     {sec.rows.map((r) => (
                       <tr key={r.id}>
                         <td className="sticky-col">
-                          {sec.computed ? r.label : <input className="cell cell-label" defaultValue={r.label} title={r.label} onBlur={(e) => rename(r, e.target.value)} aria-label="Nome da linha" />}
+                          {sec.computed || r.computed
+                            ? <>{r.label}{r.computed && !sec.computed && <span className="pill">automático</span>}</>
+                            : <input className="cell cell-label" defaultValue={r.label} title={r.label} onBlur={(e) => rename(r, e.target.value)} aria-label="Nome da linha" />}
                         </td>
                         {r.values.map((v, i) => (
                           <td key={i} className="num">
                             <div className="budget-sheet-cell">
-                              {sec.computed ? (v ? moneyPlain(v) : '') : <MoneyCell value={v} onSave={(n) => saveCell(r, i + 1, n)} />}
-                              {sec.kind === 'expense' && !sec.computed && v > 0 && (
+                              {sec.computed || r.computed ? (v ? moneyPlain(v) : '') : <MoneyCell value={v} onSave={(n) => saveCell(r, i + 1, n)} />}
+                              {sec.kind === 'expense' && !sec.computed && !r.computed && v > 0 && (
                                 <input
                                   className="budget-paid-checkbox"
                                   type="checkbox"
@@ -377,7 +379,7 @@ export default function BudgetPage() {
                         <td className="num muted">{moneyPlain(r.min)}</td>
                         <td className="num muted">{moneyPlain(r.max)}</td>
                         <td className="row-actions">
-                          {!sec.computed && (
+                          {!sec.computed && !r.computed && (
                             <>
                               <button className="icon-btn" disabled={!lastEdit[r.id]} onClick={() => fill(r)} title="Repetir o último valor digitado até dezembro" aria-label="Repetir até dezembro">⇥</button>
                               <button className="icon-btn" onClick={() => removeRow(r)} title="Remover linha" aria-label="Remover linha">×</button>

@@ -22,6 +22,8 @@ const vehicleExpenseSchema = new mongoose.Schema(
     shared: { type: Boolean, default: false },
     splitMode: { type: String, enum: ['equal', 'percent', 'amount'], default: 'equal' },
     paymentMethod: { type: String, enum: ['cash', 'card'], default: 'cash' },
+    recurrenceType: { type: String, enum: ['once', 'installments', 'ongoing'], default: 'once' },
+    recurrenceCount: { type: Number, min: 2, max: 240, default: null },
     requestId: { type: String, default: null },
     shares: { type: [vehicleExpenseShareSchema], default: [] },
   },

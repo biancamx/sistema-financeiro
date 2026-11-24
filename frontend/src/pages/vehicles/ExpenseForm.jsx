@@ -8,6 +8,7 @@ export const emptyExpense = (defaults = {}) => {
   return {
     vehicleId: defaults.vehicleId ? String(defaults.vehicleId) : '', date, category: '', description: '', amount: '', km: '', liters: '',
     payerId: '', paymentMethod: 'cash', cardId: '', installmentCount: '1',
+    recurrenceType: 'once', recurrenceCount: '2',
     requestId: globalThis.crypto.randomUUID(), shared: false, participantIds: [], splitMode: 'equal', values: {},
   };
 };
@@ -17,6 +18,7 @@ export const expenseToForm = (e) => ({
   amount: String(e.amount).replace('.', ','), km: e.km == null ? '' : String(e.km),
   liters: e.liters == null ? '' : String(e.liters).replace('.', ','), payerId: e.payerId == null ? '' : String(e.payerId),
   paymentMethod: e.paymentMethod || 'cash', cardId: e.cardId == null ? '' : String(e.cardId), installmentCount: String(e.installmentCount || 1),
+  recurrenceType: e.recurrenceType || 'once', recurrenceCount: String(e.recurrenceCount || 2),
   shared: e.shared, participantIds: e.shared ? e.shares.map((s) => String(s.personId)) : [],
   // divisão desigual volta como "valor em R$" (exato, sem arredondar porcentagem)
   splitMode: e.shared && e.splitMode !== 'equal' ? 'amount' : 'equal',
@@ -98,6 +100,10 @@ export default function ExpenseForm({ value, onClose, onSubmit, vehicles, people
     if (f.paymentMethod === 'card' && !(Number.isInteger(Number(f.installmentCount)) && Number(f.installmentCount) >= 1 && Number(f.installmentCount) <= 120)) {
       e.installmentCount = 'Informe de 1 a 120 parcelas';
     }
+    if (f.paymentMethod === 'cash' && f.recurrenceType === 'installments'
+      && !(Number.isInteger(Number(f.recurrenceCount)) && Number(f.recurrenceCount) >= 2 && Number(f.recurrenceCount) <= 240)) {
+      e.recurrenceCount = 'Informe de 2 a 240 meses';
+    }
     if (f.shared && n < 2) e.participantIds = 'Escolha pelo menos 2 pessoas';
     else if (f.shared && !splitOk) e.participantIds = f.splitMode === 'percent' ? 'As porcentagens precisam somar 100% e cada pessoa precisa ter mais que 0' : 'Os valores precisam somar o valor do gasto e cada pessoa precisa ter mais que 0';
     setErrors(e);
@@ -108,6 +114,10 @@ export default function ExpenseForm({ value, onClose, onSubmit, vehicles, people
         vehicleId: f.vehicleId, date: f.date, category: f.category, description: f.description.trim(),
         amount, km, ...(f.category === 'fuel' && liters !== null && { liters }),
         payerId: f.payerId, shared: f.shared, paymentMethod: f.paymentMethod,
+        ...(f.paymentMethod === 'cash' && {
+          recurrenceType: f.recurrenceType,
+          ...(f.recurrenceType === 'installments' && { recurrenceCount: Number(f.recurrenceCount) }),
+        }),
         ...(f.paymentMethod === 'card' && {
           cardId: f.cardId, installmentCount: Number(f.installmentCount),
         }),
@@ -125,7 +135,7 @@ export default function ExpenseForm({ value, onClose, onSubmit, vehicles, people
     <Modal open title={f.id ? 'Editar gasto' : 'Novo gasto'} wide
       footer={<><Button variant="ghost" onClick={onClose}>Cancelar</Button><Button variant="primary" disabled={busy} onClick={submit}>{f.id ? 'Salvar alterações' : 'Registrar gasto'}</Button></>}>
       <div className="form-grid">
-        <Field label="Data" error={errors.date}>{(id) => <input id={id} className="input" type="date" value={f.date} onChange={set('date')} />}</Field>
+        <Field label={f.paymentMethod === 'cash' && f.recurrenceType !== 'once' ? 'Data da primeira parcela' : 'Data'} error={errors.date}>{(id) => <input id={id} className="input" type="date" value={f.date} onChange={set('date')} />}</Field>
         <Field label="Veículo" error={errors.vehicleId}>
           {(id) => <Select id={id} value={f.vehicleId} onChange={set('vehicleId')} placeholder="Escolha…" options={vehicles.map((v) => ({ value: v.id, label: vehicleLabel(v) }))} />}
         </Field>
@@ -150,11 +160,25 @@ export default function ExpenseForm({ value, onClose, onSubmit, vehicles, people
             </div>
           )}
         </Field>
-        <Field label="Valor (R$)" error={errors.amount} hint="A partir de R$ 1,00">{(id) => <input id={id} className="input" inputMode="decimal" value={f.amount} onChange={set('amount')} placeholder="0,00" />}</Field>
+        <Field label={f.paymentMethod === 'cash' && f.recurrenceType !== 'once' ? 'Valor por mês (R$)' : 'Valor (R$)'} error={errors.amount} hint="A partir de R$ 1,00">{(id) => <input id={id} className="input" inputMode="decimal" value={f.amount} onChange={set('amount')} placeholder="0,00" />}</Field>
         <Field label="Pessoa responsável / pagadora" error={errors.payerId}>{(id) => <Select id={id} value={f.payerId} onChange={set('payerId')} placeholder="Escolha…" options={personOpts} />}</Field>
         <Field label="Forma de pagamento">
-          {(id) => <Select id={id} value={f.paymentMethod} onChange={set('paymentMethod')} options={[{ value: 'cash', label: 'Dinheiro / outro' }, { value: 'card', label: 'Cartão de crédito' }]} />}
+          {(id) => <Select id={id} value={f.paymentMethod} onChange={(paymentMethod) => setF((current) => ({ ...current, paymentMethod, ...(paymentMethod === 'card' && { recurrenceType: 'once' }) }))} options={[{ value: 'cash', label: 'Dinheiro / outro' }, { value: 'card', label: 'Cartão de crédito' }]} />}
         </Field>
+        {f.paymentMethod === 'cash' && (
+          <Field label="Repetição na planilha">
+            {(id) => <Select id={id} value={f.recurrenceType} onChange={set('recurrenceType')} options={[
+              { value: 'once', label: 'Uma vez' },
+              { value: 'installments', label: 'Por quantidade de meses' },
+              { value: 'ongoing', label: 'Todo mês, sem data final' },
+            ]} />}
+          </Field>
+        )}
+        {f.paymentMethod === 'cash' && f.recurrenceType === 'installments' && (
+          <Field label="Quantidade de meses" error={errors.recurrenceCount} hint="De 2 a 240 meses, começando na data informada">
+            {(id) => <input id={id} className="input" type="number" min="2" max="240" step="1" value={f.recurrenceCount} onChange={set('recurrenceCount')} />}
+          </Field>
+        )}
         {f.paymentMethod === 'card' && (
           <>
             <Field label="Cartão de crédito" error={errors.cardId}>
@@ -167,6 +191,7 @@ export default function ExpenseForm({ value, onClose, onSubmit, vehicles, people
         )}
       </div>
       {f.paymentMethod === 'card' && <p className="field-hint">A compra e as parcelas serão criadas automaticamente em Lançamentos e na Planilha mensal. A data deste gasto e o fechamento do cartão definem a primeira fatura. Em despesas compartilhadas, o valor de cada parcela seguirá o rateio escolhido acima.</p>}
+      {f.paymentMethod === 'cash' && <p className="field-hint">Gastos em dinheiro aparecem em Veículos na planilha de cada participante, uma vez ou conforme a repetição escolhida, começando no mês da data informada. Não repita o mesmo valor manualmente na planilha. Gastos no cartão continuam em Cartões.</p>}
 
       <details className="form-more-options" open={Boolean(f.id || f.description || f.km || f.liters || f.shared)}>
         <summary>Mais opções</summary>

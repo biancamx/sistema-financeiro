@@ -81,7 +81,7 @@ test('gasto individual: valor mínimo R$ 1, categoria válida, km e fatia do pag
   assert.equal(got.currentKm, 12000);
 });
 
-test('despesas de veículo em dinheiro aparecem em Avulsos e permanecem sincronizadas', async () => {
+test('despesas de veículo em dinheiro permanecem sincronizadas e aparecem em Veículos na planilha', async () => {
   const { c, ids } = await setup('vehicle-cash-ledger@teste.com');
   const vehicle = (await c('POST', '/vehicles', car)).json.data;
   const body = {
@@ -102,7 +102,9 @@ test('despesas de veículo em dinheiro aparecem em Avulsos e permanecem sincroni
   assert.equal(mirrored.vehicleName, car.model);
   assert.equal((await c('GET', '/cash-ledger/summary?month=3&year=2026')).json.data.spent, 125.5);
   const budget = await c('GET', `/budgets?personId=${ids['Pessoa 01']}&year=2026&month=3`);
-  assert.equal(budget.json.data.monthly.cash.expense, 125.5);
+  assert.equal(budget.json.data.monthly.cash.expense, 0);
+  const vehicleRow = budget.json.data.sections.find((section) => section.key === 'vehicle').rows.find((row) => row.computed);
+  assert.equal(vehicleRow.values[2], 125.5);
 
   const rejectedDelete = await c('DELETE', `/cash-ledger/entries/${mirrored.id}`);
   assert.equal(rejectedDelete.status, 409);
@@ -121,6 +123,68 @@ test('despesas de veículo em dinheiro aparecem em Avulsos e permanecem sincroni
 
   assert.equal((await c('DELETE', `/vehicles/expenses/${expenseId}`)).status, 204);
   assert.equal((await c('GET', '/cash-ledger/entries?all=true')).json.data.some((item) => item.vehicleExpenseId === expenseId), false);
+});
+
+test('despesa em dinheiro compartilhada repete a parte de cada pessoa na planilha', async () => {
+  const { c, ids } = await setup('vehicle-budget-recurrence@teste.com');
+  const vehicle = (await c('POST', '/vehicles', car)).json.data;
+  const financed = await c('POST', '/vehicles/expenses', {
+    vehicleId: vehicle.id, date: '2026-03-10', category: 'financing', description: 'Financiamento',
+    amount: 120, payerId: ids['Pessoa 01'], shared: true,
+    participantIds: [ids['Pessoa 01'], ids['Pessoa 02'], ids['Pessoa 03']],
+    recurrenceType: 'installments', recurrenceCount: 48,
+  });
+  assert.equal(financed.status, 201, financed.text);
+  assert.equal(financed.json.data.recurrenceType, 'installments');
+  assert.equal(financed.json.data.recurrenceCount, 48);
+
+  const annualTax = await c('POST', '/vehicles/expenses', {
+    vehicleId: vehicle.id, date: '2026-05-04', category: 'ipva', description: 'IPVA',
+    amount: 300, payerId: ids['Pessoa 01'], shared: true,
+    participantIds: [ids['Pessoa 01'], ids['Pessoa 02'], ids['Pessoa 03']],
+  });
+  assert.equal(annualTax.status, 201, annualTax.text);
+
+  const ongoing = await c('POST', '/vehicles/expenses', {
+    vehicleId: vehicle.id, date: '2026-12-03', category: 'licensing', description: 'Licenciamento mensal',
+    amount: 90, payerId: ids['Pessoa 02'], recurrenceType: 'ongoing',
+  });
+  assert.equal(ongoing.status, 201, ongoing.text);
+
+  const getSheet = async (personId, year, month) => (await c('GET', `/budgets?personId=${personId}&year=${year}&month=${month}`)).json.data;
+  const sectionFor = (sheet) => sheet.sections.find((section) => section.key === 'vehicle');
+  const financedRow = (section) => section.rows.find((row) => row.id === `vehicle-expense-${financed.json.data.id}`);
+  const taxRow = (section) => section.rows.find((row) => row.id === `vehicle-expense-${annualTax.json.data.id}`);
+  const ongoingRow = (section) => section.rows.find((row) => row.id === `vehicle-expense-${ongoing.json.data.id}`);
+
+  for (const personId of [ids['Pessoa 01'], ids['Pessoa 02'], ids['Pessoa 03']]) {
+    const sheet = await getSheet(personId, 2026, 3);
+    const section = sectionFor(sheet);
+    const monthlyExpense = sheet.summary.lines.find((line) => line.key === 'spent').values[2];
+    assert.equal(financedRow(section).values[2], 40);
+    assert.equal(financedRow(section).values[11], 40);
+    assert.equal(financedRow(section).total, 400);
+    assert.equal(monthlyExpense, 40);
+    assert.equal(sheet.monthly.cash.expense, 0);
+  }
+
+  const nextYear = sectionFor(await getSheet(ids['Pessoa 02'], 2027, 1));
+  assert.equal(financedRow(nextYear).values[0], 40);
+  assert.equal(financedRow(nextYear).total, 480);
+  assert.equal(ongoingRow(nextYear).values[0], 90);
+
+  const currentYear = sectionFor(await getSheet(ids['Pessoa 03'], 2026, 5));
+  assert.equal(taxRow(currentYear).values[4], 100);
+  assert.equal(taxRow(currentYear).values[3], 0);
+
+  const lastFinancedYear = sectionFor(await getSheet(ids['Pessoa 01'], 2030, 3));
+  assert.equal(financedRow(lastFinancedYear).values[0], 40);
+  assert.equal(financedRow(lastFinancedYear).values[1], 40);
+  assert.equal(financedRow(lastFinancedYear).values[2], 0);
+  assert.equal((await c('POST', '/vehicles/expenses', {
+    vehicleId: vehicle.id, date: '2026-03-10', category: 'financing', amount: 120,
+    payerId: ids['Pessoa 01'], recurrenceType: 'installments',
+  })).status, 400);
 });
 
 test('KM atual avança sem reduzir e litros são aceitos somente em combustível', async () => {
@@ -478,6 +542,7 @@ test('gasto no cartão cria compra vinculada, parcelas e atualiza limite sem dup
   assert.equal(budget.json.data.monthly.purchases.length, 1);
   assert.equal(budget.json.data.monthly.purchases[0].amount, 33.34);
   assert.equal(budget.json.data.monthly.purchases[0].category, 'Vale combustível');
+  assert.equal(budget.json.data.sections.find((section) => section.key === 'vehicle').rows.some((row) => row.computed), false);
   const cards = await c('GET', '/cards?month=10&year=2026');
   assert.equal(cards.json.data.find((item) => item.id === card.id).used, 66.67);
 

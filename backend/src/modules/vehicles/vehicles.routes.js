@@ -83,6 +83,8 @@ const expenseBody = z
     paymentMethod: z.enum(['cash', 'card']).default('cash'),
     cardId: optId,
     installmentCount: z.coerce.number().int().min(1).max(120).default(1),
+    recurrenceType: z.enum(['once', 'installments', 'ongoing']).default('once'),
+    recurrenceCount: z.coerce.number().int().min(2).max(240).optional(),
     startMonth: z.coerce.number().int().min(1).max(12).optional(),
     startYear: z.coerce.number().int().min(2000).max(2100).optional(),
     requestId: z.string().uuid().optional(),
@@ -94,6 +96,12 @@ const expenseBody = z
   .superRefine((b, ctx) => {
     if (b.paymentMethod === 'card' && !b.cardId) {
       ctx.addIssue({ code: 'custom', message: 'Escolha o cartão', path: ['cardId'] });
+    }
+    if (b.paymentMethod === 'card' && b.recurrenceType !== 'once') {
+      ctx.addIssue({ code: 'custom', message: 'A recorrência mensal não se aplica a despesas no cartão', path: ['recurrenceType'] });
+    }
+    if (b.recurrenceType === 'installments' && !b.recurrenceCount) {
+      ctx.addIssue({ code: 'custom', message: 'Informe a quantidade de parcelas mensais', path: ['recurrenceCount'] });
     }
     if (b.category !== 'fuel' && b.liters != null) {
       ctx.addIssue({ code: 'custom', message: 'Litros só podem ser informados em gastos de combustível', path: ['liters'] });
@@ -107,7 +115,11 @@ const expenseBody = z
   })
   .transform((b) => {
     const { participantIds, participants, ...rest } = b;
-    return { ...rest, participants: rest.shared ? participants ?? (participantIds || []).map((personId) => ({ personId })) : [] };
+    return {
+      ...rest,
+      recurrenceCount: rest.recurrenceType === 'installments' ? rest.recurrenceCount : null,
+      participants: rest.shared ? participants ?? (participantIds || []).map((personId) => ({ personId })) : [],
+    };
   });
 
 const bool = z.enum(['true', 'false']).transform((v) => v === 'true');

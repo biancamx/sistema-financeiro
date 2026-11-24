@@ -202,7 +202,9 @@ export function createVehiclesService() {
       description: expense.description, amount: expense.amount, km: expense.km, liters: expense.liters ?? null,
       payerId: String(expense.payerId),
       payer: payer?.name ?? '', shared: expense.shared, splitMode: expense.splitMode,
-      paymentMethod: expense.paymentMethod, requestId: expense.requestId,
+      paymentMethod: expense.paymentMethod,
+      recurrenceType: expense.recurrenceType ?? 'once', recurrenceCount: expense.recurrenceCount ?? null,
+      requestId: expense.requestId,
       cardId: purchase?.cardId ? String(purchase.cardId._id) : null, card: purchase?.cardId?.name ?? null,
       installmentCount: purchase?.totalInstallments ?? 1, startMonth: first?.month ?? null, startYear: first?.year ?? null,
       group: groupOf(expense.category), categoryLabel: label, shares,
@@ -423,6 +425,7 @@ export function createVehiclesService() {
             userId, vehicleId: data.vehicleId, expenseDate: data.date, category: data.category,
             description: data.description ?? '', amount, km: data.km ?? null, liters: data.liters ?? null, payerId: data.payerId,
             shared: data.shared, splitMode: data.shared ? data.splitMode : 'equal', paymentMethod: data.paymentMethod,
+            recurrenceType: data.recurrenceType ?? 'once', recurrenceCount: data.recurrenceCount ?? null,
             requestId: data.requestId ?? null,
             shares,
           }], { session });
@@ -453,7 +456,9 @@ export function createVehiclesService() {
             vehicleId: data.vehicleId, expenseDate: data.date, category: data.category,
             description: data.description ?? '', amount, km: data.km ?? null, liters: data.liters ?? null, payerId: data.payerId,
             shared: data.shared, splitMode: data.shared ? data.splitMode : 'equal',
-            paymentMethod: data.paymentMethod, shares,
+            paymentMethod: data.paymentMethod,
+            recurrenceType: data.recurrenceType ?? 'once', recurrenceCount: data.recurrenceCount ?? null,
+            shares,
           });
           await expense.save({ session });
           await advanceVehicleMileage(userId, data.vehicleId, data.km ?? null, expense._id, session);

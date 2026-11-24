@@ -4,9 +4,13 @@ import { ensureSubscriptionInstallments, getInstallmentBalanceCents } from '../.
 import { SECTIONS, SECTION_KEYS, createDefaultRows } from './budgets.defaults.js';
 import { Person } from '../../models/Person.js';
 import { BudgetSheet } from '../../models/BudgetSheet.js';
+import { CashEntry } from '../../models/CashEntry.js';
 import { Purchase } from '../../models/Purchase.js';
 import { Installment } from '../../models/Installment.js';
+import { VehicleExpense } from '../../models/VehicleExpense.js';
+import { Vehicle } from '../../models/Vehicle.js';
 import { createCashLedgerService } from '../cashLedger/cashLedger.service.js';
+import { EXPENSE_CATEGORIES } from '../vehicles/vehicles.categories.js';
 
 const zeros = () => Array(12).fill(0);
 const sum12 = (arr) => round2(arr.reduce((a, b) => a + b, 0));
@@ -62,6 +66,35 @@ export function createBudgetsService() {
         item.enteredValues.push(cell.value);
       }
 
+      const vehicleExpenses = await VehicleExpense.find({
+        userId, paymentMethod: 'cash', expenseDate: { $lte: `${year}-12-31` },
+      }).populate('vehicleId', 'model').lean();
+      const vehicleRows = vehicleExpenses.flatMap((expense) => {
+        const share = expense.shares.find((item) => strId(item.personId) === strId(personId));
+        if (!share) return [];
+        const startYear = Number(expense.expenseDate.slice(0, 4));
+        const startMonth = Number(expense.expenseDate.slice(5, 7));
+        const recurrenceType = expense.recurrenceType ?? 'once';
+        const values = zeros();
+        for (let month = 1; month <= 12; month++) {
+          const offset = (year - startYear) * 12 + month - startMonth;
+          const occurs = offset >= 0 && (
+            recurrenceType === 'ongoing'
+            || (recurrenceType === 'installments' && offset < (expense.recurrenceCount ?? 0))
+            || (recurrenceType === 'once' && offset === 0)
+          );
+          if (occurs) values[month - 1] = share.amount;
+        }
+        if (!values.some((value) => value > 0)) return [];
+        const categoryLabel = EXPENSE_CATEGORIES.find((item) => item.key === expense.category)?.label ?? expense.category;
+        const label = expense.description?.trim() || categoryLabel;
+        return [{
+          id: `vehicle-expense-${strId(expense._id)}`, section: 'vehicle',
+          label: expense.vehicleId?.model ? `${label} · ${expense.vehicleId.model}` : label,
+          computed: true, values, paidMonths: Array(12).fill(false), enteredValues: values,
+        }];
+      });
+
       const purchases = await Purchase.find({ userId, personId }).populate('cardId', 'name').populate('categoryId', 'name').lean();
       const purchaseIds = purchases.map((purchase) => purchase._id);
       const installments = purchaseIds.length ? await Installment.find({ userId, purchaseId: { $in: purchaseIds }, year }).lean() : [];
@@ -76,14 +109,19 @@ export function createBudgetsService() {
         cardMap.get(key).values[installment.month - 1] += installment.amount;
       }
       const sections = SECTIONS.map((section) => {
-        const list = section.computed ? [...cardMap.values()] : [...byRow.values()].filter((row) => row.section === section.key);
+        const list = section.computed
+          ? [...cardMap.values()]
+          : [
+              ...[...byRow.values()].filter((row) => row.section === section.key),
+              ...(section.key === 'vehicle' ? vehicleRows : []),
+            ];
         const totals = zeros();
         for (const row of list) row.values.forEach((value, month) => { totals[month] += value; });
         return {
           key: section.key, label: section.label, kind: section.kind, computed: Boolean(section.computed),
           rows: list.map((row) => {
             const { enteredValues, ...item } = row;
-            const extremes = section.computed || enteredValues.length === 0 ? item.values : enteredValues;
+            const extremes = section.computed || item.computed || enteredValues.length === 0 ? item.values : enteredValues;
             return { ...item, paidMonths: item.paidMonths ?? Array(12).fill(false), total: sum12(item.values), min: Math.min(...extremes), max: Math.max(...extremes) };
           }),
           totals: totals.map(round2),
@@ -91,6 +129,14 @@ export function createBudgetsService() {
       });
       const totals = Object.fromEntries(sections.map((section) => [section.key, section.totals]));
       const cashFlow = await cashYear(userId, year);
+      const linkedCashExpenses = await CashEntry.find({
+        userId, kind: 'expense', vehicleExpenseId: { $ne: null },
+        entryDate: { $gte: `${year}-01-01`, $lte: `${year}-12-31` },
+      }).select('entryDate totalCents').lean();
+      for (const expense of linkedCashExpenses) {
+        const month = Number(expense.entryDate.slice(5, 7)) - 1;
+        cashFlow.expenses[month] = round2(cashFlow.expenses[month] - expense.totalCents / 100);
+      }
       const revenue = zeros().map((_, month) => round2(totals.income[month] + totals.benefits[month]));
       const totalRevenue = revenue.map((amount, month) => round2(amount + cashFlow.receipts[month]));
       const detailed = SECTIONS.some((section) => !section.computed && section.kind === 'expense'

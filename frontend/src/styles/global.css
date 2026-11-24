@@ -1843,7 +1843,6 @@ img, canvas { max-width: 100%; }
   .tour-trigger { display: none; }
 }
 @media (max-width: 420px) {
-  .system-clock time { display: none; }
   .period .input-ghost:first-of-type { width: 54px; max-width: 54px; }
   .period .input-ghost:last-of-type { width: 42px; max-width: 42px; }
 }

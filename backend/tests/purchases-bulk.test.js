@@ -152,3 +152,67 @@ test('bulk payment API requires a session and restores available card limit', as
   assert.equal(restored.used, 200);
   assert.equal(restored.available, 800);
 });
+
+test('month payment only changes card installments for the selected person and month', async () => {
+  const owner = await createAccount('bulk-month@example.invalid');
+  const otherPerson = await Person.create({ userId: owner.user._id, name: 'Other person' });
+  const purchase = await Purchase.create({
+    userId: owner.user._id, personId: owner.person._id, cardId: owner.card._id,
+    description: 'Selected month', totalAmount: 200, totalInstallments: 2,
+  });
+  const otherMonthPurchase = await Purchase.create({
+    userId: owner.user._id, personId: owner.person._id, cardId: owner.card._id,
+    description: 'Other month', totalAmount: 100, totalInstallments: 1,
+  });
+  const secondSelectedMonthPurchase = await Purchase.create({
+    userId: owner.user._id, personId: owner.person._id, cardId: owner.card._id,
+    description: 'Another selected month charge', totalAmount: 100, totalInstallments: 1,
+  });
+  const otherPersonPurchase = await Purchase.create({
+    userId: owner.user._id, personId: otherPerson._id, cardId: owner.card._id,
+    description: 'Other person', totalAmount: 100, totalInstallments: 1,
+  });
+  const [selected, secondSelected, otherMonth, otherPersonInstallment] = await Installment.create([
+    { ...installmentsFor(owner.user, purchase, 10)[0], year: 2099 },
+    { ...installmentsFor(owner.user, secondSelectedMonthPurchase, 10)[0], year: 2099 },
+    { ...installmentsFor(owner.user, otherMonthPurchase, 11)[0], year: 2099 },
+    { ...installmentsFor(owner.user, otherPersonPurchase, 10)[0], year: 2099 },
+  ]);
+  const endpoint = `${baseUrl}/purchases/installments/month-status`;
+  const headers = { 'Content-Type': 'application/json', Cookie: owner.cookie };
+  const request = (paid) => fetch(endpoint, {
+    method: 'POST', headers,
+    body: JSON.stringify({ personId: String(owner.person._id), month: 10, year: 2099, paid }),
+  });
+  const budgetUrl = `${baseUrl}/budgets?personId=${owner.person._id}&year=2099&month=10`;
+  const statusBefore = await fetch(budgetUrl, { headers }).then((response) => response.json());
+  assert.deepEqual(statusBefore.data.cardPaymentStatuses[9], { hasCharges: true, paid: false });
+  const cardUsed = async () => {
+    const response = await fetch(`${baseUrl}/cards?month=10&year=2099`, { headers }).then((result) => result.json());
+    return response.data.find((card) => card.id === String(owner.card._id)).used;
+  };
+  assert.equal(await cardUsed(), 400);
+
+  const paid = await request(true);
+  assert.equal(paid.status, 200);
+  assert.deepEqual((await paid.json()).data, { updated: 2 });
+  assert.equal(await cardUsed(), 200);
+  const statusAfterPay = await fetch(budgetUrl, { headers }).then((response) => response.json());
+  assert.deepEqual(statusAfterPay.data.cardPaymentStatuses[9], { hasCharges: true, paid: true });
+  assert.deepEqual(
+    await Promise.all([selected, secondSelected, otherMonth, otherPersonInstallment].map(async (item) => {
+      const current = await Installment.findById(item._id).lean();
+      return [current.paid, current.paidAmount];
+    })),
+    [[true, 100], [true, 100], [false, 0], [false, 0]],
+  );
+
+  const unmarked = await request(false);
+  assert.equal(unmarked.status, 200);
+  assert.deepEqual((await unmarked.json()).data, { updated: 2 });
+  assert.equal(await cardUsed(), 400);
+  const reset = await Installment.findById(selected._id).lean();
+  assert.deepEqual([reset.paid, reset.paidAmount], [false, 0]);
+  const statusAfterUnpay = await fetch(budgetUrl, { headers }).then((response) => response.json());
+  assert.deepEqual(statusAfterUnpay.data.cardPaymentStatuses[9], { hasCharges: true, paid: false });
+});

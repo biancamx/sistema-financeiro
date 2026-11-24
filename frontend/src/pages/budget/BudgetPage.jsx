@@ -27,6 +27,7 @@ export default function BudgetPage() {
   const [lastEdit, setLastEdit] = useState({}); // rowId -> { month, value } para "repetir até dezembro"
   const [adding, setAdding] = useState(null); // { section, label }
   const [monthlySummaryOpen, setMonthlySummaryOpen] = useState(false);
+  const [busyCardPayments, setBusyCardPayments] = useState(false);
 
   if (people.error) return <ErrorState error={people.error} onRetry={people.reload} />;
   if (!people.data) return <Spinner />;
@@ -108,6 +109,22 @@ export default function BudgetPage() {
     } catch (error) {
       toast.error(error);
       sheet.reload();
+    }
+  };
+  const setMonthCardPayments = async (month, paid) => {
+    if (busyCardPayments) return;
+    setBusyCardPayments(true);
+    try {
+      const result = await purchasesApi.setMonthPaid(personId, month, year, paid);
+      notifyFinanceChanged();
+      toast.success(paid
+        ? `${result.data.updated} parcela(s) de ${MONTHS[month - 1]} marcada(s) como paga(s)`
+        : `${result.data.updated} parcela(s) de ${MONTHS[month - 1]} desmarcada(s)`);
+    } catch (error) {
+      toast.error(error);
+      sheet.reload();
+    } finally {
+      setBusyCardPayments(false);
     }
   };
   const saveObservation = async (purchase, observation) => {
@@ -411,6 +428,30 @@ export default function BudgetPage() {
                       <td className="num total">{moneyPlain(l.values.reduce((a, b) => a + b, 0))}</td><td /><td /><td />
                     </tr>
                   ))}
+                  <tr className="budget-month-payment-row">
+                    <td className="sticky-col">Pagamentos do cartão</td>
+                    {MONTHS_SHORT.map((month, index) => {
+                      const monthNumber = index + 1;
+                      const status = d.cardPaymentStatuses[index];
+                      const hasCharges = status.hasCharges;
+                      return (
+                        <td key={month} className="budget-month-payment-cell">
+                          <div className="budget-month-payment-actions">
+                            <Button
+                              size="sm"
+                              variant={status.paid ? 'ghost' : 'primary'}
+                              disabled={!hasCharges || busyCardPayments}
+                              aria-label={`${status.paid ? 'Desfazer pagamento' : 'Pagar'} todas as cobranças de ${MONTHS[monthNumber - 1]}`}
+                              onClick={() => setMonthCardPayments(monthNumber, !status.paid)}
+                            >
+                              {status.paid ? 'Despagar' : 'Pagar'}
+                            </Button>
+                          </div>
+                        </td>
+                      );
+                    })}
+                    <td /><td /><td /><td />
+                  </tr>
                 </tbody>
               </table>
             </div>

@@ -100,6 +100,7 @@ export function createBudgetsService() {
       const installments = purchaseIds.length ? await Installment.find({ userId, purchaseId: { $in: purchaseIds }, year }).lean() : [];
       const purchaseById = new Map(purchases.map((purchase) => [strId(purchase._id), purchase]));
       const cardMap = new Map();
+      const cardPaymentStatuses = Array.from({ length: 12 }, () => ({ hasCharges: false, paid: true }));
       for (const installment of installments) {
         const purchase = purchaseById.get(strId(installment.purchaseId));
         const card = purchase?.cardId;
@@ -107,6 +108,9 @@ export function createBudgetsService() {
         const key = strId(card._id);
         if (!cardMap.has(key)) cardMap.set(key, { id: `card-${key}`, section: 'cards', label: card.name, computed: true, values: zeros() });
         cardMap.get(key).values[installment.month - 1] += installment.amount;
+        const status = cardPaymentStatuses[installment.month - 1];
+        status.hasCharges = true;
+        if (getInstallmentBalanceCents(installment.amount, installment.paidAmount, installment.paid) > 0) status.paid = false;
       }
       const sections = SECTIONS.map((section) => {
         const list = section.computed
@@ -195,7 +199,7 @@ export function createBudgetsService() {
         ],
         yearRevenue: sum12(totalRevenue), yearSpent: sum12(spent), yearBalance: sum12(balance),
       };
-      return { sheetId: strId(sheet._id), personId: strId(personId), year, sections, summary, monthly };
+      return { sheetId: strId(sheet._id), personId: strId(personId), year, sections, summary, monthly, cardPaymentStatuses };
     },
     async addRow(userId, sheetId, { section, label }) {
       const sheet = await BudgetSheet.findOne({ _id: sheetId, userId });

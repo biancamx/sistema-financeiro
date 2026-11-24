@@ -49,6 +49,7 @@ export const purchasesApi = {
   setPaid: (id, paid) => patch(`/purchases/installments/${id}`, { paid }),
   updateObservation: (id, observation) => patch(`/purchases/${id}/observation`, { observation }),
   setManyPaid: (ids, paid) => post(`/purchases/installments/${paid ? 'pay' : 'unpay'}-selected`, { ids }),
+  setMonthPaid: (personId, month, year, paid) => post('/purchases/installments/month-status', { personId, month, year, paid }),
   exportUrl: () => apiUrl('/purchases/export.csv'),
 };
 

@@ -24,6 +24,12 @@ const subscriptionQuery = listQuery.extend({ status: z.enum(['active', 'canceled
 const installmentIds = z.object({
   ids: z.array(id).min(1).max(5000).refine((ids) => new Set(ids).size === ids.length, 'Parcelas repetidas'),
 });
+const monthPayment = z.object({
+  personId: id,
+  month,
+  year,
+  paid: z.boolean(),
+});
 
 const purchaseBodyBase = z.object({
   description: z.string().trim().min(1).max(120),
@@ -83,6 +89,9 @@ export function purchasesRoutes() {
   ));
   r.post('/installments/unpay-selected', validate({ body: installmentIds }), asyncHandler(async (req, res) =>
     res.json({ data: await svc.setManyPaid(req.user._id, req.body.ids, false) }),
+  ));
+  r.post('/installments/month-status', validate({ body: monthPayment }), asyncHandler(async (req, res) =>
+    res.json({ data: await svc.setMonthPaid(req.user._id, req.body.personId, req.body.month, req.body.year, req.body.paid) }),
   ));
   r.patch('/installments/:id', validate({ params: z.object({ id }), body: z.object({ paid: z.boolean() }) }), asyncHandler(async (req, res) =>
     res.json({ data: await svc.setPaid(req.user._id, req.params.id, req.body.paid) }),

@@ -476,6 +476,31 @@ export function createPurchasesService() {
     },
     setPaid: (userId, id, paid) => billing.recordPayment(userId, id, paid),
     setManyPaid: (userId, ids, paid = true) => billing.recordBulkPayment(userId, ids, paid),
+    async setMonthPaid(userId, personId, month, year, paid) {
+      await assertOwned(Person, personId, userId, 'Pessoa');
+      const purchases = await Purchase.find({ userId, personId, cardId: { $ne: null } }).select('_id').lean();
+      const purchaseIds = purchases.map((purchase) => purchase._id);
+      if (!purchaseIds.length) return { updated: 0 };
+
+      const session = await mongoose.startSession();
+      let updated = 0;
+      try {
+        await session.withTransaction(async () => {
+          const installments = await Installment.find({
+            userId, purchaseId: { $in: purchaseIds }, month, year,
+          }).session(session);
+          for (const installment of installments) {
+            installment.paid = paid;
+            installment.paidAmount = paid ? installment.amount : 0;
+            await installment.save({ session });
+          }
+          updated = installments.length;
+        });
+      } finally {
+        await session.endSession();
+      }
+      return { updated };
+    },
     async exportCsv(userId) {
       const purchases = await populatePurchases({ userId }, { _id: 1 });
       const ids = purchases.map((p) => p._id);

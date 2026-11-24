@@ -770,16 +770,25 @@ export default function SettingsPage({ initialSection = 'categories', standalone
                   : 'Notificações no celular'}
           onClose={closeSettingsModal}
           footer={(
-            activeSection === 'vehicle-reminders'
+            activeSection === 'ai'
               ? (
+                <>
+                  <Button onClick={closeSettingsModal}>Cancelar</Button>
+                  <Button variant="primary" onClick={saveAiKey} disabled={aiLoading || aiBusy}>
+                    {aiBusy ? 'Salvando…' : 'Salvar chave'}
+                  </Button>
+                </>
+              )
+              : activeSection === 'vehicle-reminders'
+                ? (
                 <>
                   <Button onClick={closeSettingsModal}>Cancelar</Button>
                   <Button type="submit" form="settings-vehicle-reminder-form" variant="primary" disabled={vehicleReminderSettingsLoading || vehicleReminderSettingsBusy}>
                     {vehicleReminderSettingsBusy ? 'Salvando…' : 'Salvar preferências'}
                   </Button>
                 </>
-              )
-              : <Button onClick={closeSettingsModal}>{activeSection === 'push' ? 'Fechar' : 'Cancelar'}</Button>
+                )
+                : <Button onClick={closeSettingsModal}>{activeSection === 'push' ? 'Fechar' : 'Cancelar'}</Button>
           )}
         >
       <section

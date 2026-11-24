@@ -7,6 +7,9 @@ import { cardsApi, peopleApi } from '../../services/api.js';
 import { Button, Card, EmptyState, ErrorState, Field, Modal, Money, PageHeader, Select, Spinner } from '../../components/ui/ui.jsx';
 import { monthLabel, parseMoney } from '../../lib/format.js';
 
+const nameCollator = new Intl.Collator('pt-BR', { sensitivity: 'base', numeric: true });
+const compareByName = (a, b) => nameCollator.compare(a.name ?? '', b.name ?? '');
+
 const templates = {
   'Nubank': '#820ad1',
   'Inter': '#f36f21',
@@ -95,6 +98,9 @@ export default function CardsPage() {
   if (people.error) return <ErrorState error={people.error} onRetry={people.reload} />;
   if (!data || !people.data) return <Spinner />;
 
+  const sortedCards = data.slice().sort(compareByName);
+  const sortedPeople = people.data.slice().sort(compareByName);
+
   const save = async (form) => {
     const body = {
       name: form.name.trim(),
@@ -178,7 +184,7 @@ export default function CardsPage() {
         </Card>
       ) : (
         <section className="card-grid" aria-label="Seus cartões">
-          {data.map((card) => {
+          {sortedCards.map((card) => {
             const percent = card.percentUsed;
             const tone = usageTone(percent, card.limit);
             return (
@@ -239,7 +245,7 @@ export default function CardsPage() {
         {editing && (
           <div className="form-grid">
             <Field label="Nome do cartão">{(id) => <input id={id} className="input" value={editing.name} onChange={(e) => setEditing({ ...editing, name: e.target.value })} autoFocus placeholder="Ex.: Cartão principal" />}</Field>
-            <Field label="Titular principal" hint="As compras podem continuar sendo atribuídas a outras pessoas.">{(id) => <Select id={id} value={editing.ownerId} onChange={(value) => setEditing({ ...editing, ownerId: value })} placeholder="Selecione um titular" options={people.data.map((person) => ({ value: person.id, label: person.name }))} />}</Field>
+            <Field label="Titular principal" hint="As compras podem continuar sendo atribuídas a outras pessoas.">{(id) => <Select id={id} value={editing.ownerId} onChange={(value) => setEditing({ ...editing, ownerId: value })} placeholder="Selecione um titular" options={sortedPeople.map((person) => ({ value: person.id, label: person.name }))} />}</Field>
             <Field label="Banco / modelo visual">{(id) => <Select id={id} value={editing.issuer} onChange={setIssuer} options={issuerOptions} />}</Field>
             <Field label="Bandeira">{(id) => <Select id={id} value={editing.brand} onChange={(brand) => setEditing({ ...editing, brand })} options={brandOptions} />}</Field>
             <Field label="Últimos 4 dígitos" hint="Não informe o número completo do cartão.">{(id) => <input id={id} className="input" inputMode="numeric" autoComplete="off" maxLength={4} pattern="\d{4}" placeholder="0000" value={editing.lastFour} onChange={(e) => setEditing({ ...editing, lastFour: e.target.value.replace(/\D/g, '').slice(0, 4) })} />}</Field>

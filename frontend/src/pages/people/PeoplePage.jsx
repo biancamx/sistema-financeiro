@@ -8,6 +8,9 @@ import { remindersApi, peopleApi, systemApi } from '../../services/api.js';
 import { Button, Card, EmptyState, ErrorState, Field, Modal, Money, PageHeader, Spinner } from '../../components/ui/ui.jsx';
 import { MONTHS } from '../../lib/format.js';
 
+const nameCollator = new Intl.Collator('pt-BR', { sensitivity: 'base', numeric: true });
+const compareByName = (a, b) => nameCollator.compare(a.name ?? '', b.name ?? '');
+
 function maskPhone(value) {
   if (!value) return '';
   const digits = value.replace(/\D/g, '').slice(0, 11);
@@ -311,9 +314,9 @@ export default function PeoplePage({
   if (error) return <ErrorState error={error} onRetry={reload} />;
   if (!data) return <Spinner />;
 
-  const visiblePeople = onlyPersonId
+  const visiblePeople = (onlyPersonId
     ? data.filter((person) => person.id === onlyPersonId)
-    : data;
+    : data).slice().sort(compareByName);
 
   const fetchBilling = async (personId, targetMonth, targetYear) => {
     const requestId = ++billingRequest.current;

@@ -12,7 +12,7 @@ process.env.ENABLE_LOCAL_LOGIN = 'false';
 process.env.AUTH_RATE_LIMIT_MAX = '1000';
 process.env.GOOGLE_CLIENT_ID = 'test-client-id.apps.googleusercontent.com';
 
-const [{ createApp }, { User }, { AuthSession }, { AuditEvent }, { SecurityAlert }, { ensureGoogleEmailVerified, ensureGoogleAccountLink }] = await Promise.all([
+const [{ createApp }, { User }, { AuthSession }, { AuditEvent }, { SecurityAlert }, { ensureGoogleEmailVerified, ensureGoogleAccountLink, withGoogleAuthStage }] = await Promise.all([
   import('../src/app.js'),
   import('../src/models/User.js'),
   import('../src/models/AuthSession.js'),
@@ -217,6 +217,24 @@ test('Google login requires an explicitly verified email claim', () => {
   assert.throws(() => ensureGoogleAccountLink('existing-google-id', 'different-google-id'), { status: 401 });
   assert.doesNotThrow(() => ensureGoogleAccountLink(null, 'new-google-id'));
   assert.doesNotThrow(() => ensureGoogleAccountLink('same-google-id', 'same-google-id'));
+});
+
+test('Google auth diagnostics retain Mongo codes without provider error messages', async () => {
+  const mongoError = Object.assign(new Error('sensitive database detail'), {
+    name: 'MongoServerError',
+    code: 13,
+    codeName: 'Unauthorized',
+  });
+  await assert.rejects(
+    withGoogleAuthStage('create_google_session', async () => { throw mongoError; }),
+    (error) => {
+      assert.equal(error.googleAuthStage, 'create_google_session');
+      assert.equal(error.googleAuthCauseCode, 13);
+      assert.equal(error.googleAuthCauseCodeName, 'Unauthorized');
+      assert.equal(error.message.includes('sensitive database detail'), false);
+      return true;
+    },
+  );
 });
 
 test('Google redirect callback returns users to login when the CSRF token is invalid', async () => {

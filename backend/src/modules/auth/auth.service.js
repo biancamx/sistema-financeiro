@@ -74,7 +74,7 @@ function publicUser(user) {
   };
 }
 
-async function withGoogleAuthStage(stage, operation) {
+export async function withGoogleAuthStage(stage, operation) {
   try {
     return await operation();
   } catch (error) {
@@ -92,6 +92,11 @@ async function withGoogleAuthStage(stage, operation) {
       : 'UnknownError';
     if (typeof error?.code === 'string' && /^[A-Z0-9_-]{1,80}$/.test(error.code)) {
       stagedError.googleAuthCauseCode = error.code;
+    } else if (Number.isInteger(error?.code) && error.code >= 0 && error.code <= 999999) {
+      stagedError.googleAuthCauseCode = error.code;
+    }
+    if (typeof error?.codeName === 'string' && /^[A-Za-z][A-Za-z0-9_]{0,79}$/.test(error.codeName)) {
+      stagedError.googleAuthCauseCodeName = error.codeName;
     }
     const status = Number(error?.response?.status || error?.status);
     if (Number.isInteger(status) && status >= 400 && status <= 599) {

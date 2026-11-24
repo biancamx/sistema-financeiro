@@ -11,9 +11,11 @@ test('rotas do sistema existem somente sob /api/system', async (t) => {
   t.after(() => new Promise((resolve) => server.close(resolve)));
 
   const baseUrl = `http://127.0.0.1:${server.address().port}/api`;
+  const expectedPermissionsPolicy = 'camera=(), microphone=(), geolocation=(), payment=(), usb=()';
   const officialHealth = await fetch(`${baseUrl}/system/health`);
   assert.equal(officialHealth.status, 200);
   assert.equal((await officialHealth.json()).status, 'ok');
+  assert.equal(officialHealth.headers.get('permissions-policy'), expectedPermissionsPolicy);
   assert.ok(officialHealth.headers.get('x-request-id'));
   assert.equal(officialHealth.headers.get('cross-origin-opener-policy'), 'same-origin-allow-popups');
   const csp = officialHealth.headers.get('content-security-policy');
@@ -25,12 +27,14 @@ test('rotas do sistema existem somente sob /api/system', async (t) => {
   const unauthenticated = await fetch(`${baseUrl}/health`);
   const unauthenticatedBody = await unauthenticated.json();
   assert.equal(unauthenticated.status, 401);
+  assert.equal(unauthenticated.headers.get('permissions-policy'), expectedPermissionsPolicy);
   assert.equal(unauthenticatedBody.error.requestId, unauthenticated.headers.get('x-request-id'));
   assert.equal((await fetch(`${baseUrl}/system/system/health`)).status, 401);
 
   const missingRoute = await fetch(new URL('/not-a-route', baseUrl), { method: 'POST' });
   const missingBody = await missingRoute.json();
   assert.equal(missingRoute.status, 404);
+  assert.equal(missingRoute.headers.get('permissions-policy'), expectedPermissionsPolicy);
   assert.equal(missingBody.error.code, 'NOT_FOUND');
   assert.equal(missingBody.error.requestId, missingRoute.headers.get('x-request-id'));
 });

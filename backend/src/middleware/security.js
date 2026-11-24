@@ -16,6 +16,11 @@ export const securityHeaders = helmet({
   },
 });
 
+const permissionsPolicyHeader = (_req, res, next) => {
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=(), usb=()');
+  next();
+};
+
 export function isAllowedOrigin(origin) {
   if (!origin || env.frontendUrls.includes(origin)) return true;
   if (env.nodeEnv !== 'development') return false;
@@ -51,6 +56,7 @@ export function originCheck(req, _res, next) {
 
 export function setupSecurity(app) {
   app.use(securityHeaders);
+  app.use(permissionsPolicyHeader);
   app.use(corsPolicy);
   app.use(originCheck);
 }

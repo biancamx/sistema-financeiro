@@ -1,4 +1,4 @@
-import { requireUserAiConfig } from '../settings/ai.service.js';
+import { completeWithFallback, requireUserAiConfig } from '../settings/ai.service.js';
 import { executarFerramenta, toolsDeclaration } from './assistant.tools.js';
 
 const MAX_TOOL_ROUNDS = 4;
@@ -141,7 +141,7 @@ function normalizeImage(image) {
 
 async function completeWithUserProvider({ userId, messages, document, systemInstruction, tools, json, generationConfig }) {
   const config = await requireUserAiConfig(userId);
-  return config.adapter.complete({
+  const request = {
     apiKey: config.apiKey,
     model: config.model,
     systemInstruction,
@@ -150,7 +150,12 @@ async function completeWithUserProvider({ userId, messages, document, systemInst
     tools,
     json,
     generationConfig,
-  });
+  };
+  try {
+    return await config.adapter.complete(request);
+  } catch (error) {
+    return completeWithFallback(config, request, error);
+  }
 }
 
 export async function processUserMessage({ message = '', image: rawImage, history = [], userId }) {

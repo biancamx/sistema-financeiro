@@ -11,12 +11,13 @@ process.env.RATE_LIMIT_MAX = '100000';
 process.env.AUTH_RATE_LIMIT_MAX = '100000';
 process.env.ENABLE_LOCAL_LOGIN = 'true';
 
-const [{ createApp }, { User }, { decryptAiApiKey }, { processUserMessage }, { analyzePdfDocument }] = await Promise.all([
+const [{ createApp }, { User }, { decryptAiApiKey }, { processUserMessage }, { analyzePdfDocument }, { env }] = await Promise.all([
   import('../src/app.js'),
   import('../src/models/User.js'),
   import('../src/modules/settings/ai-crypto.js'),
   import('../src/modules/assistant/assistant.service.js'),
   import('../src/modules/import/pdf.reader.js'),
+  import('../src/config/env.js'),
 ]);
 const [
   { executarFerramenta, toolsDeclaration },
@@ -85,6 +86,7 @@ function mockProviderFetch(handler) {
 }
 
 async function saveConfig(api, [provider, model, apiKey]) {
+  mockProviderFetch(async () => providerResponse(provider));
   return api('PUT', '/settings/ai', { provider, model, apiKey, consent: true });
 }
 
@@ -230,12 +232,140 @@ test('teste de chave diferencia credencial válida e rejeitada nos três provedo
   assert.equal(invalidModel.status, 400);
 });
 
+test('salvar configurações valida a chave antes de persistir', async () => {
+  const account = await createTestAccount({ email: 'ai-invalid-save@example.invalid' });
+  const api = createApiClient(baseUrl, account.cookie);
+  const apiKey = 'AIza-invalid-key-must-not-be-saved';
+  mockProviderFetch(async () => providerResponse('gemini', 401));
+
+  const response = await api('PUT', '/settings/ai', {
+    provider: 'gemini', model: 'gemini-4-hydrogen', apiKey, consent: true,
+  });
+  assert.equal(response.status, 422);
+  assert.equal(response.json.error.code, 'AI_KEY_REJECTED');
+  assert.equal(JSON.stringify(response.json).includes(apiKey), false);
+  assert.equal((await api('GET', '/settings/ai')).json.data.configured, false);
+});
+
+test('Gemini atende com payload válido e repete 503/429 até o limite', async () => {
+  const account = await createTestAccount({ email: 'ai-gemini-retry@example.invalid' });
+  const api = createApiClient(baseUrl, account.cookie);
+  await saveConfig(api, ['gemini', 'gemini-4-hydrogen', 'AIza-gemini-retry-test-key']);
+
+  let attempts = 0;
+  let requestUrl = '';
+  let requestBody;
+  mockProviderFetch(async (url, options) => {
+    attempts += 1;
+    requestUrl = String(url);
+    requestBody = JSON.parse(options.body);
+    return attempts < 3
+      ? providerResponse('gemini', 503)
+      : providerResponse('gemini', 200, 'Resposta Gemini');
+  });
+  const success = await api('POST', '/assistant/chat', { message: 'Olá, Gemini' });
+  assert.equal(success.status, 200, success.text);
+  assert.equal(success.json.reply, 'Resposta Gemini');
+  assert.equal(attempts, 3);
+  assert.match(requestUrl, /\/v1\/models\/gemini-4-hydrogen:generateContent/);
+  assert.deepEqual(requestBody.contents, [{ role: 'user', parts: [{ text: 'Olá, Gemini' }] }]);
+  assert.ok(requestBody.systemInstruction);
+
+  attempts = 0;
+  mockProviderFetch(async () => {
+    attempts += 1;
+    return providerResponse('gemini', 429);
+  });
+  const limited = await api('POST', '/assistant/chat', { message: 'Outra tentativa' });
+  assert.equal(limited.status, 429);
+  assert.equal(limited.json.error.code, 'AI_PROVIDER_LIMIT');
+  assert.equal(attempts, 3);
+
+  attempts = 0;
+  mockProviderFetch(async () => {
+    attempts += 1;
+    return providerResponse('gemini', 503);
+  });
+  const unavailable = await api('POST', '/assistant/chat', { message: 'Serviço indisponível' });
+  assert.equal(unavailable.status, 502);
+  assert.equal(unavailable.json.error.code, 'AI_PROVIDER_UNAVAILABLE');
+  assert.equal(attempts, 3);
+});
+
+test('Gemini diferencia modelo inexistente e timeout sem expor a chave', async () => {
+  const account = await createTestAccount({ email: 'ai-gemini-model-timeout@example.invalid' });
+  const api = createApiClient(baseUrl, account.cookie);
+  const apiKey = 'AIza-gemini-model-timeout-key';
+  await saveConfig(api, ['gemini', 'gemini-4-hydrogen', apiKey]);
+
+  mockProviderFetch(async () => providerResponse('gemini', 404));
+  const modelMissing = await api('POST', '/settings/ai/test', {
+    provider: 'gemini', model: 'gemini-4-hydrogen', apiKey,
+  });
+  assert.equal(modelMissing.status, 422);
+  assert.equal(modelMissing.json.error.code, 'AI_MODEL_UNAVAILABLE');
+  assert.equal(JSON.stringify(modelMissing.json).includes(apiKey), false);
+
+  let attempts = 0;
+  mockProviderFetch(async () => {
+    attempts += 1;
+    throw new DOMException('request timed out', 'AbortError');
+  });
+  const timedOut = await api('POST', '/assistant/chat', { message: 'Teste de timeout' });
+  assert.equal(timedOut.status, 504, timedOut.text);
+  assert.equal(timedOut.json.error.code, 'AI_PROVIDER_TIMEOUT');
+  assert.equal(attempts, 1);
+  assert.equal(JSON.stringify(timedOut.json).includes(apiKey), false);
+});
+
+test('fallback configurado é testado e usado após indisponibilidade Gemini', async () => {
+  const account = await createTestAccount({ email: 'ai-fallback@example.invalid' });
+  const api = createApiClient(baseUrl, account.cookie);
+  const primaryApiKey = 'AIza-gemini-fallback-test-key';
+  await saveConfig(api, ['gemini', 'gemini-4-hydrogen', primaryApiKey]);
+  const previous = {
+    provider: env.aiFallbackProvider,
+    model: env.aiFallbackModel,
+    apiKey: env.aiFallbackApiKey,
+  };
+  env.aiFallbackProvider = 'openai';
+  env.aiFallbackModel = 'gpt-4o-mini';
+  env.aiFallbackApiKey = 'sk-openai-fallback-test-key';
+
+  let geminiAttempts = 0;
+  let openAiRequests = 0;
+  mockProviderFetch(async (url) => {
+    if (String(url).includes('generativelanguage.googleapis.com')) {
+      geminiAttempts += 1;
+      return providerResponse('gemini', 503);
+    }
+    openAiRequests += 1;
+    return providerResponse('openai', 200, 'Resposta via fallback');
+  });
+
+  try {
+    const response = await api('POST', '/assistant/chat', { message: 'Teste de fallback' });
+    assert.equal(response.status, 200, response.text);
+    assert.equal(response.json.reply, 'Resposta via fallback');
+    assert.equal(geminiAttempts, 3);
+    assert.equal(openAiRequests, 2);
+    assert.equal(JSON.stringify(response.json).includes(primaryApiKey), false);
+    assert.equal(JSON.stringify(response.json).includes(env.aiFallbackApiKey), false);
+  } finally {
+    env.aiFallbackProvider = previous.provider;
+    env.aiFallbackModel = previous.model;
+    env.aiFallbackApiKey = previous.apiKey;
+  }
+});
+
 test('falha de conexão do Gemini retorna erro específico e preserva a configuração', async () => {
   const account = await createTestAccount({ email: 'ai-gemini-network-error@example.invalid' });
   const api = createApiClient(baseUrl, account.cookie);
   const config = ['gemini', 'gemini-4-hydrogen', 'AIza-gemini-network-test-key'];
   await saveConfig(api, config);
+  let attempts = 0;
   mockProviderFetch(async () => {
+    attempts += 1;
     throw new TypeError('fetch failed');
   });
 
@@ -243,6 +373,7 @@ test('falha de conexão do Gemini retorna erro específico e preserva a configur
   assert.equal(response.status, 502);
   assert.equal(response.json.error.code, 'AI_PROVIDER_UNAVAILABLE');
   assert.match(response.json.error.message, /conectar ao provedor de IA/);
+  assert.equal(attempts, 3);
 
   const saved = await api('GET', '/settings/ai');
   assert.equal(saved.json.data.configured, true);

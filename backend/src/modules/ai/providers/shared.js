@@ -1,6 +1,10 @@
 import { AppError } from '../../../lib/errors.js';
 import { logger } from '../../../lib/logger.js';
 
+const RETRYABLE_STATUSES = new Set([429, 500, 502, 503, 504]);
+const MAX_ATTEMPTS = 3;
+const RETRY_BASE_DELAY_MS = 250;
+
 export function toJsonSchema(schema = {}) {
   const typeMap = {
     OBJECT: 'object',
@@ -32,46 +36,68 @@ export function providerRequestError(status) {
   if (status === 400 || status === 404) {
     return new AppError(422, 'AI_MODEL_UNAVAILABLE', 'O provedor não aceitou o modelo selecionado para esta chave.');
   }
+  if (status === 408) {
+    return new AppError(504, 'AI_PROVIDER_TIMEOUT', 'O provedor demorou demais para responder. Tente novamente.');
+  }
   if (status >= 500) {
     return new AppError(502, 'AI_PROVIDER_UNAVAILABLE', 'O provedor de IA está indisponível no momento. Tente novamente mais tarde.');
   }
   return new AppError(502, 'AI_PROVIDER_ERROR', 'O provedor de IA não conseguiu concluir a resposta. Confira a chave, o modelo e a cota em Configurações.');
 }
 
-export async function postProviderJson(url, headers, body) {
-  let response;
-  const providerHost = new URL(url).hostname;
-  try {
-    response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...headers },
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(30_000),
-    });
-  } catch (error) {
-    logger.error({
-      providerHost,
-      failureKind: 'network',
-      ...(typeof error?.name === 'string' && { errorName: error.name }),
-      ...(typeof error?.cause?.code === 'string' && { causeCode: error.cause.code }),
-    }, 'Falha ao conectar ao provedor de IA');
-    throw new AppError(502, 'AI_PROVIDER_UNAVAILABLE', 'Não foi possível conectar ao provedor de IA.');
+export async function withProviderRetries(provider, model, request) {
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
+    try {
+      return await request();
+    } catch (error) {
+      const status = error?.status ?? error?.response?.status;
+      const networkFailure = error?.code === 'AI_PROVIDER_UNAVAILABLE'
+        || (typeof error?.message === 'string'
+          && error.message.startsWith('[GoogleGenerativeAI Error]: Error fetching from '));
+      const retryable = RETRYABLE_STATUSES.has(status) || networkFailure;
+      if (!retryable || attempt === MAX_ATTEMPTS) {
+        logger.error({
+          provider,
+          model,
+          failureKind: status ? 'http' : ['AbortError', 'TimeoutError', 'GoogleGenerativeAIAbortError'].includes(error?.name) ? 'timeout' : 'request',
+          ...(status && { status }),
+          ...(typeof error?.name === 'string' && { errorName: error.name }),
+          ...(typeof error?.cause?.code === 'string' && { causeCode: error.cause.code }),
+          ...(typeof error?.code === 'string' && /^[A-Z0-9_]+$/.test(error.code) && { code: error.code }),
+        }, 'Falha na solicitação ao provedor de IA');
+        throw error;
+      }
+      logger.warn({ provider, model, status, attempt, nextAttempt: attempt + 1 }, 'Nova tentativa para solicitação temporária de IA');
+      await new Promise((resolve) => setTimeout(resolve, RETRY_BASE_DELAY_MS * (2 ** (attempt - 1))));
+    }
   }
+  throw new Error('A solicitação ao provedor de IA terminou sem resultado.');
+}
 
-  if (!response.ok) {
-    logger.error({ providerHost, status: response.status }, 'O provedor de IA respondeu com erro');
-    throw providerRequestError(response.status);
-  }
-  try {
-    return await response.json();
-  } catch (error) {
-    logger.error({
-      providerHost,
-      failureKind: 'invalid_response',
-      ...(typeof error?.name === 'string' && { errorName: error.name }),
-    }, 'Resposta inválida do provedor de IA');
-    throw new AppError(502, 'AI_PROVIDER_RESPONSE', 'O provedor de IA retornou uma resposta inválida.');
-  }
+export async function postProviderJson(provider, model, url, headers, body) {
+  return withProviderRetries(provider, model, async () => {
+    let response;
+    try {
+      response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...headers },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(30_000),
+      });
+    } catch (error) {
+      if (['AbortError', 'TimeoutError'].includes(error?.name)) {
+        throw new AppError(504, 'AI_PROVIDER_TIMEOUT', 'O provedor demorou demais para responder. Tente novamente.');
+      }
+      throw new AppError(502, 'AI_PROVIDER_UNAVAILABLE', 'Não foi possível conectar ao provedor de IA.');
+    }
+
+    if (!response.ok) throw providerRequestError(response.status);
+    try {
+      return await response.json();
+    } catch {
+      throw new AppError(502, 'AI_PROVIDER_RESPONSE', 'O provedor de IA retornou uma resposta inválida.');
+    }
+  });
 }
 
 export function responseText(output) {

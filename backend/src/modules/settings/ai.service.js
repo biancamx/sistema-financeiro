@@ -1,4 +1,6 @@
 import { AppError, notFound } from '../../lib/errors.js';
+import { env } from '../../config/env.js';
+import { logger } from '../../lib/logger.js';
 import { User } from '../../models/User.js';
 import { getProvider, publicProviderList } from '../ai/providers/index.js';
 import { decryptAiApiKey, encryptAiApiKey } from './ai-crypto.js';
@@ -40,6 +42,8 @@ export async function saveAiSettings(userId, { provider: providerId, model, apiK
   if (!apiKey && !canKeepExistingKey) {
     throw new AppError(400, 'AI_KEY_REQUIRED', 'Informe a chave de API para este provedor.');
   }
+  const keyToValidate = apiKey || decryptAiApiKey(user.aiApiKeyEncrypted);
+  await provider.adapter.test({ apiKey: keyToValidate, model });
   user.aiProvider = providerId;
   user.aiModel = model;
   if (apiKey) user.aiApiKeyEncrypted = encryptAiApiKey(apiKey);
@@ -80,9 +84,77 @@ export async function setAiConsent(userId, consent) {
   return { consentGiven: Boolean(user.aiDataConsentAt) };
 }
 
-export async function testAiProvider({ provider: providerId, model, apiKey }) {
+export async function testAiProvider({ provider: providerId, model, apiKey, userId }) {
   const provider = assertProviderModel(providerId, model);
-  await provider.adapter.test({ apiKey, model });
+  let keyToValidate = apiKey;
+  if (!keyToValidate && userId) {
+    const user = await User.findById(userId).select('+aiApiKeyEncrypted').lean();
+    if (user?.aiProvider === providerId && user.aiApiKeyEncrypted) {
+      keyToValidate = decryptAiApiKey(user.aiApiKeyEncrypted);
+    }
+  }
+  if (!keyToValidate) {
+    throw new AppError(400, 'AI_KEY_REQUIRED', 'Informe uma chave de API para testar este provedor.');
+  }
+  await provider.adapter.test({ apiKey: keyToValidate, model });
+}
+
+function getFallbackConfig() {
+  const { aiFallbackProvider: providerId, aiFallbackModel: model, aiFallbackApiKey: apiKey } = env;
+  if (!providerId && !model && !apiKey) return null;
+  const provider = getProvider(providerId);
+  if (!provider || !provider.models.includes(model) || !apiKey) {
+    throw new Error('A configuração de fallback da IA contém provedor, modelo ou chave inválidos.');
+  }
+  return { providerId, provider, model, apiKey };
+}
+
+export async function completeWithFallback(config, request, primaryError) {
+  if (!['AI_PROVIDER_UNAVAILABLE', 'AI_PROVIDER_LIMIT', 'AI_PROVIDER_TIMEOUT'].includes(primaryError?.code)) {
+    throw primaryError;
+  }
+  let fallback;
+  try {
+    fallback = getFallbackConfig();
+  } catch {
+    logger.error({
+      provider: config.providerId,
+      fallbackProvider: env.aiFallbackProvider || 'invalid',
+    }, 'Configuração de fallback da IA inválida');
+    throw primaryError;
+  }
+  if (!fallback || fallback.providerId === config.providerId) throw primaryError;
+
+  logger.warn({
+    provider: config.providerId,
+    model: config.model,
+    fallbackProvider: fallback.providerId,
+    fallbackModel: fallback.model,
+    errorCode: primaryError.code,
+  }, 'Tentando fallback configurado para o provedor de IA');
+  try {
+    await fallback.provider.adapter.test({ apiKey: fallback.apiKey, model: fallback.model });
+    const result = await fallback.provider.adapter.complete({
+      ...request,
+      apiKey: fallback.apiKey,
+      model: fallback.model,
+    });
+    logger.info({
+      provider: config.providerId,
+      fallbackProvider: fallback.providerId,
+      fallbackModel: fallback.model,
+    }, 'Fallback de IA concluído');
+    return result;
+  } catch (error) {
+    logger.error({
+      fallbackProvider: fallback.providerId,
+      fallbackModel: fallback.model,
+      ...(typeof error?.status === 'number' && { status: error.status }),
+      ...(typeof error?.code === 'string' && /^[A-Z0-9_]+$/.test(error.code) && { code: error.code }),
+      ...(typeof error?.name === 'string' && { errorName: error.name }),
+    }, 'Falha no fallback configurado para IA');
+    throw primaryError;
+  }
 }
 
 export async function requireUserAiConfig(userId) {
@@ -97,6 +169,7 @@ export async function requireUserAiConfig(userId) {
   }
   const provider = assertProviderModel(user.aiProvider, user.aiModel);
   return {
+    providerId: user.aiProvider,
     model: user.aiModel,
     apiKey: decryptAiApiKey(user.aiApiKeyEncrypted),
     adapter: provider.adapter,

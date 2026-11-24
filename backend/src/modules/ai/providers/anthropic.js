@@ -56,7 +56,7 @@ function toMessages(input, document) {
 
 export const anthropicProvider = {
   async test({ apiKey, model }) {
-    await postProviderJson(ENDPOINT, { ...HEADERS, 'x-api-key': apiKey }, {
+    await postProviderJson('anthropic', model, ENDPOINT, { ...HEADERS, 'x-api-key': apiKey }, {
       model,
       max_tokens: 8,
       messages: [{ role: 'user', content: 'Responda somente OK.' }],
@@ -64,7 +64,7 @@ export const anthropicProvider = {
   },
 
   async complete({ apiKey, model, systemInstruction, messages, tools = [], document }) {
-    const result = await postProviderJson(ENDPOINT, { ...HEADERS, 'x-api-key': apiKey }, {
+    const result = await postProviderJson('anthropic', model, ENDPOINT, { ...HEADERS, 'x-api-key': apiKey }, {
       model,
       max_tokens: 12_000,
       system: systemInstruction,

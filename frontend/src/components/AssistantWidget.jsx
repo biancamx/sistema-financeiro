@@ -12,6 +12,7 @@ const ASSISTANT_ERROR_MESSAGES = {
   AI_MODEL_UNAVAILABLE: 'O modelo não está disponível para esta chave. Escolha outro modelo em Configurações.',
   AI_PROVIDER_LIMIT: 'O limite ou a cota do provedor foi atingido. Tente novamente mais tarde.',
   AI_PROVIDER_UNAVAILABLE: 'O provedor de IA está indisponível no momento. Tente novamente mais tarde.',
+  AI_PROVIDER_TIMEOUT: 'O provedor de IA demorou demais para responder. Tente novamente.',
   AI_PROVIDER_RESPONSE: 'O provedor de IA retornou uma resposta inválida. Tente novamente.',
   AI_PROVIDER_ERROR: 'O provedor não conseguiu responder. Confira a chave, o modelo e a cota em Configurações.',
   NETWORK: 'Não foi possível conectar à API do sistema. Verifique sua conexão e tente novamente.',
@@ -188,13 +189,12 @@ export default function AssistantWidget() {
       .slice(-6)
       .map(({ role, text }) => ({ role, text }));
 
-    setMessages((current) => [...current, {
+    const userMessage = {
       role: 'user',
       text: message,
       image: imageToSend?.preview,
-    }]);
-    setInputMessage('');
-    setImageAttachment(null);
+    };
+    setMessages((current) => [...current, userMessage]);
     setAssistantError('');
     setIsLoading(true);
 
@@ -206,13 +206,14 @@ export default function AssistantWidget() {
       });
       if (conversationVersion.current !== version) return;
       setMessages((current) => [...current, { role: 'assistant', text: result.reply }]);
+      setInputMessage('');
+      setImageAttachment(null);
     } catch (error) {
       if (conversationVersion.current !== version) return;
       const errorMessage = ASSISTANT_ERROR_MESSAGES[error?.code] || error?.message || 'Tente novamente em alguns instantes.';
-      setMessages((current) => [
-        ...current,
-        { role: 'assistant', text: `Não consegui processar sua mensagem: ${errorMessage}` },
-      ]);
+      setMessages((current) => current.at(-1) === userMessage ? current.slice(0, -1) : current);
+      if (!inputMessage.trim() && typedMessage) setInputMessage(typedMessage);
+      setAssistantError(`Não consegui processar sua mensagem: ${errorMessage}`);
     } finally {
       if (conversationVersion.current === version) setIsLoading(false);
     }
@@ -287,7 +288,12 @@ export default function AssistantWidget() {
               </button>
             </div>
           )}
-          {assistantError && <p className="assistant-input-error" role="alert">{assistantError}</p>}
+          {assistantError && (
+            <p className="assistant-input-error" role="alert">
+              {assistantError}{' '}
+              <button type="button" onClick={() => handleSend()} disabled={isLoading}>Tentar novamente</button>
+            </p>
+          )}
           <form
             className="assistant-form"
             onSubmit={(event) => {

@@ -15,6 +15,14 @@ if (!/^[\da-f]{64}$/i.test(aiKeySecret)) {
   throw new Error('AI_KEY_SECRET deve conter exatamente 64 caracteres hexadecimais.');
 }
 
+const aiFallbackProvider = process.env.AI_FALLBACK_PROVIDER || '';
+const aiFallbackModel = process.env.AI_FALLBACK_MODEL || '';
+const aiFallbackApiKey = process.env.AI_FALLBACK_API_KEY || '';
+if ([aiFallbackProvider, aiFallbackModel, aiFallbackApiKey].some(Boolean)
+  && ![aiFallbackProvider, aiFallbackModel, aiFallbackApiKey].every(Boolean)) {
+  throw new Error('AI_FALLBACK_PROVIDER, AI_FALLBACK_MODEL e AI_FALLBACK_API_KEY devem ser configuradas juntas.');
+}
+
 const vapidPublicKey = process.env.VAPID_PUBLIC_KEY || '';
 const vapidPrivateKey = process.env.VAPID_PRIVATE_KEY || '';
 if (Boolean(vapidPublicKey) !== Boolean(vapidPrivateKey)) {
@@ -39,6 +47,9 @@ export const env = {
   frontendUrls: (process.env.FRONTEND_URL || 'http://localhost:5173,http://127.0.0.1:5173').split(',').map((s) => s.trim()),
   jwtSecret: required('JWT_SECRET', '', nodeEnv !== 'test'),
   aiKeySecret,
+  aiFallbackProvider,
+  aiFallbackModel,
+  aiFallbackApiKey,
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || '7d',
   adminEmail: (process.env.ADMIN_EMAIL || '').trim().toLowerCase(),
   allowedDomains: (process.env.ALLOWED_DOMAINS || '')

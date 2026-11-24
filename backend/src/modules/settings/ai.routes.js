@@ -45,9 +45,9 @@ export function settingsRoutes() {
   }));
 
   router.post('/ai/test', validate({
-    body: providerModel.extend({ apiKey: apiKeyField }),
+    body: providerModel.extend({ apiKey: apiKeyField.optional() }),
   }), asyncHandler(async (req, res) => {
-    await testAiProvider(req.body);
+    await testAiProvider({ ...req.body, userId: req.user.id });
     res.json({ success: true, data: { valid: true, message: 'A chave foi validada com sucesso.' } });
   }));
 

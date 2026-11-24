@@ -373,11 +373,16 @@ export default function SettingsPage({ initialSection = 'categories', standalone
   }
 
   async function testAiKey() {
-    if (!validateAiForm()) return;
+    const needsNewKey = !aiSettings?.configured || aiSettings.provider !== aiProvider;
+    if (!validateAiForm({ requireKey: needsNewKey })) return;
     setAiBusy(true);
     setAiMessage({ text: 'Testando a chave...', type: 'pending' });
     try {
-      await settingsAiApi.test({ provider: aiProvider, model: aiModel, apiKey: aiApiKey.trim() });
+      await settingsAiApi.test({
+        provider: aiProvider,
+        model: aiModel,
+        ...(aiApiKey.trim() && { apiKey: aiApiKey.trim() }),
+      });
       setAiMessage({ text: 'Chave válida para o provedor e modelo selecionados.', type: 'success' });
     } catch (error) {
       setAiMessage({ text: error.message, type: 'error' });
@@ -566,6 +571,9 @@ export default function SettingsPage({ initialSection = 'categories', standalone
           {aiMessage.text}
         </p>
       )}
+      <Button onClick={testAiKey} disabled={aiLoading || aiBusy || !aiProvider || !aiModel}>
+        {aiBusy ? 'Testando…' : 'Testar conexão'}
+      </Button>
     </Card>
   );
   const vehicleReminderForm = (
@@ -775,7 +783,7 @@ export default function SettingsPage({ initialSection = 'categories', standalone
                 <>
                   <Button onClick={closeSettingsModal}>Cancelar</Button>
                   <Button variant="primary" onClick={saveAiKey} disabled={aiLoading || aiBusy}>
-                    {aiBusy ? 'Salvando…' : 'Salvar chave'}
+                    {aiBusy ? 'Validando e salvando…' : 'Salvar chave'}
                   </Button>
                 </>
               )

@@ -51,7 +51,7 @@ function toTools(tools) {
 
 export const openaiProvider = {
   async test({ apiKey, model }) {
-    await postProviderJson(ENDPOINT, { Authorization: `Bearer ${apiKey}` }, {
+    await postProviderJson('openai', model, ENDPOINT, { Authorization: `Bearer ${apiKey}` }, {
       model,
       input: 'Responda somente OK.',
       max_output_tokens: 8,
@@ -60,7 +60,7 @@ export const openaiProvider = {
   },
 
   async complete({ apiKey, model, systemInstruction, messages, tools = [], document, json = false }) {
-    const result = await postProviderJson(ENDPOINT, { Authorization: `Bearer ${apiKey}` }, {
+    const result = await postProviderJson('openai', model, ENDPOINT, { Authorization: `Bearer ${apiKey}` }, {
       model,
       instructions: systemInstruction,
       input: toInput(messages, document),

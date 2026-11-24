@@ -23,6 +23,7 @@ const PersonSummary = lazy(() => import('../pages/people/PersonTabs.jsx').then((
 const PersonPortal = lazy(() => import('../pages/people/PersonTabs.jsx').then((module) => ({ default: module.PersonPortalPage })));
 const PersonBilling = lazy(loadRoute('/pessoas/:personId/cobrar'));
 const More = lazy(loadRoute(PATHS.more));
+const Help = lazy(loadRoute(PATHS.help));
 const Rescission = lazy(loadRoute(PATHS.rescission));
 const Settings = lazy(loadRoute(PATHS.settings));
 const AdminUsers = lazy(loadRoute(PATHS.adminUsers));
@@ -105,6 +106,7 @@ export const router = createBrowserRouter([
           { path: '/planilha/:personId?/:year?', element: <LegacyPersonRedirect tab="planilha" /> },
           { path: '/aniversarios', element: <Navigate to={PATHS.birthdays} replace /> },
           { path: PATHS.more, element: <More /> },
+          { path: PATHS.help, element: <Help /> },
           { path: PATHS.rescission, element: <Rescission /> },
           { path: PATHS.settings, element: <Settings /> },
           { path: PATHS.adminUsers, element: <AdminOnly /> },

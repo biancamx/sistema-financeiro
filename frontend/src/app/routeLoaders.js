@@ -12,6 +12,7 @@ const loaders = {
   [PATHS.budget]: () => import('../pages/budget/BudgetPage.jsx'),
   [PATHS.overview]: () => import('../pages/overview/OverviewPage.jsx'),
   [PATHS.more]: () => import('../pages/more/MorePage.jsx'),
+  [PATHS.help]: () => import('../pages/more/HelpPage.jsx'),
   [PATHS.rescission]: () => import('../pages/rescission/RescissionPage.jsx'),
   [PATHS.settings]: () => import('../pages/settings/SettingsPage.jsx'),
   [PATHS.adminUsers]: () => import('../pages/admin/AdminUsersPage.jsx'),

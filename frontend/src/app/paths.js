@@ -8,6 +8,7 @@ export const PATHS = {
   import: '/lancamentos/importar',
   export: '/lancamentos/exportar',
   more: '/mais',
+  help: '/mais/ajuda',
   cards: '/cartoes',
   vehicles: '/veiculos',
   budget: '/pessoas/:personId/planilha',

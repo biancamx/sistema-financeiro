@@ -1,5 +1,5 @@
 // Copyright © 2026 Bianca Moura. Todos os direitos reservados.
-import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
+import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { Fragment, Suspense, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
   Car,
@@ -29,7 +29,6 @@ import AlertDetailsModal from '../notifications/AlertDetailsModal.jsx';
 import { useAppBusy } from '../../context/BusyContext.jsx';
 import { useToast } from '../../context/ToastContext.jsx';
 import { dismissAlert as dismissAlertRequest } from '../../lib/alerts.js';
-import { startTour } from '../../lib/tour.js';
 import AssistantWidget from '../AssistantWidget.jsx';
 import GlobalSearch from './GlobalSearch.jsx';
 import NewActionButton from './NewActionButton.jsx';
@@ -95,6 +94,7 @@ const isAreaActive = (item, pathname) => {
 };
 
 export default function AppLayout() {
+  const navigate = useNavigate();
   const { user, logout } = useAuth();
   const toast = useToast();
   const { message: busyMessage } = useAppBusy();
@@ -413,11 +413,11 @@ export default function AppLayout() {
             <SystemClock />
             {USES_PERIOD.some((p) => pathname.startsWith(p)) && <PeriodPicker />}
             <button
-              className="icon-btn tour-trigger"
+              className="icon-btn help-trigger"
               type="button"
-              onClick={startTour}
-              aria-label="Iniciar tour guiado"
-              title="Tour guiado"
+              onClick={() => navigate(PATHS.help)}
+              aria-label="Abrir ajuda e primeiros passos"
+              title="Ajuda e primeiros passos"
             >
               <CircleHelp aria-hidden="true" />
             </button>

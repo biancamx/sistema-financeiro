@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { BookOpen, Calculator, Settings, ShieldCheck, Sparkles } from 'lucide-react';
+import { BookOpen, Calculator, CircleHelp, Settings, ShieldCheck, Sparkles } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { PageHeader } from '../../components/ui/ui.jsx';
 import { PATHS } from '../../app/paths.js';
@@ -8,6 +8,7 @@ import { startTour } from '../../lib/tour.js';
 export default function MorePage() {
   const { user } = useAuth();
   const items = [
+    { to: PATHS.help, label: 'Ajuda e primeiros passos', icon: CircleHelp, description: 'Saiba por onde começar e como usar cada área.' },
     { to: PATHS.rescission, label: 'Calculadora de rescisão', icon: Calculator, description: 'Estimativa de verbas rescisórias.' },
     { to: PATHS.settings, label: 'Configurações', icon: Settings, description: 'Categorias, IA e preferências.' },
     ...(user?.role === 'admin' ? [{ to: PATHS.adminUsers, label: 'Acessos', icon: ShieldCheck, description: 'Aprovar e gerenciar usuários.' }] : []),

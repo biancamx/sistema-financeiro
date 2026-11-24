@@ -1,8 +1,10 @@
+// Copyright © 2026 Bianca Moura. Todos os direitos reservados.
 import { useEffect, useRef, useState } from 'react';
 import {
   AlertTriangle,
   ArrowRight,
   Bell,
+  BadgeInfo,
   CheckCircle2,
   ChevronRight,
   Eye,
@@ -19,6 +21,7 @@ import {
   Upload,
   X,
 } from 'lucide-react';
+import { version } from '../../../package.json';
 import { Button, Card, Field, Modal, PageHeader } from '../../components/ui/ui.jsx';
 import { useAppBusy } from '../../context/BusyContext.jsx';
 import { useToast } from '../../context/ToastContext.jsx';
@@ -46,7 +49,7 @@ const PDF_IMPORT_COUNT_CARDS = [
   ['Novas compras', (data) => data.deduplication?.newCount ?? data.summaryCounts.purchasesCount],
   ['Já existentes', (data) => data.deduplication?.existingCount ?? 0],
 ];
-const SETTINGS_TABS = ['categories', 'import', 'ai', 'vehicle-reminders', 'push', 'danger'];
+const SETTINGS_TABS = ['categories', 'import', 'ai', 'vehicle-reminders', 'push', 'about', 'danger'];
 const pdfPeriodLabel = (month, year) => `${MONTHS_SHORT[month - 1]}/${year}`;
 
 function SettingsPanels({ standaloneImport, open, title, onClose, footer, children }) {
@@ -700,6 +703,27 @@ export default function SettingsPage({ initialSection = 'categories', standalone
             </section>
 
             <section className="settings-group">
+              <h2>Sistema</h2>
+              <div className="settings-group-card">
+                <button
+                  id="settings-tab-about"
+                  type="button"
+                  className="settings-option-row"
+                  aria-haspopup="dialog"
+                  aria-expanded={activeSection === 'about'}
+                  onClick={() => setActiveSection('about')}
+                >
+                  <span className="settings-option-icon"><BadgeInfo aria-hidden="true" /></span>
+                  <span className="settings-option-copy">
+                    <strong>Sobre o sistema</strong>
+                    <small>Autoria, versão e tecnologias</small>
+                  </span>
+                  <ChevronRight className="settings-option-chevron" aria-hidden="true" />
+                </button>
+              </div>
+            </section>
+
+            <section className="settings-group">
               <h2>Conta</h2>
               <div className="settings-group-card">
                 <button
@@ -734,14 +758,16 @@ export default function SettingsPage({ initialSection = 'categories', standalone
         )}
         <SettingsPanels
           standaloneImport={standaloneImport}
-          open={['import', 'ai', 'vehicle-reminders', 'push'].includes(activeSection)}
+          open={['import', 'ai', 'vehicle-reminders', 'push', 'about'].includes(activeSection)}
           title={activeSection === 'import'
             ? 'Importador de planilhas e faturas'
             : activeSection === 'ai'
               ? 'Chave de IA'
               : activeSection === 'vehicle-reminders'
                 ? 'Lembretes de veículos'
-                : 'Notificações no celular'}
+                : activeSection === 'about'
+                  ? 'Sobre o sistema'
+                  : 'Notificações no celular'}
           onClose={closeSettingsModal}
           footer={(
             activeSection === 'vehicle-reminders'
@@ -836,6 +862,42 @@ export default function SettingsPage({ initialSection = 'categories', standalone
         hidden={activeSection !== 'push'}
       >
         <PushNotificationsSettings />
+      </section>
+
+      <section
+        id="settings-about"
+        className="settings-section"
+        role="tabpanel"
+        aria-labelledby="settings-tab-about"
+        tabIndex="0"
+        hidden={activeSection !== 'about'}
+      >
+        <Card className="settings-card settings-about-card">
+          <header className="settings-card-head">
+            <div className="settings-icon"><BadgeInfo aria-hidden="true" /></div>
+            <div className="settings-card-copy">
+              <h2>Caderno de Contas</h2>
+              <p>Uma criação de Bianca Moura. Concebido, desenvolvido e mantido por sua criadora.</p>
+            </div>
+          </header>
+          <dl className="settings-about-details">
+            <div><dt>Desenvolvido por</dt><dd>Bianca Moura</dd></div>
+            <div><dt>Versão atual</dt><dd>{version}</dd></div>
+            <div><dt>Ano de criação</dt><dd>2026</dd></div>
+            <div className="settings-about-wide">
+              <dt>Propósito</dt>
+              <dd>Organizar as finanças do dia a dia, acompanhar compras e parcelas, controlar contas a receber e manter os dados financeiros de cada usuário separados.</dd>
+            </div>
+            <div className="settings-about-wide">
+              <dt>Tecnologias</dt>
+              <dd>React 18, React Router 7, Vite 6, CSS, Lucide, Recharts, Node.js, Express 4, Mongoose, Zod e MongoDB.</dd>
+            </div>
+            <div className="settings-about-wide">
+              <dt>Direitos autorais</dt>
+              <dd>© 2026 Bianca Moura. Todos os direitos reservados. Reprodução, distribuição ou comercialização não autorizadas.</dd>
+            </div>
+          </dl>
+        </Card>
       </section>
 
       <section

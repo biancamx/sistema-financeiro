@@ -1,5 +1,14 @@
 # Histórico de versões — Sistema Financeiro
 
+## Versão 2.0.0 — Identidade institucional e autoria
+
+**Data:** 24/11/2026
+
+- Assinatura institucional discreta adicionada globalmente ao rodapé.
+- Seção “Sobre o sistema” adicionada às Configurações com autoria, versão, ano de criação, propósito, direitos autorais e tecnologias.
+- Avisos de autoria e uso proprietário documentados no código-fonte, README e LICENSE.
+- Minuta inicial de termos de uso adicionada para orientar eventual acesso de terceiros.
+
 ## Versão 2.0 — Reorganização, melhorias de interface e Web Push
 
 **Status:** Pendente de revisão e commit

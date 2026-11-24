@@ -1,3 +1,4 @@
+// Copyright © 2026 Bianca Moura. Todos os direitos reservados.
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
 import { Fragment, Suspense, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
@@ -502,6 +503,12 @@ export default function AppLayout() {
           <ErrorBoundary key={pathname}>
             <Suspense fallback={<Spinner />}><Outlet /></Suspense>
           </ErrorBoundary>
+          <footer className="institutional-footer">
+            <strong>SISTEMA FINANCEIRO</strong>
+            <span>© {new Date().getFullYear()}</span>
+            <span>Desenvolvido por Bianca Moura</span>
+            <small>Todos os direitos reservados. Reprodução, distribuição ou comercialização não autorizadas.</small>
+          </footer>
         </main>
       </div>
 

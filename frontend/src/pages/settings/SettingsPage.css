@@ -22,6 +22,38 @@
   padding: 20px;
 }
 
+.settings-about-card {
+  gap: 20px;
+}
+
+.settings-about-details {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin: 0;
+}
+
+.settings-about-details > div {
+  min-width: 0;
+}
+
+.settings-about-details .settings-about-wide {
+  grid-column: 1 / -1;
+}
+
+.settings-about-details dt {
+  margin-bottom: 3px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.settings-about-details dd {
+  margin: 0;
+  color: var(--ink);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
 .settings-card-head {
   display: flex;
   align-items: center;

@@ -28,6 +28,15 @@ Os registros financeiros são associados ao usuário da sessão. As notificaçõ
 | Testes | `node:test` e `mongodb-memory-server` |
 | CI | GitHub Actions com Node.js 22 |
 
+## Autoria e uso
+
+O Caderno de Contas foi concebido, desenvolvido e é mantido por **Bianca Moura**.
+Copyright © 2026 Bianca Moura. Todos os direitos reservados.
+
+O código próprio deste sistema é proprietário. Reprodução, distribuição, modificação ou comercialização não autorizadas são proibidas; consulte [LICENSE](./LICENSE). Bibliotecas e outros componentes de terceiros permanecem sujeitos às respectivas licenças.
+
+A disponibilização do sistema não concede, por si só, autorização de uso a terceiros. Antes de liberar o acesso a outras pessoas, publique termos de uso e um aviso de privacidade adequados à implantação. Consulte a minuta em [TERMOS-DE-USO.md](./TERMOS-DE-USO.md).
+
 ## Como o sistema funciona
 
 O frontend React é uma aplicação de página única. Durante o desenvolvimento, o Vite serve a interface e encaminha as chamadas de API ao backend. Em produção, o backend Express pode servir os arquivos compilados em `frontend/dist`.

@@ -213,6 +213,13 @@ export function createBudgetsService() {
       await sheet.save();
       return { id: strId(row._id), ...patch };
     },
+    async moveRow(userId, rowId, section) {
+      if (!SECTION_KEYS.includes(section) || section === 'cards') throw badRequest('Seção inválida');
+      const { sheet, row } = await getRow(userId, rowId);
+      row.section = section;
+      await sheet.save();
+      return { rowId: strId(row._id), section };
+    },
     async removeRow(userId, rowId) {
       const { sheet, row } = await getRow(userId, rowId);
       row.deleteOne();

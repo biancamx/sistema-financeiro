@@ -12,6 +12,7 @@ import { createCashLedgerService } from '../cashLedger/cashLedger.service.js';
 import { createDashboardService } from '../dashboard/dashboard.service.js';
 import { createPurchasesService } from '../purchases/purchases.service.js';
 import { createVehiclesService } from '../vehicles/vehicles.service.js';
+import { createBudgetsService } from '../budgets/budgets.service.js';
 import { SECTIONS } from '../budgets/budgets.defaults.js';
 import { EXPENSE_CATEGORIES } from '../vehicles/vehicles.categories.js';
 
@@ -61,7 +62,7 @@ export const toolsDeclaration = [
   },
   {
     name: 'consultarPlanilhaFinanceiraPessoa',
-    description: 'Consulta a planilha financeira anual e as receitas/despesas registradas para uma pessoa. Não cria nem altera a planilha.',
+    description: 'Consulta a planilha financeira anual e as receitas/despesas registradas para uma pessoa.',
     parameters: {
       type: 'OBJECT',
       properties: {
@@ -70,6 +71,20 @@ export const toolsDeclaration = [
         mes: { type: 'NUMBER', description: 'Mês de 1 a 12 para restringir o resultado; opcional' },
       },
       required: ['nomePessoa'],
+    },
+  },
+  {
+    name: 'moverLinhaPlanilha',
+    description: 'Move uma linha existente da planilha mensal de uma pessoa entre blocos como Contas fixas e veículo ou Despesas de veículos.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        nomePessoa: { type: 'STRING', description: 'Nome exato da pessoa cadastrada' },
+        ano: { type: 'NUMBER', description: 'Ano da planilha com 4 dígitos' },
+        nomeLinha: { type: 'STRING', description: 'Nome exato da linha que será movida' },
+        secaoDestino: { type: 'STRING', enum: ['income', 'benefits', 'investments', 'deductions', 'food', 'vehicle', 'misc', 'housing', 'fixed'], description: 'Bloco de destino da linha' },
+      },
+      required: ['nomePessoa', 'ano', 'nomeLinha', 'secaoDestino'],
     },
   },
   {
@@ -204,6 +219,7 @@ const dashboardService = createDashboardService();
 const purchasesService = createPurchasesService();
 const cashLedgerService = createCashLedgerService();
 const vehiclesService = createVehiclesService();
+const budgetsService = createBudgetsService();
 
 function requireUserId(userId) {
   if (!mongoose.isValidObjectId(userId)) {
@@ -532,6 +548,49 @@ export async function executarFerramenta(nomeFuncao, args, userId) {
         truncada: relevantRows.length > 100,
         secoes: sections,
         linhas: rows,
+      };
+    }
+
+    case 'moverLinhaPlanilha': {
+      if (typeof args.nomePessoa !== 'string' || !args.nomePessoa.trim()) {
+        throw new Error('Informe o nome exato da pessoa cadastrada.');
+      }
+      if (typeof args.nomeLinha !== 'string' || !args.nomeLinha.trim()) {
+        throw new Error('Informe o nome exato da linha da planilha.');
+      }
+      if (!Number.isInteger(args.ano) || args.ano < 2000 || args.ano > 2100) {
+        throw new Error('Informe um ano válido para a planilha.');
+      }
+      if (!SECTIONS.some((section) => section.key === args.secaoDestino)) {
+        throw new Error('Informe uma seção válida da planilha.');
+      }
+      const people = await Person.find({ userId }).select('_id name').lean();
+      const person = matchByName(people, args.nomePessoa, 'Pessoa');
+      const sheet = await BudgetSheet.findOne({
+        userId,
+        personId: person._id,
+        year: args.ano,
+      });
+      if (!sheet) {
+        throw new Error(`Não existe planilha de ${person.name} no ano ${args.ano}.`);
+      }
+      const normalizedLine = normalizeText(args.nomeLinha);
+      const matches = sheet.rows.filter((row) => normalizeText(row.label) === normalizedLine);
+      if (matches.length !== 1) {
+        throw new Error(matches.length
+          ? `A linha "${args.nomeLinha}" aparece mais de uma vez na planilha. Informe a seção atual ou use um nome único.`
+          : `A linha "${args.nomeLinha}" não foi encontrada na planilha de ${person.name}.`);
+      }
+      const result = await budgetsService.moveRow(userId, String(matches[0]._id), args.secaoDestino);
+      const destination = SECTIONS.find((section) => section.key === args.secaoDestino);
+      return {
+        sucesso: true,
+        mensagem: `Linha "${matches[0].label}" movida para ${destination.label}.`,
+        pessoa: person.name,
+        ano: args.ano,
+        linha: matches[0].label,
+        secaoDestino: destination.label,
+        rowId: result.rowId,
       };
     }
 

@@ -41,12 +41,13 @@ function notifySuccessfulMutation(method, path) {
   window.dispatchEvent(new CustomEvent('app:mutation-success', { detail: { method, path } }));
 }
 
-export async function http(method, path, { body, query } = {}) {
+export async function http(method, path, { body, query, cache = true } = {}) {
   const qs = query ? '?' + new URLSearchParams(Object.entries(query).filter(([, v]) => v !== undefined && v !== null && v !== '')).toString() : '';
   const url = `${BASE}${path}${qs}`;
-  const cacheable = method === 'GET';
+  const cacheable = method === 'GET' && cache;
+  const mutation = method !== 'GET';
 
-  if (!cacheable) clearHttpCache({ preserveLookups: !path.startsWith('/auth/') });
+  if (mutation) clearHttpCache({ preserveLookups: !path.startsWith('/auth/') });
   if (cacheable) {
     const cached = getCache.get(url);
     if (cached && cached.expiresAt > Date.now()) return cached.data;
@@ -69,7 +70,7 @@ export async function http(method, path, { body, query } = {}) {
       throw new ApiError(0, { error: { code: 'NETWORK', message: 'Não foi possível falar com a API. Verifique sua conexão e aguarde o servidor voltar.' } });
     }
     if (res.status === 204) {
-      if (!cacheable) notifySuccessfulMutation(method, path);
+      if (mutation) notifySuccessfulMutation(method, path);
       return null;
     }
     const json = await res.json().catch(() => null);
@@ -88,7 +89,7 @@ export async function http(method, path, { body, query } = {}) {
       if (getCache.size >= 100) getCache.delete(getCache.keys().next().value);
       getCache.set(url, { data: json, expiresAt: Date.now() + GET_CACHE_TTL_MS });
     }
-    if (!cacheable) notifySuccessfulMutation(method, path);
+    if (mutation) notifySuccessfulMutation(method, path);
     return json;
   })();
 
@@ -97,7 +98,7 @@ export async function http(method, path, { body, query } = {}) {
     return await request;
   } finally {
     if (cacheable && pendingGets.get(url) === request) pendingGets.delete(url);
-    if (!cacheable) clearHttpCache({ preserveLookups: !path.startsWith('/auth/') });
+    if (mutation) clearHttpCache({ preserveLookups: !path.startsWith('/auth/') });
   }
 }
 

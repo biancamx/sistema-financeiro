@@ -6,29 +6,34 @@ import {
   Bell,
   BadgeInfo,
   CheckCircle2,
+  ClipboardList,
   ChevronRight,
   Eye,
   EyeOff,
   FileSpreadsheet,
   KeyRound,
+  LogIn,
+  LogOut,
   Pencil,
   Plus,
+  RefreshCw,
   ShieldCheck,
   Sparkles,
   Smartphone,
   Tag,
   Trash2,
   Upload,
+  UserPlus,
   X,
 } from 'lucide-react';
 import { version } from '../../../package.json';
-import { Button, Card, Field, Modal, PageHeader } from '../../components/ui/ui.jsx';
+import { Button, Card, EmptyState, Field, Modal, PageHeader } from '../../components/ui/ui.jsx';
 import { useAppBusy } from '../../context/BusyContext.jsx';
 import { useToast } from '../../context/ToastContext.jsx';
 import { notifyFinanceChanged } from '../../hooks/useFinanceRefresh.js';
 import { refreshAllLookups } from '../../services/lookupRefresh.js';
 import { MONTHS_SHORT, money } from '../../lib/format.js';
-import { categoriesApi, importApi, settingsAiApi, systemApi, vehiclesApi } from '../../services/api.js';
+import { accessAuditApi, categoriesApi, importApi, settingsAiApi, systemApi, vehiclesApi } from '../../services/api.js';
 import PushNotificationsSettings from './PushNotificationsSettings.jsx';
 import './SettingsPage.css';
 
@@ -49,23 +54,187 @@ const PDF_IMPORT_COUNT_CARDS = [
   ['Novas compras', (data) => data.deduplication?.newCount ?? data.summaryCounts.purchasesCount],
   ['Já existentes', (data) => data.deduplication?.existingCount ?? 0],
 ];
-const SETTINGS_TABS = ['categories', 'import', 'ai', 'vehicle-reminders', 'push', 'about', 'danger'];
+const SETTINGS_TABS = ['categories', 'import', 'ai', 'vehicle-reminders', 'push', 'about', 'audit', 'danger'];
 const pdfPeriodLabel = (month, year) => `${MONTHS_SHORT[month - 1]}/${year}`;
 
-function SettingsPanels({ standaloneImport, open, title, onClose, footer, children }) {
+function SettingsPanels({ standaloneImport, open, title, onClose, footer, className = '', children }) {
   const panels = <div className="settings-sections">{children}</div>;
   if (standaloneImport) return panels;
   return (
     <Modal
       open={open}
       title={title}
-      className="settings-dialog"
+      className={`settings-dialog${className ? ` ${className}` : ''}`}
       onClose={onClose}
       dismissible
       footer={footer}
     >
       {panels}
     </Modal>
+  );
+}
+
+const accessEventLabels = {
+  login: 'Login',
+  registration: 'Cadastro',
+  logout: 'Logout',
+};
+const accessEventIcons = {
+  login: LogIn,
+  registration: UserPlus,
+  logout: LogOut,
+};
+
+function AccessAuditPanel() {
+  const [events, setEvents] = useState([]);
+  const [pagination, setPagination] = useState({ page: 1, limit: 25, total: 0, pages: 0 });
+  const [scope, setScope] = useState('account');
+  const [eventFilter, setEventFilter] = useState('');
+  const [outcomeFilter, setOutcomeFilter] = useState('');
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    setError('');
+    accessAuditApi.list({
+      page: pagination.page,
+      limit: pagination.limit,
+      event: eventFilter || undefined,
+      outcome: outcomeFilter || undefined,
+    })
+      .then((result) => {
+        if (!active) return;
+        setEvents(result.events);
+        setPagination(result.pagination);
+        setScope(result.scope);
+      })
+      .catch((requestError) => {
+        if (active) setError(requestError.message);
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+
+    return () => { active = false; };
+  }, [pagination.page, pagination.limit, eventFilter, outcomeFilter, refreshKey]);
+
+  function changeFilter(setFilter, value) {
+    setPagination((current) => ({ ...current, page: 1 }));
+    setFilter(value);
+  }
+
+  return (
+    <Card className="settings-card settings-audit-card">
+      <header className="settings-card-head">
+        <div className="settings-icon"><ClipboardList aria-hidden="true" /></div>
+        <div className="settings-card-copy">
+          <h2>Auditoria de acesso</h2>
+          <p>Histórico de logins, tentativas de acesso, cadastros e saídas do sistema.</p>
+        </div>
+      </header>
+      <p className="settings-audit-scope">
+        {scope === 'all'
+          ? 'Como administrador, você está vendo os acessos de todas as contas.'
+          : 'Você está vendo os acessos relacionados à sua conta.'}
+      </p>
+      <p className="settings-audit-scope">Os registros começam a partir desta atualização; acessos anteriores não estão disponíveis.</p>
+
+      <div className="settings-audit-filters">
+        <label className="field">
+          <span className="field-label">Evento</span>
+          <select className="input" value={eventFilter} onChange={(event) => changeFilter(setEventFilter, event.target.value)}>
+            <option value="">Todos</option>
+            <option value="login">Login</option>
+            <option value="registration">Cadastro</option>
+            <option value="logout">Logout</option>
+          </select>
+        </label>
+        <label className="field">
+          <span className="field-label">Resultado</span>
+          <select className="input" value={outcomeFilter} onChange={(event) => changeFilter(setOutcomeFilter, event.target.value)}>
+            <option value="">Todos</option>
+            <option value="success">Sucesso</option>
+            <option value="failure">Falha</option>
+          </select>
+        </label>
+        <button
+          type="button"
+          className="icon-btn settings-audit-refresh"
+          aria-label="Atualizar registros de acesso"
+          title="Atualizar"
+          onClick={() => setRefreshKey((key) => key + 1)}
+        >
+          <RefreshCw aria-hidden="true" />
+        </button>
+      </div>
+
+      {loading ? (
+        <p className="settings-audit-state" role="status">Carregando registros…</p>
+      ) : error ? (
+        <div className="settings-audit-error" role="alert">
+          <p>{error}</p>
+          <Button onClick={() => setRefreshKey((key) => key + 1)}>Tentar novamente</Button>
+        </div>
+      ) : events.length === 0 ? (
+        <EmptyState title="Nenhum registro de acesso">
+          Os novos acessos aparecerão aqui.
+        </EmptyState>
+      ) : (
+        <>
+          <div className="settings-audit-table-wrap">
+            <table className="settings-audit-table">
+              <thead>
+                <tr>
+                  <th>Data e hora</th>
+                  <th>Evento</th>
+                  {scope === 'all' && <th>Conta</th>}
+                  <th>Resultado</th>
+                  <th>Método</th>
+                  <th>IP</th>
+                  <th>Dispositivo</th>
+                </tr>
+              </thead>
+              <tbody>
+                {events.map((entry) => {
+                  const EventIcon = accessEventIcons[entry.event] || LogIn;
+                  return (
+                    <tr key={entry.id}>
+                      <td>{new Date(entry.createdAt).toLocaleString('pt-BR')}</td>
+                      <td><span className="settings-audit-event"><EventIcon aria-hidden="true" />{accessEventLabels[entry.event] || entry.event}</span></td>
+                      {scope === 'all' && <td>{entry.email || 'Não identificado'}</td>}
+                      <td><span className={`settings-audit-result is-${entry.outcome}`}>{entry.outcome === 'success' ? 'Sucesso' : 'Falha'}</span></td>
+                      <td>{entry.provider === 'password' ? 'E-mail e senha' : entry.provider === 'google' ? 'Google' : entry.provider === 'local' ? 'Local' : 'Outro'}</td>
+                      <td>{entry.ipAddress || '—'}</td>
+                      <td className="settings-audit-device" title={entry.userAgent || 'Não informado'}>{entry.userAgent || 'Não informado'}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <div className="settings-audit-pagination">
+            <span>{pagination.total} registro(s) · Página {pagination.page} de {Math.max(1, pagination.pages)}</span>
+            <div>
+              <Button
+                onClick={() => setPagination((current) => ({ ...current, page: current.page - 1 }))}
+                disabled={pagination.page <= 1}
+              >
+                Anterior
+              </Button>
+              <Button
+                onClick={() => setPagination((current) => ({ ...current, page: current.page + 1 }))}
+                disabled={pagination.page >= pagination.pages}
+              >
+                Próxima
+              </Button>
+            </div>
+          </div>
+        </>
+      )}
+    </Card>
   );
 }
 
@@ -755,6 +924,27 @@ export default function SettingsPage({ initialSection = 'categories', standalone
             </section>
 
             <section className="settings-group">
+              <h2>Segurança</h2>
+              <div className="settings-group-card">
+                <button
+                  id="settings-tab-audit"
+                  type="button"
+                  className="settings-option-row"
+                  aria-haspopup="dialog"
+                  aria-expanded={activeSection === 'audit'}
+                  onClick={() => setActiveSection('audit')}
+                >
+                  <span className="settings-option-icon"><ClipboardList aria-hidden="true" /></span>
+                  <span className="settings-option-copy">
+                    <strong>Auditoria e logs</strong>
+                    <small>Logins, tentativas e cadastros</small>
+                  </span>
+                  <ChevronRight className="settings-option-chevron" aria-hidden="true" />
+                </button>
+              </div>
+            </section>
+
+            <section className="settings-group">
               <h2>Conta</h2>
               <div className="settings-group-card">
                 <button
@@ -789,7 +979,8 @@ export default function SettingsPage({ initialSection = 'categories', standalone
         )}
         <SettingsPanels
           standaloneImport={standaloneImport}
-          open={['import', 'ai', 'vehicle-reminders', 'push', 'about'].includes(activeSection)}
+          open={['import', 'ai', 'vehicle-reminders', 'push', 'about', 'audit'].includes(activeSection)}
+          className={activeSection === 'audit' ? 'settings-audit-dialog' : ''}
           title={activeSection === 'import'
             ? 'Importador de planilhas e faturas'
             : activeSection === 'ai'
@@ -798,7 +989,9 @@ export default function SettingsPage({ initialSection = 'categories', standalone
                 ? 'Lembretes de veículos'
                 : activeSection === 'about'
                   ? 'Sobre o sistema'
-                  : 'Notificações no celular'}
+                  : activeSection === 'audit'
+                    ? 'Auditoria e logs'
+                    : 'Notificações no celular'}
           onClose={closeSettingsModal}
           footer={(
             activeSection === 'ai'
@@ -819,7 +1012,7 @@ export default function SettingsPage({ initialSection = 'categories', standalone
                   </Button>
                 </>
                 )
-                : <Button onClick={closeSettingsModal}>{activeSection === 'push' ? 'Fechar' : 'Cancelar'}</Button>
+                : <Button onClick={closeSettingsModal}>{activeSection === 'push' || activeSection === 'audit' ? 'Fechar' : 'Cancelar'}</Button>
           )}
         >
       <section
@@ -938,6 +1131,17 @@ export default function SettingsPage({ initialSection = 'categories', standalone
             </div>
           </dl>
         </Card>
+      </section>
+
+      <section
+        id="settings-audit"
+        className="settings-section"
+        role="tabpanel"
+        aria-labelledby="settings-tab-audit"
+        tabIndex="0"
+        hidden={activeSection !== 'audit'}
+      >
+        {activeSection === 'audit' && <AccessAuditPanel />}
       </section>
 
       <section

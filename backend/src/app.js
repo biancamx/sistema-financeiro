@@ -31,6 +31,7 @@ import { settingsRoutes } from './modules/settings/ai.routes.js';
 import { jobsRoutes } from './modules/push/jobs.routes.js';
 import { pushRoutes } from './modules/push/push.routes.js';
 import { financialPlanningRoutes } from './modules/financialPlanning/financialPlanning.routes.js';
+import { auditRoutes } from './modules/audit/audit.routes.js';
 
 const frontendDist = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../frontend/dist');
 
@@ -62,6 +63,7 @@ export function createApp() {
   api.use(cacheControl);
   api.use('/assistant', assistantRoutes());
   api.use('/settings', settingsRoutes());
+  api.use('/audit', auditRoutes());
   api.use('/admin', adminRoutes());
   api.use('/push', pushRoutes());
   api.use('/purchases', purchasesRoutes());

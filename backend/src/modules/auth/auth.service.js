@@ -72,6 +72,7 @@ export async function loginWithGoogle(credential) {
 
   // 2. Busca ou Cria o usuário no MongoDB Atlas
   let user = await User.findOne({ email: cleanEmail });
+  let isNewUser = false;
 
   if (!user) {
     // Cria novo usuário com a foto oficial do Google
@@ -82,6 +83,7 @@ export async function loginWithGoogle(credential) {
       avatar: picture || null,
       ...newAccountAccessFields(cleanEmail),
     });
+    isNewUser = true;
     console.log(`🎉 Novo usuário registrado via Google no MongoDB: ${cleanEmail}`);
   } else {
     // Se o usuário já existe, atualiza os dados do Google e a foto se necessário
@@ -115,6 +117,7 @@ export async function loginWithGoogle(credential) {
   return {
     token,
     user: publicUser(user),
+    isNewUser,
   };
 }
 

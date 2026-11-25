@@ -15,6 +15,9 @@ export const adminApi = {
   users: () => get('/admin/users').then((r) => r.data),
   updateUserStatus: (userId, status) => patch(`/admin/users/${userId}`, { status }).then((r) => r.data),
 };
+export const accessAuditApi = {
+  list: (query) => http('GET', '/audit/access', { query, cache: false }).then((r) => r.data),
+};
 
 export const dashboardApi = {
   summary: (q) => get('/dashboard/summary', q).then((r) => r.data),

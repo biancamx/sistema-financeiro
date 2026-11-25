@@ -1,9 +1,11 @@
 import { useEffect, useMemo } from 'react';
 import { Link, NavLink, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useFetch } from '../../hooks/useFetch.js';
+import { usePeriod } from '../../context/PeriodContext.jsx';
 import { peopleApi, remindersApi } from '../../services/api.js';
-import { Button, Card, EmptyState, ErrorState, Money, PageHeader, Spinner } from '../../components/ui/ui.jsx';
+import { Button, Card, EmptyState, ErrorState, Money, PageHeader, Select, Spinner } from '../../components/ui/ui.jsx';
 import { PATHS } from '../../app/paths.js';
+import { MONTHS, monthLabel, yearsAround } from '../../lib/format.js';
 
 const tabNames = [
   ['resumo', 'Resumo'],
@@ -49,11 +51,12 @@ function PersonTabs({ person, currentTab }) {
 export function PersonSummaryPage() {
   const { personId } = useParams();
   const navigate = useNavigate();
+  const { month, year, setMonth, setYear } = usePeriod();
   const people = useFetch(() => peopleApi.list(), [], { cacheKey: 'lookup:people', refreshEvent: 'people:refresh' });
-  const month = new Date().getMonth() + 1;
-  const year = new Date().getFullYear();
   const billing = useFetch(() => remindersApi.getPersonBilling(personId, month, year), [personId, month, year]);
   const person = people.data?.find((item) => item.id === personId);
+  const hasSelectedBilling = billing.data?.month === month && billing.data?.year === year;
+  const showBillingSpinner = !billing.error && (billing.loading || !hasSelectedBilling);
   const upcoming = useMemo(() => (billing.data?.cards ?? []).flatMap((card) =>
     (card.items ?? []).filter((item) => !item.paid && item.balanceDue > 0).map((item) => ({ ...item, cardName: card.cardName })),
   ).slice(0, 5), [billing.data]);
@@ -69,16 +72,44 @@ export function PersonSummaryPage() {
 
   return (
     <>
-      <PageHeader title="Resumo" subtitle="Informações financeiras e próximas pendências." actions={<Button variant="primary" onClick={() => navigate(`/pessoas/${person.id}/cobrar`)}>Cobrar</Button>} />
+      <PageHeader
+        title="Resumo"
+        subtitle="Informações financeiras e próximas pendências."
+        actions={(
+          <>
+            <div className="person-summary-period">
+              <label className="person-summary-period-field">
+                <span>Mês</span>
+                <Select
+                  value={month}
+                  onChange={(value) => setMonth(Number(value))}
+                  options={MONTHS.map((label, index) => ({ value: index + 1, label }))}
+                  aria-label="Selecionar mês do resumo"
+                />
+              </label>
+              <label className="person-summary-period-field">
+                <span>Ano</span>
+                <Select
+                  value={year}
+                  onChange={(value) => setYear(Number(value))}
+                  options={yearsAround(year).map((value) => ({ value, label: value }))}
+                  aria-label="Selecionar ano do resumo"
+                />
+              </label>
+            </div>
+            <Button variant="primary" onClick={() => navigate(`/pessoas/${person.id}/cobrar`)}>Cobrar</Button>
+          </>
+        )}
+      />
       {billing.error && <ErrorState error={billing.error} onRetry={billing.reload} />}
       <div className="grid-2 person-summary-grid">
-        <Card title="Saldo pendente do mês">
-          {billing.data ? <Money value={billing.data.grandTotalPending} strong /> : <Spinner />}
+        <Card title={`Saldo pendente · ${monthLabel(month, year)}`}>
+          {showBillingSpinner ? <Spinner /> : billing.data && <Money value={billing.data.grandTotalPending} strong />}
         </Card>
-        <Card title="Próximas parcelas">
-          {upcoming.length ? <ul className="person-upcoming-list">{upcoming.map((item, index) => (
+        <Card title={`Próximas parcelas · ${monthLabel(month, year)}`}>
+          {showBillingSpinner ? <Spinner /> : billing.data && upcoming.length ? <ul className="person-upcoming-list">{upcoming.map((item, index) => (
             <li key={`${item.description}-${index}`}><span>{item.description}<small>{item.cardName}</small></span><Money value={item.balanceDue} /></li>
-          ))}</ul> : <EmptyState title="Sem parcelas pendentes neste mês" />}
+          ))}</ul> : billing.data ? <EmptyState title="Sem parcelas pendentes neste mês" /> : null}
         </Card>
         {birthdaySoon && <Card title="Aniversário próximo"><p>{birthday.toLocaleDateString('pt-BR')} · faltam {birthday.getDate() - new Date().getDate()} dia(s).</p></Card>}
       </div>

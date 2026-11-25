@@ -4,7 +4,8 @@ import jwt from 'jsonwebtoken';
 import { z } from 'zod';
 import { AppError, asyncHandler } from '../../lib/errors.js';
 import { env } from '../../config/env.js';
-import { requireAuth } from '../../middleware/auth.js';
+import { optionalAuth, requireAuth } from '../../middleware/auth.js';
+import { auditAccessEvent } from '../../middleware/accessAudit.js';
 import { authLimiter } from '../../middleware/rateLimit.js';
 import { validate } from '../../middleware/validate.js';
 import {
@@ -72,20 +73,22 @@ export function authRoutes() {
     });
   });
 
-  router.post('/register', authLimiter, validate({ body: registerBody }), asyncHandler(async (req, res) => {
+  router.post('/register', auditAccessEvent('registration', 'password'), authLimiter, validate({ body: registerBody }), asyncHandler(async (req, res) => {
     const { user, token } = await registerWithEmail(req.body.name, req.body.email, req.body.password);
+    req.auditUser = user;
     setSessionCookie(res, token);
     res.status(201).json({ data: { user } });
   }));
 
-  router.post('/login', authLimiter, validate({ body: loginBody }), asyncHandler(async (req, res) => {
+  router.post('/login', auditAccessEvent('login', 'password'), authLimiter, validate({ body: loginBody }), asyncHandler(async (req, res) => {
     const { user, token } = await loginWithEmail(req.body.email, req.body.password);
+    req.auditUser = user;
     setSessionCookie(res, token);
     res.json({ data: { user } });
   }));
 
   // Login com Google
-  router.post('/google', authLimiter, async (req, res, next) => {
+  router.post('/google', auditAccessEvent('login', 'google'), authLimiter, async (req, res, next) => {
     try {
       const { credential } = req.body;
       if (!credential) {
@@ -96,8 +99,10 @@ export function authRoutes() {
         return res.status(501).json({ error: 'Login com Google não está configurado' });
       }
 
-      const { token, user } = await loginWithGoogle(credential);
+      const { token, user, isNewUser } = await loginWithGoogle(credential);
 
+      req.auditUser = user;
+      if (isNewUser) req.auditEvent = 'registration';
       setSessionCookie(res, token);
 
       res.json({ data: { user } });
@@ -108,7 +113,7 @@ export function authRoutes() {
     }
   });
 
-  router.post('/google/callback', authLimiter, async (req, res, next) => {
+  router.post('/google/callback', auditAccessEvent('login', 'google'), authLimiter, async (req, res, next) => {
     if (!hasValidGoogleCsrfToken(req)) {
       return res.status(403).json({ error: 'Token CSRF do Google inválido' });
     }
@@ -120,7 +125,9 @@ export function authRoutes() {
     }
 
     try {
-      const { token } = await loginWithGoogle(req.body.credential);
+      const { token, user, isNewUser } = await loginWithGoogle(req.body.credential);
+      req.auditUser = user;
+      if (isNewUser) req.auditEvent = 'registration';
       setSessionCookie(res, token);
       return res.redirect(303, env.isProd ? '/' : (env.frontendUrls[0] || '/'));
     } catch (err) {
@@ -136,7 +143,7 @@ export function authRoutes() {
   });
 
   // Logout
-  router.post('/logout', (req, res) => {
+  router.post('/logout', optionalAuth(), auditAccessEvent('logout'), (req, res) => {
     for (const name of ['caderno_token', 'fin_token']) {
       res.clearCookie(name, sessionCookieOptions);
       res.clearCookie(name, { ...sessionCookieOptions, path: '/api/auth' });
@@ -145,13 +152,14 @@ export function authRoutes() {
   });
 
   // Modo local
-  router.post('/local', async (req, res, next) => {
+  router.post('/local', auditAccessEvent('login', 'local'), async (req, res, next) => {
     try {
       if (!env.localLoginEnabled) {
         return res.status(404).json({ error: 'Rota não encontrada' });
       }
       const user = await getOrCreateDemoUser();
       const token = generateToken(user);
+      req.auditUser = user;
       setSessionCookie(res, token);
       res.json({ data: { user } });
     } catch (error) {

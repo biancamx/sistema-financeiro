@@ -1678,6 +1678,9 @@ img, canvas { max-width: 100%; }
 .tag-flush { margin-left: 0; }
 .year-kpis .small { color: var(--muted); }
 @media (max-width: 560px) {
+  .person-summary-period { flex: 1 1 100%; }
+  .person-summary-period-field { flex: 1; }
+  .person-summary-period-field .input { width: 100%; min-width: 0 !important; }
   .veh-hero { grid-template-columns: minmax(0, 1fr); gap: 14px; }
   .veh-hero .veh-photo-hero { width: min(100%, 240px); height: 130px; }
   .veh-hero-actions { flex-direction: row; }
@@ -1810,6 +1813,10 @@ img, canvas { max-width: 100%; }
 .area-tabs.person-tabs .area-tab { padding: 12px; border-bottom-width: 2px; margin-bottom: 0; }
 .area-tabs.person-tabs .area-tab.on { border-bottom-color: var(--primary); }
 .area-tabs.person-tabs .area-tab:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
+.person-summary-period { display: flex; align-items: flex-end; gap: 8px; }
+.person-summary-period-field { display: grid; min-width: 0; gap: 4px; color: var(--muted); font-size: 11px; }
+.person-summary-period-field:first-child .input { min-width: 132px; }
+.person-summary-period-field:last-child .input { min-width: 86px; }
 .person-summary-grid { margin-top: 16px; }
 .person-upcoming-list { display: grid; gap: 10px; padding: 0; margin: 0; list-style: none; }
 .person-upcoming-list li { display: flex; justify-content: space-between; gap: 12px; }

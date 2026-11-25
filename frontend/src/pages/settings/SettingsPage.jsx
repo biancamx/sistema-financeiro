@@ -88,6 +88,8 @@ export default function SettingsPage({ initialSection = 'categories', standalone
   const [aiApiKey, setAiApiKey] = useState('');
   const [showAiApiKey, setShowAiApiKey] = useState(false);
   const [aiConsent, setAiConsent] = useState(false);
+  const [aiNoticeOpen, setAiNoticeOpen] = useState(false);
+  const [aiNoticeHovered, setAiNoticeHovered] = useState(false);
   const [aiMessage, setAiMessage] = useState(null);
   const [aiBusy, setAiBusy] = useState(false);
   const [aiLoading, setAiLoading] = useState(true);
@@ -556,15 +558,36 @@ export default function SettingsPage({ initialSection = 'categories', standalone
         </div>
       )}
 
-      <div className="settings-ai-notice" role="note">
-        <AlertTriangle aria-hidden="true" />
-        <div>
-          <p><strong>Seus dados financeiros são enviados ao provedor escolhido.</strong> Mensagens do assistente, imagens e PDFs enviados para análise podem conter descrições, valores e categorias. Consulte os termos e a política de privacidade do provedor. A chave é criptografada no servidor e nunca volta a ser exibida.</p>
+      <div
+        className="settings-ai-notice"
+        role="note"
+        onMouseEnter={() => setAiNoticeHovered(true)}
+        onMouseLeave={() => setAiNoticeHovered(false)}
+      >
+        <div className="settings-ai-notice-row">
+          <button
+            type="button"
+            className="settings-ai-notice-trigger"
+            aria-label="Informações sobre o envio dos dados"
+            aria-expanded={aiNoticeOpen || aiNoticeHovered}
+            aria-controls="settings-ai-notice-copy"
+            onFocus={() => setAiNoticeHovered(true)}
+            onBlur={() => setAiNoticeHovered(false)}
+            onClick={() => setAiNoticeOpen((open) => !open)}
+          >
+            <AlertTriangle aria-hidden="true" />
+          </button>
           <label className="settings-ai-consent">
             <input type="checkbox" checked={aiConsent} onChange={handleAiConsentChange} disabled={aiBusy} />
             Entendi e concordo em enviar esses dados ao provedor selecionado.
           </label>
         </div>
+        <p
+          className={`settings-ai-notice-copy${aiNoticeOpen || aiNoticeHovered ? ' is-visible' : ''}`}
+          id="settings-ai-notice-copy"
+        >
+          <strong>Seus dados financeiros são enviados ao provedor escolhido.</strong> Mensagens do assistente, imagens e PDFs enviados para análise podem conter descrições, valores e categorias. Consulte os termos e a política de privacidade do provedor. A chave é criptografada no servidor e nunca volta a ser exibida.
+        </p>
       </div>
       {aiMessage && (
         <p className={`settings-ai-message is-${aiMessage.type}`} role={aiMessage.type === 'error' ? 'alert' : 'status'}>

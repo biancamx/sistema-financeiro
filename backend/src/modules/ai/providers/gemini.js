@@ -4,7 +4,6 @@ import { providerRequestError, withProviderRetries } from './shared.js';
 
 const API_VERSION = 'v1';
 const REQUEST_TIMEOUT_MS = 30_000;
-const DOCUMENT_REQUEST_TIMEOUT_MS = 90_000;
 
 function geminiRequestError(error, model) {
   const status = error?.status ?? error?.response?.status;
@@ -73,7 +72,6 @@ export const geminiProvider = {
 
   async complete({ apiKey, model, systemInstruction, messages, tools = [], document, generationConfig = {}, json = false }) {
     let response;
-    const requestTimeoutMs = document ? DOCUMENT_REQUEST_TIMEOUT_MS : REQUEST_TIMEOUT_MS;
     try {
       const genAI = new GoogleGenerativeAI(apiKey);
       response = (await withProviderRetries('gemini', model, () => {
@@ -87,7 +85,10 @@ export const geminiProvider = {
           systemInstruction,
           tools: tools.length ? [{ functionDeclarations: tools }] : undefined,
           generationConfig: effectiveGenerationConfig,
-        }, { apiVersion: API_VERSION, signal: AbortSignal.timeout(requestTimeoutMs) });
+        }, {
+          apiVersion: API_VERSION,
+          ...(!document && { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) }),
+        });
         return generativeModel.generateContent({
           contents: toGeminiContents(messages, document),
         });

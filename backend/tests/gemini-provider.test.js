@@ -12,7 +12,7 @@ const originalTimeout = AbortSignal.timeout;
 
 async function captureGeminiRequest({ model, document }) {
   let requestBody;
-  let timeoutMs;
+  const timeoutValues = [];
   globalThis.fetch = async (_url, options) => {
     requestBody = JSON.parse(options.body);
     return new Response(JSON.stringify({
@@ -20,7 +20,7 @@ async function captureGeminiRequest({ model, document }) {
     }), { status: 200, headers: { 'Content-Type': 'application/json' } });
   };
   AbortSignal.timeout = (milliseconds) => {
-    timeoutMs = milliseconds;
+    timeoutValues.push(milliseconds);
     return originalTimeout.call(AbortSignal, milliseconds);
   };
 
@@ -32,28 +32,28 @@ async function captureGeminiRequest({ model, document }) {
       document,
       json: true,
     });
-    return { requestBody, timeoutMs };
+    return { requestBody, timeoutValues };
   } finally {
     globalThis.fetch = originalFetch;
     AbortSignal.timeout = originalTimeout;
   }
 }
 
-test('Gemini Flash usa timeout maior e desativa thinking ao analisar documentos', async () => {
-  const { requestBody, timeoutMs } = await captureGeminiRequest({
+test('Gemini Flash não impõe timeout local a documentos e desativa thinking', async () => {
+  const { requestBody, timeoutValues } = await captureGeminiRequest({
     model: 'gemini-2.5-flash',
     document: { base64: 'JVBERi0=', mimeType: 'application/pdf' },
   });
 
-  assert.equal(timeoutMs, 90_000);
+  assert.deepEqual(timeoutValues, []);
   assert.equal(requestBody.generationConfig.thinkingConfig.thinkingBudget, 0);
   assert.equal(requestBody.generationConfig.responseMimeType, 'application/json');
 });
 
 test('chamadas sem documento mantêm o timeout normal e não alteram modelos Flash recentes', async () => {
-  const { requestBody, timeoutMs } = await captureGeminiRequest({ model: 'gemini-3.5-flash-lite' });
+  const { requestBody, timeoutValues } = await captureGeminiRequest({ model: 'gemini-3.5-flash-lite' });
 
-  assert.equal(timeoutMs, 30_000);
+  assert.deepEqual(timeoutValues, [30_000]);
   assert.equal(requestBody.generationConfig.thinkingConfig, undefined);
 });
 

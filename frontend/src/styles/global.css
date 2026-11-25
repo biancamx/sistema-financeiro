@@ -2238,8 +2238,9 @@ input[type="file"]::file-selector-button:hover {
 .access-status-blocked { border-color: transparent; background: color-mix(in srgb, var(--neg) 12%, var(--surface)); color: var(--neg); }
 
 /* ───────── Assistente financeiro ───────── */
-.assistant-widget { position: fixed; z-index: var(--z-floating); right: 24px; bottom: max(24px, env(safe-area-inset-bottom)); display: flex; width: min(390px, calc(100% - 24px)); flex-direction: column; align-items: flex-end; font-family: inherit; }
+.assistant-widget { position: fixed; z-index: var(--z-floating); right: 24px; bottom: max(24px, env(safe-area-inset-bottom)); display: flex; width: min(390px, calc(100% - 24px)); flex-direction: column; align-items: flex-end; font-family: inherit; pointer-events: none; }
 .assistant-widget:has(.assistant-panel) { z-index: var(--z-popover); }
+.assistant-widget > * { pointer-events: auto; }
 .assistant-launcher { display: inline-flex; width: 52px; height: 52px; min-height: 52px; align-items: center; justify-content: center; padding: 0; border: 0; border-radius: 50%; background: var(--primary); color: var(--primary-ink); box-shadow: 0 8px 26px rgb(8 35 33 / .28); font: inherit; font-weight: 600; cursor: pointer; transition: transform .18s ease, box-shadow .18s ease, background .18s ease; }
 .assistant-launcher:hover { transform: translateY(-2px); background: color-mix(in srgb, var(--primary) 88%, #000); box-shadow: 0 12px 30px rgb(8 35 33 / .32); }
 .assistant-launcher > svg { width: 20px; height: 20px; }

@@ -135,3 +135,28 @@ test('importa parcelas agrupadas e preserva detalhe, categoria e valores calcula
     assert.ok(rowsForPerson.every((item) => item.amount === (person === 'Person 01' ? 30 : 20)));
   }
 });
+
+test('importa linhas recorrentes como assinaturas com término reconhecido', async () => {
+  const account = await createTestAccount({ email: 'spreadsheet-subscription@example.invalid' });
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([
+    ['Compra', 'Responsável', 'Valor mensal', 'Início', 'Fim'],
+    ['Streaming', 'Subscription person', 'R$ 9,99', 'mar/2026', 'mai/2026'],
+  ]), 'Recorrentes');
+  const fileBuffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+
+  const result = await processSpreadsheetImport(String(account.user._id), fileBuffer);
+
+  assert.equal(result.purchasesUpserted, 1);
+  assert.equal(result.installmentsUpserted, 1);
+  const [purchase] = await Purchase.find({ userId: account.user._id }).lean();
+  const [installment] = await Installment.find({ userId: account.user._id }).lean();
+  assert.equal(purchase.isSubscription, true);
+  assert.equal(purchase.totalAmount, 9.99);
+  assert.equal(purchase.totalInstallments, 1);
+  assert.equal(new Date(purchase.subscriptionEndAt).toISOString(), '2026-05-31T00:00:00.000Z');
+  assert.deepEqual(
+    { month: installment.month, year: installment.year, amount: installment.amount },
+    { month: 3, year: 2026, amount: 9.99 },
+  );
+});

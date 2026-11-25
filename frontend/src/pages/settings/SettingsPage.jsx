@@ -641,7 +641,7 @@ export default function SettingsPage({ initialSection = 'categories', standalone
       >
         <Upload className="settings-upload-icon" aria-hidden="true" />
         <h3>Importe uma planilha ou fatura</h3>
-        <p>Compatível com .xlsx, .xls e PDF de orçamento anual ou extrato de compras. O PDF é analisado pela IA configurada na sua conta e só é gravado depois da sua conferência.</p>
+        <p>Compatível com .xlsx, .xls e PDF. Tabelas de compras são reconhecidas pelos cabeçalhos, mesmo com nomes de abas diferentes; confira os itens sem valor ou ambíguos antes de importar. O PDF é analisado pela IA configurada na sua conta e só é gravado depois da sua conferência.</p>
         <Button
           variant="primary"
           className="settings-file-button"
@@ -1479,6 +1479,23 @@ export default function SettingsPage({ initialSection = 'categories', standalone
                 </ul>
               )}
             </section>
+            {previewData.sourceType !== 'pdf' && previewData.ignoredRows?.length > 0 && (
+              <section className="settings-import-ignored" role="status">
+                <h3><AlertTriangle aria-hidden="true" /> Linhas não importadas ({previewData.ignoredRows.length})</h3>
+                <p>Confira estes itens: faltam dados ou há valores ambíguos. Eles não serão gravados.</p>
+                <ul>
+                  {previewData.ignoredRows.slice(0, 10).map((row, index) => (
+                    <li key={`${row.location ?? row.sheet}-${row.row}-${index}`}>
+                      <strong>{row.location ?? `${row.sheet}, linha ${row.row}`}</strong>
+                      <span>{row.reason}</span>
+                    </li>
+                  ))}
+                </ul>
+                {previewData.ignoredRows.length > 10 && (
+                  <small>Mais {previewData.ignoredRows.length - 10} linhas não exibidas.</small>
+                )}
+              </section>
+            )}
           </div>
         )}
       </Modal>

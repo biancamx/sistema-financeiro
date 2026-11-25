@@ -133,9 +133,14 @@ export async function executeSpreadsheetImport(userId, analyzedData, userDecisio
         const purchaseDate = /^\d{4}-\d{2}-\d{2}$/.test(toSafeText(item.purchaseDate)) ? toSafeText(item.purchaseDate) : null;
         const totalInstallments = Math.max(1, Number(item.totalInstallments) || 1);
         const totalAmount = toSafeNumber(item.totalAmount, 0);
+        const isSubscription = Boolean(item.isSubscription);
+        const subscriptionEndAt = isSubscription && item.subscriptionEndAt
+          && !Number.isNaN(new Date(item.subscriptionEndAt).getTime())
+          ? new Date(item.subscriptionEndAt)
+          : null;
         const purchaseQuery = {
           userId, personId, cardId, categoryId: categoryId ?? null,
-          description, totalAmount, totalInstallments, purchaseDate,
+          description, totalAmount, totalInstallments, purchaseDate, isSubscription, subscriptionEndAt,
         };
         const identity = JSON.stringify({
           personId: String(personId),
@@ -145,6 +150,8 @@ export async function executeSpreadsheetImport(userId, analyzedData, userDecisio
           totalAmount,
           totalInstallments,
           purchaseDate,
+          isSubscription,
+          subscriptionEndAt,
           installments: Array.isArray(item.installments) ? item.installments : [],
         });
         const occurrence = (purchaseOccurrences.get(identity) ?? 0) + 1;
@@ -159,7 +166,11 @@ export async function executeSpreadsheetImport(userId, analyzedData, userDecisio
           }
         }
         if (!purchase) {
-          purchase = await Purchase.create({ ...purchaseQuery, importSourceKey });
+          purchase = await Purchase.create({
+            ...purchaseQuery,
+            ...(isSubscription && { subscriptionStatus: 'active' }),
+            importSourceKey,
+          });
           summary.purchasesUpserted++;
         }
         importedPurchaseIds.add(String(purchase._id));

@@ -15,33 +15,246 @@ export function normalizeText(str) {
 }
 
 export const MONTHS_MAP = {
-  janeiro: 1, jan: 1,
-  fevereiro: 2, fev: 2,
-  marco: 3, mar: 3,
-  abril: 4, abr: 4,
+  janeiro: 1, january: 1, jan: 1,
+  fevereiro: 2, february: 2, fev: 2, feb: 2,
+  marco: 3, march: 3, mar: 3,
+  abril: 4, april: 4, abr: 4, apr: 4,
   maio: 5, mai: 5,
-  junho: 6, jun: 6,
-  julho: 7, jul: 7,
-  agosto: 8, ago: 8,
-  setembro: 9, set: 9,
-  outubro: 10, out: 10,
-  novembro: 11, nov: 11,
-  dezembro: 12, dez: 12,
+  junho: 6, june: 6, jun: 6,
+  julho: 7, july: 7, jul: 7,
+  agosto: 8, august: 8, ago: 8, aug: 8,
+  setembro: 9, september: 9, set: 9, sept: 9,
+  outubro: 10, october: 10, out: 10, oct: 10,
+  novembro: 11, november: 11, nov: 11,
+  dezembro: 12, december: 12, dez: 12, dec: 12,
 };
 
-export function parseMoney(val) {
-  if (typeof val === 'number') return Math.round(val * 100) / 100;
-  if (!val) return 0;
-  let clean = String(val).replace(/[R$\s]/g, '');
+function parseMoneyValue(value) {
+  if (typeof value === 'number') return Number.isFinite(value) ? Math.round(value * 100) / 100 : null;
+  if (value === null || value === undefined || !String(value).trim()) return null;
+  let clean = String(value).replace(/[R$\s]/g, '');
+  if (!/^[+-]?\d[\d.,]*$/.test(clean)) return null;
   if (clean.includes(',') && clean.includes('.')) {
     clean = clean.lastIndexOf(',') > clean.lastIndexOf('.')
       ? clean.replace(/\./g, '').replace(',', '.')
       : clean.replace(/,/g, '');
   } else if (clean.includes(',')) {
-    clean = clean.replace(',', '.');
+    clean = /^[-+]?\d{1,3}(,\d{3})+$/.test(clean)
+      ? clean.replace(/,/g, '')
+      : clean.replace(',', '.');
+  } else if (/^[-+]?\d{1,3}(\.\d{3})+$/.test(clean)) {
+    clean = clean.replace(/\./g, '');
   }
-  const num = parseFloat(clean);
-  return isNaN(num) ? 0 : Math.round(num * 100) / 100;
+  const number = Number(clean);
+  return Number.isFinite(number) ? Math.round(number * 100) / 100 : null;
+}
+
+export function parseMoney(val) {
+  return parseMoneyValue(val) ?? 0;
+}
+
+function headerKey(value) {
+  return normalizeText(value).replace(/[^a-z0-9]/g, '');
+}
+
+const TABLE_HEADER_ALIASES = {
+  description: ['compra', 'nomedacompra', 'descricao', 'descricaodacompra', 'detalhe', 'detalhedacompra', 'estabelecimento', 'produto', 'nomedoproduto', 'item', 'lancamento'],
+  person: ['responsavel', 'pessoa', 'titular', 'participante', 'nomedapessoa', 'cliente', 'beneficiario'],
+  amount: ['valor', 'valorr', 'valortotal', 'total', 'totalcompra', 'preco', 'amount', 'totalamount', 'valordacompra'],
+  monthlyAmount: ['valordaparcela', 'parcelamensal', 'valorparcelado', 'installmentamount'],
+  subscriptionAmount: ['valormensal', 'monthlyamount'],
+  card: ['cartao', 'nomecartao', 'card', 'paymentmethod'],
+  date: ['mesano', 'competencia', 'data', 'datacompra', 'datadacompra', 'date', 'monthyear'],
+  month: ['mes', 'mesdacompra', 'month'],
+  year: ['ano', 'anodacompra', 'year'],
+  start: ['inicio', 'datainicio', 'datainicial', 'start', 'startdate'],
+  end: ['fim', 'datafim', 'ultimaparcela', 'end', 'enddate'],
+  installments: ['parcelas', 'nparcelas', 'qtdparcelas', 'qtddeparcelas', 'quantidadeparcelas', 'numeroparcelas', 'installments', 'installmentcount'],
+};
+
+function parseMonthYear(value, yearValue = null) {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return { month: value.getMonth() + 1, year: value.getFullYear() };
+  }
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    const year = Number(yearValue);
+    if (Number.isInteger(value) && value >= 1 && value <= 12
+      && Number.isInteger(year) && year >= 1900) {
+      return { month: value, year };
+    }
+    const excelDate = XLSX.SSF.parse_date_code(value);
+    if (excelDate?.y && excelDate?.m) return { month: excelDate.m, year: excelDate.y };
+  }
+  const text = normalizeText(value);
+  const numericMonth = Number(text);
+  const explicitYear = Number(yearValue);
+  if (Number.isInteger(numericMonth) && numericMonth >= 1 && numericMonth <= 12
+    && Number.isInteger(explicitYear) && explicitYear >= 1900) {
+    return { month: numericMonth, year: explicitYear };
+  }
+  const localizedDate = text.match(/^\d{1,2}\/(\d{1,2})\/(20\d{2})$/);
+  const isoDate = text.match(/^(20\d{2})-(\d{1,2})-\d{1,2}$/);
+  if (localizedDate || isoDate) {
+    const month = Number(localizedDate?.[1] ?? isoDate?.[2]);
+    const year = Number(localizedDate?.[2] ?? isoDate?.[1]);
+    if (month >= 1 && month <= 12) return { month, year };
+  }
+  const monthYear = text.match(/^([a-z]+)[./\s-]+(20\d{2})$/)
+    || text.match(/^(20\d{2})[./\s-]+([a-z]+)$/);
+  if (monthYear) {
+    const month = MONTHS_MAP[monthYear[1]] || MONTHS_MAP[monthYear[2]];
+    const year = Number(monthYear[1].startsWith('20') ? monthYear[1] : monthYear[2]);
+    if (month) return { month, year };
+  }
+  const numericMonthYear = text.match(/^(?:(\d{1,2})[/-](20\d{2})|(20\d{2})[/-](\d{1,2}))$/);
+  if (numericMonthYear) {
+    const month = Number(numericMonthYear[1] || numericMonthYear[4]);
+    const year = Number(numericMonthYear[2] || numericMonthYear[3]);
+    if (month >= 1 && month <= 12) return { month, year };
+  }
+  const month = MONTHS_MAP[text];
+  const year = Number(yearValue);
+  return month && Number.isInteger(year) && year >= 1900
+    ? { month, year }
+    : null;
+}
+
+function findTableHeader(rows) {
+  const aliases = Object.fromEntries(
+    Object.entries(TABLE_HEADER_ALIASES).map(([field, names]) => [
+      field,
+      new Set(names.map(headerKey)),
+    ]),
+  );
+  for (let rowIndex = 0; rowIndex < Math.min(rows.length, 20); rowIndex++) {
+    const columns = {};
+    for (const [columnIndex, value] of rows[rowIndex].entries()) {
+      const key = headerKey(value);
+      if (!key) continue;
+      for (const [field, names] of Object.entries(aliases)) {
+        if (columns[field] === undefined && names.has(key)) columns[field] = columnIndex;
+      }
+    }
+    if (columns.description !== undefined && columns.person !== undefined
+      && (columns.amount !== undefined || columns.monthlyAmount !== undefined
+        || columns.subscriptionAmount !== undefined
+        || columns.start !== undefined || columns.end !== undefined
+        || columns.installments !== undefined)) {
+      return { rowIndex, columns };
+    }
+  }
+  return null;
+}
+
+function readGenericPurchaseTables(workbook, report, excludedSheets) {
+  const importedSheets = new Set();
+  for (const sheetName of workbook.SheetNames) {
+    if (excludedSheets.has(normalizeText(sheetName).replace(/\s+/g, ''))) continue;
+    const rows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], {
+      header: 1, raw: true, defval: '',
+    });
+    const table = findTableHeader(rows);
+    if (!table) continue;
+    importedSheets.add(sheetName);
+    const { columns, rowIndex } = table;
+    const fallbackCard = 'Sem cartão informado';
+
+    for (let rowNumber = rowIndex + 1; rowNumber < rows.length; rowNumber++) {
+      const row = rows[rowNumber];
+      const description = String(row[columns.description] ?? '').trim();
+      const personName = String(row[columns.person] ?? '').trim();
+      if (!description && !personName) continue;
+      const location = `${sheetName}!${rowNumber + 1}`;
+      const ignore = (reason) => report.ignoredRows.push({ sheet: sheetName, row: rowNumber + 1, location, reason });
+
+      if (!description || !personName) {
+        ignore('Linha sem descrição ou responsável.');
+        continue;
+      }
+      if (/[;,]/.test(personName)) {
+        ignore('Há mais de um responsável na linha; a divisão do valor precisa ser conferida.');
+        continue;
+      }
+      if (columns.amount === undefined && columns.monthlyAmount === undefined
+        && columns.subscriptionAmount === undefined) {
+        ignore('A tabela não informa o valor da compra ou da parcela.');
+        continue;
+      }
+
+      const amountColumn = columns.subscriptionAmount ?? columns.monthlyAmount ?? columns.amount;
+      const unitAmount = parseMoneyValue(row[amountColumn]);
+      if (unitAmount === null) {
+        ignore('Valor ausente ou ambíguo; nenhuma compra foi criada para esta linha.');
+        continue;
+      }
+
+      const start = parseMonthYear(
+        columns.start !== undefined ? row[columns.start]
+          : columns.date !== undefined ? row[columns.date]
+            : columns.month !== undefined ? row[columns.month] : null,
+        columns.year !== undefined ? row[columns.year] : null,
+      );
+      const end = columns.end !== undefined ? parseMonthYear(row[columns.end]) : null;
+      const hasMonthlyAmount = columns.monthlyAmount !== undefined;
+      const isSubscription = columns.subscriptionAmount !== undefined;
+      const rawInstallments = columns.installments === undefined
+        ? 1
+        : Math.max(1, parseInt(row[columns.installments], 10) || 1);
+      const periodCount = end && start
+        ? Math.max(1, (end.year - start.year) * 12 + end.month - start.month + 1)
+        : rawInstallments;
+      const totalInstallments = isSubscription ? 1 : periodCount;
+
+      if (!start) {
+        ignore('Mês e ano da compra/início não reconhecidos.');
+        continue;
+      }
+
+      const totalAmount = isSubscription
+        ? unitAmount
+        : hasMonthlyAmount
+          ? Math.round(unitAmount * totalInstallments * 100) / 100
+          : unitAmount;
+      const installmentAmount = isSubscription || hasMonthlyAmount
+        ? unitAmount
+        : totalInstallments > 1
+          ? Math.round((unitAmount / totalInstallments) * 100) / 100
+          : unitAmount;
+      const cardName = columns.card === undefined
+        ? fallbackCard
+        : String(row[columns.card] ?? '').trim() || fallbackCard;
+      const installments = [];
+      for (let index = 0; index < totalInstallments; index++) {
+        const absoluteMonth = start.year * 12 + start.month - 1 + index;
+        installments.push({
+          month: (absoluteMonth % 12) + 1,
+          year: Math.floor(absoluteMonth / 12),
+          amount: installmentAmount,
+        });
+      }
+
+      const purchase = {
+        description,
+        category: '',
+        personName,
+        cardName,
+        purchaseDate: null,
+        totalAmount,
+        totalInstallments,
+        isSubscription,
+        subscriptionEndAt: isSubscription && end
+          ? new Date(Date.UTC(end.year, end.month, 0)).toISOString()
+          : null,
+        installments,
+      };
+      report.people.push(personName);
+      report.cards.push(cardName);
+      report.purchasesGrouped.push(purchase);
+      report.summaryCounts.purchasesCount++;
+      report.summaryCounts.installmentsCount += installments.length;
+    }
+  }
+  return importedSheets;
 }
 
 export function analyzeSpreadsheet(fileBuffer) {
@@ -222,10 +435,17 @@ export function analyzeSpreadsheet(fileBuffer) {
     report.summaryCounts.purchasesCount = report.purchasesGrouped.length;
   }
 
+  const genericPurchaseSheets = readGenericPurchaseTables(
+    workbook,
+    report,
+    new Set(['dados', 'bancodedados']),
+  );
+
   // 4. ABAS MENSAIS POR PESSOA (Item 5 da especificação)
   const personSheets = sheetNames.filter((s) => {
     const norm = normalizeText(s).replace(/\s+/g, '');
-    return !['bancodedados', 'dados', 'dashboard', 'dahbordcartoes', 'financeirogeral'].includes(norm);
+    return !['bancodedados', 'dados', 'dashboard', 'dahbordcartoes', 'financeirogeral', 'resumo', 'ajustes'].includes(norm)
+      && !genericPurchaseSheets.has(s);
   });
   const personYears = new Map();
 
@@ -455,6 +675,15 @@ export function analyzeSpreadsheet(fileBuffer) {
       default: 'Não, manter original',
     }
   );
+
+  const uniqueNames = (names) => [...new Map(
+    names.filter(Boolean).map((name) => [normalizeText(name), name]),
+  ).values()];
+  report.people = uniqueNames(report.people);
+  report.cards = uniqueNames(report.cards);
+  report.categories = uniqueNames(report.categories);
+  report.summaryCounts.peopleCount = report.people.length;
+  report.summaryCounts.cardsCount = report.cards.length;
 
   return report;
 }

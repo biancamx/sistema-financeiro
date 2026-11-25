@@ -637,6 +637,55 @@
   color: var(--pos);
 }
 
+.settings-import-ignored {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, #f59e0b 35%, var(--line));
+  border-radius: 8px;
+  background: color-mix(in srgb, #f59e0b 7%, var(--surface));
+}
+
+.settings-import-ignored h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 13px;
+}
+
+.settings-import-ignored h3 svg {
+  width: 17px;
+  height: 17px;
+  flex: 0 0 auto;
+  color: #b45309;
+}
+
+.settings-import-ignored p,
+.settings-import-ignored ul {
+  margin: 0;
+}
+
+.settings-import-ignored ul {
+  display: grid;
+  gap: 6px;
+  padding-left: 20px;
+}
+
+.settings-import-ignored li strong,
+.settings-import-ignored li span {
+  display: block;
+}
+
+.settings-import-ignored li strong {
+  font-size: 12px;
+}
+
+.settings-import-ignored li span,
+.settings-import-ignored small {
+  color: var(--muted);
+}
+
 .settings-divergences {
   display: grid;
   gap: 8px;

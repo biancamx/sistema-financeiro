@@ -60,6 +60,32 @@ test('parseMoney aceita valores brasileiros com separador de milhar', () => {
   assert.equal(parseMoney('R$ 1.234,56'), 1234.56);
 });
 
+test('analyzeSpreadsheet reconhece compras compartilhadas e assinaturas da aba Importar', () => {
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([
+    ['index', 'Data', 'Descrição', 'Valor', 'Categoria', 'Pessoa', 'Cartão', 'Parcelas', 'Observação'],
+    [0, '2026-06-14', 'Gasolina', 25, 'Combustível', 'Bianca', 'Nubank', 1,
+      'Compra compartilhada com Cailane. Este lançamento é só a parte de Bianca.'],
+    [1, '2026-06-14', 'Gasolina', 25, 'Combustível', 'Cailane', 'Nubank', 1,
+      'Compra compartilhada com Bianca. Este lançamento é só a parte de Cailane.'],
+    [2, '2026-06-01', 'DL*GOOGLE', 109.89, 'Assinaturas e Seguros', 'Bianca', 'Banco do Brasil Visa', 11,
+      'Cobrança mensal recorrente, 11 meses.'],
+  ]), 'Importar');
+  const fileBuffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+
+  const analyzed = analyzeSpreadsheet(fileBuffer);
+  const shared = analyzed.purchasesGrouped.filter((purchase) => purchase.sharedGroupKey);
+  const subscription = analyzed.purchasesGrouped.find((purchase) => purchase.isSubscription);
+
+  assert.equal(shared.length, 2);
+  assert.equal(shared[0].sharedGroupKey, shared[1].sharedGroupKey);
+  assert.equal(subscription.description, 'DL*GOOGLE');
+  assert.equal(subscription.totalAmount, 109.89);
+  assert.equal(subscription.totalInstallments, 11);
+  assert.equal(subscription.installments.length, 11);
+  assert.equal(subscription.subscriptionEndAt, '2027-04-30T00:00:00.000Z');
+});
+
 test('analyzeSpreadsheet reconhece tabelas de compras e recorrências pelos cabeçalhos', () => {
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([

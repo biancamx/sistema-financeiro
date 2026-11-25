@@ -61,6 +61,8 @@ const TABLE_HEADER_ALIASES = {
   description: ['compra', 'nomedacompra', 'descricao', 'descricaodacompra', 'detalhe', 'detalhedacompra', 'estabelecimento', 'produto', 'nomedoproduto', 'item', 'lancamento'],
   person: ['responsavel', 'pessoa', 'titular', 'participante', 'nomedapessoa', 'cliente', 'beneficiario'],
   amount: ['valor', 'valorr', 'valortotal', 'total', 'totalcompra', 'preco', 'amount', 'totalamount', 'valordacompra'],
+  category: ['categoria', 'categoriadacompra', 'category'],
+  observation: ['observacao', 'observacoes', 'descricaoextra', 'notas', 'detalhes', 'observation', 'observations'],
   monthlyAmount: ['valordaparcela', 'parcelamensal', 'valorparcelado', 'installmentamount'],
   subscriptionAmount: ['valormensal', 'monthlyamount'],
   card: ['cartao', 'nomecartao', 'card', 'paymentmethod'],
@@ -163,6 +165,12 @@ function readGenericPurchaseTables(workbook, report, excludedSheets) {
       const row = rows[rowNumber];
       const description = String(row[columns.description] ?? '').trim();
       const personName = String(row[columns.person] ?? '').trim();
+      const category = columns.category === undefined
+        ? ''
+        : String(row[columns.category] ?? '').trim();
+      const observation = columns.observation === undefined
+        ? ''
+        : String(row[columns.observation] ?? '').trim();
       if (!description && !personName) continue;
       const location = `${sheetName}!${rowNumber + 1}`;
       const ignore = (reason) => report.ignoredRows.push({ sheet: sheetName, row: rowNumber + 1, location, reason });
@@ -196,19 +204,39 @@ function readGenericPurchaseTables(workbook, report, excludedSheets) {
       );
       const end = columns.end !== undefined ? parseMonthYear(row[columns.end]) : null;
       const hasMonthlyAmount = columns.monthlyAmount !== undefined;
-      const isSubscription = columns.subscriptionAmount !== undefined;
+      const subscriptionText = normalizeText(observation);
+      const isSubscription = columns.subscriptionAmount !== undefined
+        || normalizeText(category).includes('assinaturas')
+        || subscriptionText.includes('cobranca mensal recorrente')
+        || subscriptionText.includes('assinatura');
       const rawInstallments = columns.installments === undefined
         ? 1
         : Math.max(1, parseInt(row[columns.installments], 10) || 1);
       const periodCount = end && start
         ? Math.max(1, (end.year - start.year) * 12 + end.month - start.month + 1)
         : rawInstallments;
-      const totalInstallments = isSubscription ? 1 : periodCount;
+      const recurringImportRow = isSubscription
+        && columns.observation !== undefined
+        && (
+          normalizeText(observation).includes('cobranca mensal recorrente')
+          || normalizeText(observation).includes('assinatura')
+        );
+      const totalInstallments = recurringImportRow ? periodCount : (isSubscription ? 1 : periodCount);
 
       if (!start) {
         ignore('Mês e ano da compra/início não reconhecidos.');
         continue;
       }
+
+      const subscriptionEnd = isSubscription
+        ? (() => {
+          const endIndex = start.year * 12 + start.month - 1 + Math.max(1, periodCount) - 1;
+          return {
+            month: (endIndex % 12) + 1,
+            year: Math.floor(endIndex / 12),
+          };
+        })()
+        : null;
 
       const totalAmount = isSubscription
         ? unitAmount
@@ -223,6 +251,18 @@ function readGenericPurchaseTables(workbook, report, excludedSheets) {
       const cardName = columns.card === undefined
         ? fallbackCard
         : String(row[columns.card] ?? '').trim() || fallbackCard;
+      const purchaseDate = start
+        ? `${String(start.year).padStart(4, '0')}-${String(start.month).padStart(2, '0')}-01`
+        : null;
+      const sharedMatch = normalizeText(observation).includes('compra compartilhada');
+      const sharedGroupKey = sharedMatch
+        ? [
+          purchaseDate,
+          normalizeText(description),
+          normalizeText(category),
+          normalizeText(cardName),
+        ].join('__')
+        : null;
       const installments = [];
       for (let index = 0; index < totalInstallments; index++) {
         const absoluteMonth = start.year * 12 + start.month - 1 + index;
@@ -235,20 +275,23 @@ function readGenericPurchaseTables(workbook, report, excludedSheets) {
 
       const purchase = {
         description,
-        category: '',
+        category,
         personName,
         cardName,
-        purchaseDate: null,
+        purchaseDate,
         totalAmount,
         totalInstallments,
         isSubscription,
-        subscriptionEndAt: isSubscription && end
-          ? new Date(Date.UTC(end.year, end.month, 0)).toISOString()
+        subscriptionEndAt: isSubscription && (subscriptionEnd || end)
+          ? new Date(Date.UTC((subscriptionEnd || end).year, (subscriptionEnd || end).month, 0)).toISOString()
           : null,
+        sharedGroupKey,
+        observation,
         installments,
       };
       report.people.push(personName);
       report.cards.push(cardName);
+      if (category) report.categories.push(category);
       report.purchasesGrouped.push(purchase);
       report.summaryCounts.purchasesCount++;
       report.summaryCounts.installmentsCount += installments.length;

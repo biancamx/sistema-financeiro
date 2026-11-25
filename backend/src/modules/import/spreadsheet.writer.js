@@ -138,9 +138,13 @@ export async function executeSpreadsheetImport(userId, analyzedData, userDecisio
           && !Number.isNaN(new Date(item.subscriptionEndAt).getTime())
           ? new Date(item.subscriptionEndAt)
           : null;
+        const splitGroupId = item.sharedGroupKey
+          ? `spreadsheet:${createHash('sha256').update(String(item.sharedGroupKey)).digest('hex')}`
+          : null;
         const purchaseQuery = {
           userId, personId, cardId, categoryId: categoryId ?? null,
           description, totalAmount, totalInstallments, purchaseDate, isSubscription, subscriptionEndAt,
+          splitGroupId,
         };
         const identity = JSON.stringify({
           personId: String(personId),
@@ -152,6 +156,7 @@ export async function executeSpreadsheetImport(userId, analyzedData, userDecisio
           purchaseDate,
           isSubscription,
           subscriptionEndAt,
+          splitGroupId,
           installments: Array.isArray(item.installments) ? item.installments : [],
         });
         const occurrence = (purchaseOccurrences.get(identity) ?? 0) + 1;

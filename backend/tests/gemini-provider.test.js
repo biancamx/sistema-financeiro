@@ -81,3 +81,68 @@ test('timeout de documento Gemini não dispara novas tentativas longas', async (
     AbortSignal.timeout = originalTimeout;
   }
 });
+
+test('PDF tenta Gemini 3.5 Flash-Lite após indisponibilidade 503 do modelo selecionado', async () => {
+  const requestedModels = [];
+  globalThis.fetch = async (url) => {
+    requestedModels.push(String(url).match(/models\/([^:]+)/)?.[1]);
+    if (requestedModels.length <= 3) {
+      return new Response(JSON.stringify({ error: { message: 'temporarily unavailable' } }), {
+        status: 503,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    return new Response(JSON.stringify({
+      candidates: [{ content: { parts: [{ text: '{"records":[]}' }], role: 'model' }, finishReason: 'STOP' }],
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  };
+
+  try {
+    const result = await geminiProvider.complete({
+      apiKey: 'test-key',
+      model: 'gemini-3.1-flash-lite',
+      messages: [{ role: 'user', content: 'Analise este PDF.' }],
+      document: { base64: 'JVBERi0=', mimeType: 'application/pdf' },
+      json: true,
+    });
+
+    assert.equal(result.text, '{"records":[]}');
+    assert.deepEqual(requestedModels, [
+      'gemini-3.1-flash-lite',
+      'gemini-3.1-flash-lite',
+      'gemini-3.1-flash-lite',
+      'gemini-3.5-flash-lite',
+    ]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('falha 503 sem documento não troca silenciosamente o modelo selecionado', async () => {
+  const requestedModels = [];
+  globalThis.fetch = async (url) => {
+    requestedModels.push(String(url).match(/models\/([^:]+)/)?.[1]);
+    return new Response(JSON.stringify({ error: { message: 'temporarily unavailable' } }), {
+      status: 503,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  };
+
+  try {
+    await assert.rejects(
+      () => geminiProvider.complete({
+        apiKey: 'test-key',
+        model: 'gemini-3.1-flash-lite',
+        messages: [{ role: 'user', content: 'Olá.' }],
+      }),
+      { code: 'AI_PROVIDER_UNAVAILABLE' },
+    );
+    assert.deepEqual(requestedModels, [
+      'gemini-3.1-flash-lite',
+      'gemini-3.1-flash-lite',
+      'gemini-3.1-flash-lite',
+    ]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

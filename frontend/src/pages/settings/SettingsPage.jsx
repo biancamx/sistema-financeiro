@@ -755,7 +755,7 @@ export default function SettingsPage({ initialSection = 'categories', standalone
           className={`settings-ai-notice-copy${aiNoticeOpen || aiNoticeHovered ? ' is-visible' : ''}`}
           id="settings-ai-notice-copy"
         >
-          <strong>Seus dados financeiros são enviados ao provedor escolhido.</strong> Mensagens do assistente, imagens e PDFs enviados para análise podem conter descrições, valores e categorias. Consulte os termos e a política de privacidade do provedor. A chave é criptografada no servidor e nunca volta a ser exibida.
+          <strong>Seus dados financeiros são enviados ao provedor escolhido.</strong> Mensagens do assistente, imagens e PDFs enviados para análise podem conter descrições, valores e categorias. Na análise de PDFs, se o Gemini retornar indisponibilidade, o sistema pode tentar automaticamente o Gemini 3.5 Flash-Lite usando a mesma chave. Consulte os termos e a política de privacidade do provedor. A chave é criptografada no servidor e nunca volta a ser exibida.
         </p>
       </div>
       {aiMessage && (

@@ -40,7 +40,7 @@ export function providerRequestError(status) {
     return new AppError(504, 'AI_PROVIDER_TIMEOUT', 'O provedor demorou demais para responder. Tente novamente.');
   }
   if (status >= 500) {
-    return new AppError(502, 'AI_PROVIDER_UNAVAILABLE', 'O provedor de IA está indisponível no momento. Tente novamente mais tarde.');
+    return new AppError(502, 'AI_PROVIDER_UNAVAILABLE', 'O provedor de IA está indisponível no momento. Tente novamente mais tarde ou selecione outro modelo em Configurações.');
   }
   return new AppError(502, 'AI_PROVIDER_ERROR', 'O provedor de IA não conseguiu concluir a resposta. Confira a chave, o modelo e a cota em Configurações.');
 }

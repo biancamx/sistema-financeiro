@@ -1,9 +1,11 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { AppError } from '../../../lib/errors.js';
+import { logger } from '../../../lib/logger.js';
 import { providerRequestError, withProviderRetries } from './shared.js';
 
 const API_VERSION = 'v1';
 const REQUEST_TIMEOUT_MS = 30_000;
+const PDF_FALLBACK_MODEL = 'gemini-3.5-flash-lite';
 
 function geminiRequestError(error, model) {
   const status = error?.status ?? error?.response?.status;
@@ -72,29 +74,44 @@ export const geminiProvider = {
 
   async complete({ apiKey, model, systemInstruction, messages, tools = [], document, generationConfig = {}, json = false }) {
     let response;
+    const generate = (requestModel) => withProviderRetries('gemini', requestModel, () => {
+      const effectiveGenerationConfig = {
+        ...generationConfig,
+        ...(json ? { responseMimeType: 'application/json' } : {}),
+        ...(requestModel === 'gemini-2.5-flash' ? { thinkingConfig: { thinkingBudget: 0 } } : {}),
+      };
+      const generativeModel = new GoogleGenerativeAI(apiKey).getGenerativeModel({
+        model: requestModel,
+        systemInstruction,
+        tools: tools.length ? [{ functionDeclarations: tools }] : undefined,
+        generationConfig: effectiveGenerationConfig,
+      }, {
+        apiVersion: API_VERSION,
+        ...(!document && { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) }),
+      });
+      return generativeModel.generateContent({
+        contents: toGeminiContents(messages, document),
+      });
+    }, { retryOnTimeout: !document }).then((result) => result.response);
+
     try {
-      const genAI = new GoogleGenerativeAI(apiKey);
-      response = (await withProviderRetries('gemini', model, () => {
-        const effectiveGenerationConfig = {
-          ...generationConfig,
-          ...(json ? { responseMimeType: 'application/json' } : {}),
-          ...(model === 'gemini-2.5-flash' ? { thinkingConfig: { thinkingBudget: 0 } } : {}),
-        };
-        const generativeModel = genAI.getGenerativeModel({
-          model,
-          systemInstruction,
-          tools: tools.length ? [{ functionDeclarations: tools }] : undefined,
-          generationConfig: effectiveGenerationConfig,
-        }, {
-          apiVersion: API_VERSION,
-          ...(!document && { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) }),
-        });
-        return generativeModel.generateContent({
-          contents: toGeminiContents(messages, document),
-        });
-      }, { retryOnTimeout: !document })).response;
+      response = await generate(model);
     } catch (error) {
-      throw geminiRequestError(error, model);
+      const status = error?.status ?? error?.response?.status;
+      if (!document || status !== 503 || model === PDF_FALLBACK_MODEL) {
+        throw geminiRequestError(error, model);
+      }
+
+      logger.warn({
+        provider: 'gemini',
+        model,
+        fallbackModel: PDF_FALLBACK_MODEL,
+      }, 'Tentando modelo Gemini alternativo para análise de PDF');
+      try {
+        response = await generate(PDF_FALLBACK_MODEL);
+      } catch (fallbackError) {
+        throw geminiRequestError(fallbackError, PDF_FALLBACK_MODEL);
+      }
     }
 
     const toolCalls = response.functionCalls?.() ?? [];

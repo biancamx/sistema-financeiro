@@ -4,12 +4,13 @@ import { providerRequestError, withProviderRetries } from './shared.js';
 
 const API_VERSION = 'v1';
 const REQUEST_TIMEOUT_MS = 30_000;
+const DOCUMENT_REQUEST_TIMEOUT_MS = 90_000;
 
 function geminiRequestError(error, model) {
   const status = error?.status ?? error?.response?.status;
   const timedOut = ['GoogleGenerativeAIAbortError', 'AbortError', 'TimeoutError'].includes(error?.name)
     || (typeof error?.message === 'string'
-      && (/^Request aborted when fetching /.test(error.message) || /timed out|timeout/i.test(error.message)));
+      && (/Request aborted when fetching /.test(error.message) || /timed out|timeout/i.test(error.message)));
   const networkFailure = !status
     && typeof error?.message === 'string'
     && error.message.startsWith('[GoogleGenerativeAI Error]: Error fetching from ');
@@ -72,22 +73,25 @@ export const geminiProvider = {
 
   async complete({ apiKey, model, systemInstruction, messages, tools = [], document, generationConfig = {}, json = false }) {
     let response;
+    const requestTimeoutMs = document ? DOCUMENT_REQUEST_TIMEOUT_MS : REQUEST_TIMEOUT_MS;
     try {
       const genAI = new GoogleGenerativeAI(apiKey);
       response = (await withProviderRetries('gemini', model, () => {
+        const effectiveGenerationConfig = {
+          ...generationConfig,
+          ...(json ? { responseMimeType: 'application/json' } : {}),
+          ...(model === 'gemini-2.5-flash' ? { thinkingConfig: { thinkingBudget: 0 } } : {}),
+        };
         const generativeModel = genAI.getGenerativeModel({
           model,
           systemInstruction,
           tools: tools.length ? [{ functionDeclarations: tools }] : undefined,
-          generationConfig: {
-            ...generationConfig,
-            ...(json ? { responseMimeType: 'application/json' } : {}),
-          },
-        }, { apiVersion: API_VERSION, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+          generationConfig: effectiveGenerationConfig,
+        }, { apiVersion: API_VERSION, signal: AbortSignal.timeout(requestTimeoutMs) });
         return generativeModel.generateContent({
           contents: toGeminiContents(messages, document),
         });
-      })).response;
+      }, { retryOnTimeout: !document })).response;
     } catch (error) {
       throw geminiRequestError(error, model);
     }

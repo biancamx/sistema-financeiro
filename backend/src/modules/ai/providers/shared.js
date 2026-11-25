@@ -45,16 +45,19 @@ export function providerRequestError(status) {
   return new AppError(502, 'AI_PROVIDER_ERROR', 'O provedor de IA não conseguiu concluir a resposta. Confira a chave, o modelo e a cota em Configurações.');
 }
 
-export async function withProviderRetries(provider, model, request) {
+export async function withProviderRetries(provider, model, request, { retryOnTimeout = true } = {}) {
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
     try {
       return await request();
     } catch (error) {
       const status = error?.status ?? error?.response?.status;
+      const timedOut = ['AbortError', 'TimeoutError', 'GoogleGenerativeAIAbortError'].includes(error?.name)
+        || (typeof error?.message === 'string'
+          && (/Request aborted when fetching /.test(error.message) || /timed out|timeout/i.test(error.message)));
       const networkFailure = error?.code === 'AI_PROVIDER_UNAVAILABLE'
         || (typeof error?.message === 'string'
           && error.message.startsWith('[GoogleGenerativeAI Error]: Error fetching from '));
-      const retryable = RETRYABLE_STATUSES.has(status) || networkFailure;
+      const retryable = RETRYABLE_STATUSES.has(status) || (networkFailure && (retryOnTimeout || !timedOut));
       if (!retryable || attempt === MAX_ATTEMPTS) {
         logger.error({
           provider,

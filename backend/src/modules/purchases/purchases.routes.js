@@ -70,7 +70,8 @@ const sharedBody = purchaseBodyBase
     const { participantIds, participants, ...rest } = b;
     return { ...rest, participants: participants ?? (participantIds || []).map((personId) => ({ personId })) };
   });
-const groupParam = z.object({ group: z.string().uuid() });
+const sharedGroupId = z.string().uuid().or(z.string().regex(/^spreadsheet:[\da-f]{64}$/i));
+const groupParam = z.object({ group: sharedGroupId });
 
 export function purchasesRoutes() {
   const r = Router();

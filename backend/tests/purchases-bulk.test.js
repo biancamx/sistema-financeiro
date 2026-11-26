@@ -107,6 +107,56 @@ test('bulk payment enforces user isolation and updates only owned installments',
   assert.equal((await Installment.findById(foreign._id).lean()).paid, false);
 });
 
+test('shared purchases imported from spreadsheets can be opened and edited', async () => {
+  const owner = await createAccount('bulk-imported-shared@example.invalid');
+  const secondPerson = await Person.create({ userId: owner.user._id, name: 'Second person' });
+  const group = `spreadsheet:${'a'.repeat(64)}`;
+  const purchases = await Purchase.create([
+    {
+      userId: owner.user._id, personId: owner.person._id, cardId: owner.card._id,
+      description: 'Imported shared purchase', totalAmount: 50, totalInstallments: 1, splitGroupId: group,
+    },
+    {
+      userId: owner.user._id, personId: secondPerson._id, cardId: owner.card._id,
+      description: 'Imported shared purchase', totalAmount: 50, totalInstallments: 1, splitGroupId: group,
+    },
+  ]);
+  await Installment.create(purchases.map((purchase) => ({
+    userId: owner.user._id, purchaseId: purchase._id, number: 1, year: 2099, month: 10, amount: 50,
+  })));
+  const headers = { 'Content-Type': 'application/json', Cookie: owner.cookie };
+  const endpoint = `${baseUrl}/purchases/shared/${group}`;
+
+  const loaded = await fetch(endpoint, { headers });
+  assert.equal(loaded.status, 200);
+  assert.equal((await loaded.json()).data.group, group);
+
+  const updated = await fetch(endpoint, {
+    method: 'PUT',
+    headers,
+    body: JSON.stringify({
+      description: 'Edited shared purchase',
+      cardId: String(owner.card._id),
+      purchaseDate: null,
+      total: 120,
+      count: 1,
+      startMonth: 10,
+      startYear: 2099,
+      splitMode: 'equal',
+      participants: [
+        { personId: String(owner.person._id) },
+        { personId: String(secondPerson._id) },
+      ],
+    }),
+  });
+  const updatedText = await updated.text();
+  assert.equal(updated.status, 200, updatedText);
+  const result = JSON.parse(updatedText);
+  assert.equal(result.data.group, group);
+  assert.equal(result.data.description, 'Edited shared purchase');
+  assert.equal(result.data.total, 120);
+});
+
 test('bulk payment API requires a session and restores available card limit', async () => {
   const owner = await createAccount('bulk-api@example.invalid');
   const purchase = await Purchase.create({

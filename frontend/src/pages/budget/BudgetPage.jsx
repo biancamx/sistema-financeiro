@@ -82,7 +82,9 @@ export default function BudgetPage() {
     try { await budgetApi.updateRow(row.id, { label: label.trim() }); sheet.reload(); } catch (e) { toast.error(e); }
   };
   const removeRow = async (row) => {
-    if (!window.confirm(`Remover a linha "${row.label}"?`)) return;
+    const label = row.label?.trim();
+    const rowDescription = label ? `"${label}"` : 'sem nome';
+    if (!window.confirm(`Apagar a linha ${rowDescription} e todos os seus valores mensais?`)) return;
     try { await budgetApi.removeRow(row.id); sheet.reload(); } catch (e) { toast.error(e); }
   };
   const addRow = async (e) => {
@@ -304,7 +306,7 @@ export default function BudgetPage() {
                             </span>
                           )}
                         </td>
-                        <td className={`num ${r.values[selectedMonth - 1] < 0 ? 'neg' : ''}`}>
+                        <td className={`num ${r.values[selectedMonth - 1] < 0 ? 'neg' : ''} ${r.paidMonths[selectedMonth - 1] ? 'budget-paid-value' : ''}`}>
                           {sec.computed || r.computed
                             ? (r.values[selectedMonth - 1] ? moneyPlain(r.values[selectedMonth - 1]) : '')
                             : <MoneyCell value={r.values[selectedMonth - 1]} onSave={(value) => saveCell(r, selectedMonth, value)} />}
@@ -373,10 +375,23 @@ export default function BudgetPage() {
                         <td className="sticky-col">
                           {sec.computed || r.computed
                             ? <>{r.label}{r.computed && !sec.computed && <span className="pill">automático</span>}</>
-                            : <input className="cell cell-label" defaultValue={r.label} title={r.label} onBlur={(e) => rename(r, e.target.value)} aria-label="Nome da linha" />}
+                            : (
+                              <div className="budget-full-year-row-label">
+                                <input className="cell cell-label" defaultValue={r.label} title={r.label} onBlur={(e) => rename(r, e.target.value)} aria-label="Nome da linha" />
+                                <button
+                                  type="button"
+                                  className="icon-btn"
+                                  onClick={() => removeRow(r)}
+                                  title="Apagar linha e valores de todos os meses"
+                                  aria-label={`Apagar linha ${r.label || 'sem nome'}`}
+                                >
+                                  ×
+                                </button>
+                              </div>
+                            )}
                         </td>
                         {r.values.map((v, i) => (
-                          <td key={i} className="num">
+                          <td key={i} className={`num ${r.paidMonths[i] ? 'budget-paid-value' : ''}`}>
                             <div className="budget-sheet-cell">
                               {sec.computed || r.computed ? (v ? moneyPlain(v) : '') : <MoneyCell value={v} onSave={(n) => saveCell(r, i + 1, n)} />}
                               {sec.kind === 'expense' && !sec.computed && !r.computed && v > 0 && (
@@ -397,10 +412,7 @@ export default function BudgetPage() {
                         <td className="num muted">{moneyPlain(r.max)}</td>
                         <td className="row-actions">
                           {!sec.computed && !r.computed && (
-                            <>
-                              <button className="icon-btn" disabled={!lastEdit[r.id]} onClick={() => fill(r)} title="Repetir o último valor digitado até dezembro" aria-label="Repetir até dezembro">⇥</button>
-                              <button className="icon-btn" onClick={() => removeRow(r)} title="Remover linha" aria-label="Remover linha">×</button>
-                            </>
+                            <button className="icon-btn" disabled={!lastEdit[r.id]} onClick={() => fill(r)} title="Repetir o último valor digitado até dezembro" aria-label="Repetir até dezembro">⇥</button>
                           )}
                         </td>
                       </tr>

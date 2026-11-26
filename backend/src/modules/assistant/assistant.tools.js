@@ -596,13 +596,18 @@ export async function executarFerramenta(nomeFuncao, args, userId) {
 
     case 'listarCartoesELimites': {
       const cartoes = await Card.find({ userId })
-        .select('name limit closingDay dueDay')
+        .select('name limit limitGroupId closingDay dueDay')
+        .populate('limitGroupId', 'name institution limit')
         .sort({ name: 1 })
         .lean();
       return cartoes.map((cartao) => ({
         id: String(cartao._id),
         nome: cartao.name,
-        limite: cartao.limit,
+        limite: cartao.limitGroupId?.limit ?? cartao.limit,
+        limiteCompartilhado: cartao.limitGroupId ? {
+          grupo: cartao.limitGroupId.name,
+          instituicao: cartao.limitGroupId.institution,
+        } : null,
         diaFechamento: cartao.closingDay,
         diaVencimento: cartao.dueDay,
       }));

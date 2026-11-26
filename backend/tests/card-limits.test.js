@@ -203,3 +203,132 @@ test('compras preservam observações, compartilhamento e recálculo após alter
   const recalculated = await api('GET', `/purchases/${rescheduledPurchase.json.data.id}`);
   assert.equal(recalculated.json.data.first.month, purchaseMonth);
 });
+
+test('cartões no mesmo grupo compartilham limite sem misturar faturas e pagamentos', async () => {
+  const account = await createTestAccount({ email: 'shared-limit@teste.invalid', limit: 5000 });
+  const api = createApiClient(baseUrl, account.cookie);
+  const groupResponse = await api('POST', '/cards/limit-groups', {
+    name: 'Ourocard', institution: 'Banco do Brasil', limit: 10000,
+  });
+  assert.equal(groupResponse.status, 201, groupResponse.text);
+  const group = groupResponse.json.data;
+
+  const visa = await api('PUT', `/cards/${account.card._id}`, {
+    name: 'Visa', issuer: 'Banco do Brasil', brand: 'Visa', limit: 5000,
+    closingDay: 10, closingDayEqual: 'next', dueDay: 17,
+  });
+  assert.equal(visa.status, 200, visa.text);
+  const mastercard = await api('POST', '/cards', {
+    name: 'Mastercard', issuer: 'Banco do Brasil', brand: 'Mastercard', limit: 4000,
+    closingDay: 20, closingDayEqual: 'next', dueDay: 27,
+  });
+  assert.equal(mastercard.status, 201, mastercard.text);
+  const mastercardId = mastercard.json.data.id;
+  const createPurchase = (body) => api('POST', '/purchases', {
+    personId: String(account.person._id), categoryId: null, startMonth: 10, startYear: 2099, ...body,
+  });
+  const visaPurchase = await createPurchase({
+    description: 'Parcelada no Visa', cardId: String(account.card._id), purchaseDate: '2099-10-12', total: 1200, count: 6,
+  });
+  assert.equal(visaPurchase.status, 201, visaPurchase.text);
+  const mastercardPurchase = await createPurchase({
+    description: 'Compra no Mastercard', cardId: mastercardId, purchaseDate: '2099-10-12', total: 600, count: 1,
+  });
+  assert.equal(mastercardPurchase.status, 201, mastercardPurchase.text);
+
+  const linkedVisa = await api('PUT', `/cards/${account.card._id}`, {
+    name: 'Visa', issuer: 'Banco do Brasil', brand: 'Visa', limitGroupId: group.id,
+    closingDay: 10, closingDayEqual: 'next', dueDay: 17,
+  });
+  assert.equal(linkedVisa.status, 200, linkedVisa.text);
+  const linkedMastercard = await api('PUT', `/cards/${mastercardId}`, {
+    name: 'Mastercard', issuer: 'Banco do Brasil', brand: 'Mastercard',
+    limitGroupId: group.id, closingDay: 20, closingDayEqual: 'next', dueDay: 27,
+  });
+  assert.equal(linkedMastercard.status, 200, linkedMastercard.text);
+  const elo = await api('POST', '/cards', {
+    name: 'Elo', issuer: 'Banco do Brasil', brand: 'Elo', limitGroupId: group.id,
+    closingDay: 15, closingDayEqual: 'next', dueDay: 22,
+  });
+  assert.equal(elo.status, 201, elo.text);
+
+  const getCards = async (month) => (await api('GET', `/cards?month=${month}&year=2099`)).json.data;
+  let octoberCards = await getCards(10);
+  let visaCard = octoberCards.find((card) => card.id === String(account.card._id));
+  let mastercardCard = octoberCards.find((card) => card.id === mastercardId);
+  assert.equal(visaCard.invoice, 0);
+  assert.equal(mastercardCard.invoice, 600);
+  assert.equal(visaCard.used, 1800);
+  assert.equal(mastercardCard.used, 1800);
+  assert.equal(visaCard.limit, 10000);
+  assert.equal(mastercardCard.available, 8200);
+
+  const novemberCards = await getCards(11);
+  visaCard = novemberCards.find((card) => card.id === String(account.card._id));
+  mastercardCard = novemberCards.find((card) => card.id === mastercardId);
+  assert.equal(visaCard.invoice, 200);
+  assert.equal(visaCard.invoiceDueDate, '2099-11-17');
+  assert.equal(mastercardCard.invoice, 0);
+  assert.equal(mastercardCard.invoiceDueDate, '2099-11-27');
+
+  const partialPayment = await api('POST', `/cards/${mastercardId}/payments`, { month: 10, year: 2099, amount: 300 });
+  assert.equal(partialPayment.status, 200, partialPayment.text);
+  octoberCards = await getCards(10);
+  visaCard = octoberCards.find((card) => card.id === String(account.card._id));
+  mastercardCard = octoberCards.find((card) => card.id === mastercardId);
+  assert.equal(visaCard.used, 1500);
+  assert.equal(mastercardCard.used, 1500);
+  assert.equal(mastercardCard.invoice, 300);
+  assert.equal(visaCard.invoice, 0);
+
+  const mastercardDetails = await api('GET', `/purchases/${mastercardPurchase.json.data.id}`);
+  assert.equal(mastercardDetails.status, 200, mastercardDetails.text);
+  const reversedPayment = await api('PATCH', `/purchases/installments/${mastercardDetails.json.data.installments[0].id}`, { paid: false });
+  assert.equal(reversedPayment.status, 200, reversedPayment.text);
+  octoberCards = await getCards(10);
+  assert.equal(octoberCards.find((card) => card.id === mastercardId).invoice, 600);
+  assert.equal(octoberCards.find((card) => card.id === mastercardId).used, 1800);
+  assert.equal((await api('POST', `/cards/${mastercardId}/payments`, { month: 10, year: 2099, amount: 300 })).status, 200);
+
+  assert.equal((await api('POST', `/cards/${account.card._id}/payments`, { month: 11, year: 2099, amount: 200 })).status, 200);
+  octoberCards = await getCards(10);
+  visaCard = octoberCards.find((card) => card.id === String(account.card._id));
+  mastercardCard = octoberCards.find((card) => card.id === mastercardId);
+  assert.equal(visaCard.used, 1300);
+  assert.equal(mastercardCard.used, 1300);
+  assert.equal(mastercardCard.invoice, 300);
+  const groupBalances = await api('GET', '/cards/limit-groups');
+  assert.equal(groupBalances.json.data.find((item) => item.id === group.id).used, 1300);
+
+  const updatedGroup = await api('PUT', `/cards/limit-groups/${group.id}`, {
+    name: 'Ourocard', institution: 'Banco do Brasil', limit: 12000,
+  });
+  assert.equal(updatedGroup.status, 200, updatedGroup.text);
+  const dashboard = await api('GET', '/dashboard/summary?month=10&year=2099');
+  assert.equal(dashboard.status, 200, dashboard.text);
+  assert.equal(dashboard.json.data.totals.limit, 12000);
+  assert.equal(dashboard.json.data.totals.available, 10700);
+  assert.equal(dashboard.json.data.cardTotals.find((card) => card.id === mastercardId).amount, 300);
+
+  const canceledPurchase = await api('DELETE', `/purchases/${visaPurchase.json.data.id}`);
+  assert.equal(canceledPurchase.status, 204, canceledPurchase.text);
+  octoberCards = await getCards(10);
+  visaCard = octoberCards.find((card) => card.id === String(account.card._id));
+  mastercardCard = octoberCards.find((card) => card.id === mastercardId);
+  assert.equal(visaCard.used, 300);
+  assert.equal(mastercardCard.used, 300);
+  assert.equal(mastercardCard.invoice, 300);
+
+  const unlinked = await api('PUT', `/cards/${account.card._id}`, {
+    name: 'Visa', issuer: 'Banco do Brasil', brand: 'Visa', limit: 5000, limitGroupId: null,
+    closingDay: 10, closingDayEqual: 'next', dueDay: 17,
+  });
+  assert.equal(unlinked.status, 200, unlinked.text);
+  const afterUnlink = await getCards(10);
+  visaCard = afterUnlink.find((card) => card.id === String(account.card._id));
+  mastercardCard = afterUnlink.find((card) => card.id === mastercardId);
+  assert.equal(visaCard.used, 0);
+  assert.equal(visaCard.limit, 5000);
+  assert.equal(mastercardCard.used, 300);
+  assert.equal(mastercardCard.limit, 12000);
+});

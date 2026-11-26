@@ -25,8 +25,10 @@ export function createDashboardService() {
       );
       const [cardDocs, cash, peopleDocs, purchases, installments] = await Promise.all([
         Card.find({ userId })
-          .select('name limit issuer brand lastDigits color ownerId dueDay closingDay closingDayEqual')
-          .populate('ownerId', 'name').sort({ name: 1 }).lean(),
+          .select('name limit limitGroupId issuer brand lastDigits color ownerId dueDay closingDay closingDayEqual')
+          .populate('ownerId', 'name')
+          .populate('limitGroupId', 'name institution limit')
+          .sort({ name: 1 }).lean(),
         cashLedger.summary(userId, month, year),
         Person.find({ userId }).select('name').sort({ name: 1 }).lean(),
         Purchase.find({ userId }).select('_id personId cardId categoryId isSubscription subscriptionStatus canceledAt subscriptionEndAt').lean(),
@@ -82,21 +84,41 @@ export function createDashboardService() {
           lastPayment: info.lastIndex ? { year: Math.floor((info.lastIndex - 1) / 12), month: ((info.lastIndex - 1) % 12) + 1 } : null,
         };
       });
+      const sharedUsedByGroup = new Map();
+      for (const card of cardDocs) {
+        if (!card.limitGroupId) continue;
+        const groupId = String(card.limitGroupId._id);
+        const used = usedByCard.get(String(card._id)) ?? 0;
+        sharedUsedByGroup.set(groupId, (sharedUsedByGroup.get(groupId) ?? 0) + used);
+      }
       const cards = cardDocs.map((card) => {
         const id = String(card._id);
         const invoice = (invoiceByCard.get(id) ?? 0) / 100;
-        const used = (usedByCard.get(id) ?? 0) / 100;
+        const limitGroup = card.limitGroupId;
+        const limitGroupId = limitGroup?._id ? String(limitGroup._id) : null;
+        const limit = limitGroup?.limit ?? card.limit;
+        const used = (limitGroupId ? sharedUsedByGroup.get(limitGroupId) : usedByCard.get(id) ?? 0) / 100;
         return {
-          id, name: card.name, limit: card.limit, issuer: card.issuer, brand: card.brand,
+          id, name: card.name, limit, individualLimit: card.limit, limitGroupId,
+          limitGroupName: limitGroup?.name ?? null, limitGroupInstitution: limitGroup?.institution ?? null,
+          issuer: card.issuer, brand: card.brand,
           lastFour: card.lastDigits, color: card.color, imageData: null,
           ownerId: card.ownerId ? String(card.ownerId._id) : null, owner: card.ownerId?.name ?? null,
           dueDay: card.dueDay, closingDay: card.closingDay, closingDayEqual: card.closingDayEqual,
           invoice, invoiceDueDate: getInvoiceDueDate(card, year, month), used,
-          available: card.limit > 0 ? round2(card.limit - used) : 0,
-          percentUsed: card.limit > 0 ? (used / card.limit) * 100 : 0,
+          available: limit > 0 ? round2(limit - used) : 0,
+          percentUsed: limit > 0 ? (used / limit) * 100 : 0,
         };
       });
       const cardTotals = cards.map(({ invoice, ...card }) => ({ ...card, amount: invoice }));
+      const totalLimits = cards.reduce((totals, card) => {
+        const poolId = card.limitGroupId ? `group:${card.limitGroupId}` : `card:${card.id}`;
+        if (totals.seen.has(poolId)) return totals;
+        totals.seen.add(poolId);
+        totals.limit += card.limit;
+        totals.available += card.available;
+        return totals;
+      }, { seen: new Set(), limit: 0, available: 0 });
       const chosen = personId ?? people.find((person) => person.month > 0)?.id ?? people[0]?.id;
       let person = null;
       if (chosen) {
@@ -118,8 +140,8 @@ export function createDashboardService() {
         period: { month, year },
         totals: {
           month: sum(cardTotals), owed: round2(people.reduce((total, item) => total + item.owed, 0)),
-          limit: round2(cardTotals.reduce((total, item) => total + item.limit, 0)),
-          available: round2(cardTotals.reduce((total, item) => total + item.available, 0)), cash,
+          limit: round2(totalLimits.limit),
+          available: round2(totalLimits.available), cash,
         },
         cardTotals, people, person,
         series: seriesByMonth.map((amount, index) => ({ month: index + 1, amount: round2(amount) })),

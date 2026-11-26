@@ -5,7 +5,7 @@ import { useFetch } from '../../hooks/useFetch.js';
 import { notifyFinanceChanged, useFinanceRefresh } from '../../hooks/useFinanceRefresh.js';
 import { cardsApi, peopleApi } from '../../services/api.js';
 import { Button, Card, EmptyState, ErrorState, Field, Modal, Money, PageHeader, Select, Spinner } from '../../components/ui/ui.jsx';
-import { monthLabel, parseMoney } from '../../lib/format.js';
+import { money, monthLabel, parseMoney } from '../../lib/format.js';
 
 const nameCollator = new Intl.Collator('pt-BR', { sensitivity: 'base', numeric: true });
 const compareByName = (a, b) => nameCollator.compare(a.name ?? '', b.name ?? '');
@@ -25,7 +25,12 @@ const templates = {
 };
 const issuerOptions = Object.keys(templates).map((name) => ({ value: name, label: name }));
 const brandOptions = ['Visa', 'Mastercard', 'Elo', 'American Express', 'Outro'].map((name) => ({ value: name, label: name }));
-const emptyCard = { name: '', limit: '', issuer: 'Outro', brand: 'Outro', lastFour: '', color: templates.Outro, imageData: null, ownerId: '', dueDay: '10', closingDay: '3', closingDayEqual: 'next' };
+const emptyCard = {
+  name: '', limit: '', limitType: 'individual', limitGroupId: '', originalLimitGroupId: '',
+  issuer: 'Outro', brand: 'Outro', lastFour: '', color: templates.Outro, imageData: null,
+  ownerId: '', dueDay: '10', closingDay: '3', closingDayEqual: 'next', groupEditor: '',
+  groupName: '', groupInstitution: '', groupLimit: '',
+};
 const usageTone = (percent, limit) => {
   if (limit <= 0) return 'green';
   const pct = Math.round(percent);
@@ -91,20 +96,31 @@ export default function CardsPage() {
   const { data, error, reload } = useFetch(() => cardsApi.list({ month, year, withImages: true }), [month, year]);
   useFinanceRefresh(reload);
   const people = useFetch(() => peopleApi.list(), [], { cacheKey: 'lookup:people', refreshEvent: 'people:refresh' });
+  const limitGroups = useFetch(() => cardsApi.limitGroups(), [], { refreshEvent: 'finance:refresh' });
   const [editing, setEditing] = useState(null);
   const [paying, setPaying] = useState(null);
 
   if (error) return <ErrorState error={error} onRetry={reload} />;
   if (people.error) return <ErrorState error={people.error} onRetry={people.reload} />;
-  if (!data || !people.data) return <Spinner />;
+  if (limitGroups.error) return <ErrorState error={limitGroups.error} onRetry={limitGroups.reload} />;
+  if (!data || !people.data || !limitGroups.data) return <Spinner />;
 
   const sortedCards = data.slice().sort(compareByName);
   const sortedPeople = people.data.slice().sort(compareByName);
+  const sortedLimitGroups = limitGroups.data.slice().sort(compareByName);
 
   const save = async (form) => {
+    const shared = form.limitType === 'shared';
+    const selectedGroup = sortedLimitGroups.find((group) => group.id === form.limitGroupId);
+    if (shared && !selectedGroup) return toast.error(new Error('Selecione um grupo de limite compartilhado'));
+    if (shared && form.id && form.originalLimitGroupId !== selectedGroup.id) {
+      const previousIndividualLimit = parseMoney(form.individualLimit ?? form.limit);
+      if (previousIndividualLimit > 0 && Math.round(previousIndividualLimit * 100) !== Math.round(selectedGroup.limit * 100)
+        && !window.confirm(`O limite individual anterior era ${money(previousIndividualLimit)} e o grupo "${selectedGroup.name}" tem limite de ${money(selectedGroup.limit)}. Ao continuar, este cartão usará o limite compartilhado do grupo.`)) return;
+    }
     const body = {
       name: form.name.trim(),
-      limit: parseMoney(form.limit),
+      ...(shared ? { limitGroupId: selectedGroup.id } : { limit: parseMoney(form.limit), limitGroupId: null }),
       issuer: form.issuer,
       brand: form.brand,
       lastFour: form.lastFour || null,
@@ -115,7 +131,7 @@ export default function CardsPage() {
       closingDay: Number.parseInt(form.closingDay, 10) || 3,
       closingDayEqual: form.closingDayEqual || 'next',
     };
-    if (!body.name || Number.isNaN(body.limit)) return toast.error(new Error('Preencha o nome e um limite válido'));
+    if (!body.name || (!shared && !Number.isFinite(body.limit))) return toast.error(new Error('Preencha o nome e um limite válido'));
     try {
       if (form.id) await cardsApi.update(form.id, body);
       else await cardsApi.create(body);
@@ -130,8 +146,10 @@ export default function CardsPage() {
   };
   const editCard = (card) => setEditing({
     id: card.id,
-    name: card.name,
-    limit: String(card.limit).replace('.', ','),
+    name: card.name, limitType: card.limitGroupId ? 'shared' : 'individual',
+    limit: String(card.individualLimit ?? card.limit).replace('.', ','),
+    individualLimit: card.individualLimit ?? card.limit,
+    limitGroupId: card.limitGroupId || '', originalLimitGroupId: card.limitGroupId || '',
     issuer: card.issuer || 'Outro',
     brand: card.brand || 'Outro',
     lastFour: card.lastFour || '',
@@ -141,7 +159,42 @@ export default function CardsPage() {
     dueDay: card.dueDay ? String(card.dueDay) : '10',
     closingDay: card.closingDay ? String(card.closingDay) : '3',
     closingDayEqual: card.closingDayEqual || 'next',
+    groupEditor: '', groupName: '', groupInstitution: '', groupLimit: '',
   });
+  const openNewLimitGroup = () => setEditing((form) => ({
+    ...form, groupEditor: 'create', groupName: '', groupInstitution: '', groupLimit: '',
+  }));
+  const openEditLimitGroup = () => {
+    const group = sortedLimitGroups.find((item) => item.id === editing.limitGroupId);
+    if (!group) return;
+    setEditing((form) => ({
+      ...form, groupEditor: 'edit', groupName: group.name,
+      groupInstitution: group.institution, groupLimit: String(group.limit).replace('.', ','),
+    }));
+  };
+  const saveLimitGroup = async () => {
+    const value = parseMoney(editing.groupLimit);
+    if (!editing.groupName.trim() || !editing.groupInstitution.trim() || !(value > 0) || value > 10_000_000) {
+      return toast.error(new Error('Informe o nome, a instituição e um limite válido para o grupo'));
+    }
+    const currentGroup = sortedLimitGroups.find((group) => group.id === editing.limitGroupId);
+    if (editing.groupEditor === 'edit' && currentGroup && value < currentGroup.used
+      && !window.confirm(`O novo limite ficará abaixo dos ${money(currentGroup.used)} já utilizados. Deseja continuar?`)) return;
+    const body = { name: editing.groupName.trim(), institution: editing.groupInstitution.trim(), limit: value };
+    try {
+      const result = editing.groupEditor === 'edit'
+        ? await cardsApi.updateLimitGroup(editing.limitGroupId, body)
+        : await cardsApi.createLimitGroup(body);
+      limitGroups.setData((groups) => editing.groupEditor === 'edit'
+        ? groups.map((group) => group.id === result.id ? { ...group, ...result } : group)
+        : [...groups, { ...result, used: 0, available: result.limit, cards: [] }]);
+      setEditing((form) => ({
+        ...form, limitType: 'shared', limitGroupId: result.id, groupEditor: '',
+      }));
+      if (editing.groupEditor === 'edit') notifyFinanceChanged();
+      toast.success(editing.groupEditor === 'edit' ? 'Grupo atualizado' : 'Grupo criado');
+    } catch (e) { toast.error(e); }
+  };
   const setIssuer = (issuer) => setEditing((card) => ({ ...card, issuer, color: templates[issuer] }));
   const setImage = async (event) => {
     const file = event.target.files?.[0];
@@ -163,10 +216,16 @@ export default function CardsPage() {
     } catch (e) { toast.error(e); }
   };
 
-  const totalsCents = data.reduce((sum, card) => ({
-    used: sum.used + Math.round(card.used * 100),
-    available: sum.available + Math.round(card.available * 100),
-  }), { used: 0, available: 0 });
+  const countedPools = new Set();
+  const totalsCents = data.reduce((sum, card) => {
+    const poolId = card.limitGroupId ? `group:${card.limitGroupId}` : `card:${card.id}`;
+    if (countedPools.has(poolId)) return sum;
+    countedPools.add(poolId);
+    return {
+      used: sum.used + Math.round(card.used * 100),
+      available: sum.available + Math.round(card.available * 100),
+    };
+  }, { used: 0, available: 0 });
   const totals = { used: totalsCents.used / 100, available: totalsCents.available / 100 };
 
   return (
@@ -218,6 +277,7 @@ export default function CardsPage() {
                     <span>Vence dia <strong>{card.dueDay || 10}</strong></span>
                   </div>
                   <div className="card-limit-heading"><span>Uso do limite</span><strong className={`usage-${tone}`}>{card.limit > 0 ? `${percent.toFixed(0)}%` : 'Sem limite'}</strong></div>
+                  {card.limitGroupId && <div className="muted small">Limite compartilhado · {card.limitGroupInstitution || card.limitGroupName}</div>}
                   {card.limit > 0 && (
                     <div className="limit-progress" role="progressbar" aria-label={`Limite utilizado no cartão ${card.name}`} aria-valuemin="0" aria-valuemax="100" aria-valuenow={Math.min(100, percent)} aria-valuetext={`${percent.toFixed(0)}% utilizado`}>
                       <div className={`limit-progress-fill usage-bg-${tone}`} style={{ width: `${Math.min(100, percent)}%` }} />
@@ -241,7 +301,7 @@ export default function CardsPage() {
       )}
 
       <Modal open={!!editing} title={editing?.id ? 'Editar cartão' : 'Novo cartão'} wide
-        footer={<><Button variant="ghost" onClick={() => setEditing(null)}>Cancelar</Button><Button variant="primary" onClick={() => save(editing)}>Salvar cartão</Button></>}>
+        footer={<><Button variant="ghost" onClick={() => setEditing(null)}>Cancelar</Button><Button variant="primary" disabled={Boolean(editing?.groupEditor)} onClick={() => save(editing)}>Salvar cartão</Button></>}>
         {editing && (
           <div className="form-grid">
             <Field label="Nome do cartão">{(id) => <input id={id} className="input" value={editing.name} onChange={(e) => setEditing({ ...editing, name: e.target.value })} autoFocus placeholder="Ex.: Cartão principal" />}</Field>
@@ -249,7 +309,41 @@ export default function CardsPage() {
             <Field label="Banco / modelo visual">{(id) => <Select id={id} value={editing.issuer} onChange={setIssuer} options={issuerOptions} />}</Field>
             <Field label="Bandeira">{(id) => <Select id={id} value={editing.brand} onChange={(brand) => setEditing({ ...editing, brand })} options={brandOptions} />}</Field>
             <Field label="Últimos 4 dígitos" hint="Não informe o número completo do cartão.">{(id) => <input id={id} className="input" inputMode="numeric" autoComplete="off" maxLength={4} pattern="\d{4}" placeholder="0000" value={editing.lastFour} onChange={(e) => setEditing({ ...editing, lastFour: e.target.value.replace(/\D/g, '').slice(0, 4) })} />}</Field>
-            <Field label="Limite total (R$)" hint="Use 0 se não quiser controlar o limite">{(id) => <input id={id} className="input" inputMode="decimal" value={editing.limit} onChange={(e) => setEditing({ ...editing, limit: e.target.value })} />}</Field>
+            <h3>Configuração de limite</h3>
+            <Field label="Tipo de limite">{(id) => <Select id={id} value={editing.limitType} onChange={(limitType) => setEditing({ ...editing, limitType, ...(limitType === 'individual' ? { limitGroupId: '', groupEditor: '' } : {}) })} options={[{ value: 'individual', label: 'Limite individual' }, { value: 'shared', label: 'Limite compartilhado' }]} />}</Field>
+            {editing.limitType !== 'shared' ? (
+              <Field label="Limite total (R$)" hint="Use 0 se não quiser controlar o limite">{(id) => <input id={id} className="input" inputMode="decimal" value={editing.limit} onChange={(e) => setEditing({ ...editing, limit: e.target.value })} />}</Field>
+            ) : (
+              <>
+                <Field label="Grupo de limite">{(id) => <Select id={id} value={editing.limitGroupId} onChange={(limitGroupId) => setEditing({ ...editing, limitGroupId, groupEditor: '' })} placeholder="Selecione ou crie um grupo" options={sortedLimitGroups.map((group) => ({ value: group.id, label: `${group.name} · ${group.institution}` }))} />}</Field>
+                {(() => {
+                  const group = sortedLimitGroups.find((item) => item.id === editing.limitGroupId);
+                  if (!group) return null;
+                  return (
+                    <div className="field-hint">
+                      <strong>{group.name} · {group.institution}</strong>
+                      <div>Limite total: {money(group.limit)} · Utilizado: {money(group.used)} · Disponível: {money(group.available)}</div>
+                      {group.cards.length > 0 && <div>Cartões: {group.cards.map((card) => card.name).join(', ')}</div>}
+                    </div>
+                  );
+                })()}
+                <div className="card-actions">
+                  <Button variant="ghost" size="sm" onClick={openNewLimitGroup}>Criar grupo</Button>
+                  {editing.limitGroupId && <Button variant="ghost" size="sm" onClick={openEditLimitGroup}>Editar grupo</Button>}
+                </div>
+              </>
+            )}
+            {editing.limitType === 'shared' && editing.groupEditor && (
+              <>
+                <Field label="Nome do grupo">{(id) => <input id={id} className="input" maxLength={60} value={editing.groupName} onChange={(e) => setEditing({ ...editing, groupName: e.target.value })} />}</Field>
+                <Field label="Banco ou instituição financeira">{(id) => <input id={id} className="input" maxLength={80} value={editing.groupInstitution} onChange={(e) => setEditing({ ...editing, groupInstitution: e.target.value })} />}</Field>
+                <Field label="Limite total aprovado (R$)">{(id) => <input id={id} className="input" inputMode="decimal" value={editing.groupLimit} onChange={(e) => setEditing({ ...editing, groupLimit: e.target.value })} />}</Field>
+                <div className="card-actions">
+                  <Button variant="ghost" size="sm" onClick={() => setEditing({ ...editing, groupEditor: '' })}>Cancelar</Button>
+                  <Button variant="ghost" size="sm" onClick={saveLimitGroup}>{editing.groupEditor === 'edit' ? 'Salvar grupo' : 'Criar grupo'}</Button>
+                </div>
+              </>
+            )}
             <Field label="Dia do fechamento" hint="Dia que fecha a fatura do cartão.">{(id) => <input id={id} className="input" type="number" min="1" max="31" value={editing.closingDay} onChange={(e) => setEditing({ ...editing, closingDay: e.target.value })} />}</Field>
             <Field label="Compra no dia do fechamento" hint="Como a compra é classificada quando cai exatamente no fechamento?">{(id) => <Select id={id} value={editing.closingDayEqual} onChange={(closingDayEqual) => setEditing({ ...editing, closingDayEqual })} options={[{ value: 'next', label: 'Próxima fatura (padrão)' }, { value: 'current', label: 'Fatura que fecha neste mês' }]} />}</Field>
             <Field label="Dia do vencimento" hint="Dia do pagamento da fatura.">{(id) => <input id={id} className="input" type="number" min="1" max="31" required value={editing.dueDay} onChange={(e) => setEditing({ ...editing, dueDay: e.target.value })} />}</Field>

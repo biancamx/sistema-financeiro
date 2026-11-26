@@ -226,11 +226,13 @@ export function getInvoiceDueDate(card, year, month) {
 export function createCardBilling() {
   function ownedCard(userId, cardId, session = null) {
     let query = Card.findOne({ _id: cardId, userId });
+    query = query.populate('limitGroupId', 'name institution limit');
     if (session) query = query.session(session);
     return query.lean().then((card) => {
       if (!card) throw notFound('Cartão não encontrado');
       return {
-        id: String(card._id), name: card.name, limit: card.limit,
+        id: String(card._id), name: card.name, limit: card.limitGroupId?.limit ?? card.limit,
+        limitGroupId: card.limitGroupId?._id ? String(card.limitGroupId._id) : null,
         dueDay: card.dueDay, closingDay: card.closingDay, closingDayEqual: card.closingDayEqual,
       };
     });
@@ -312,8 +314,13 @@ export function createCardBilling() {
   async function calculateLimit(userId, cardId, referenceDate = new Date()) {
     const card = await ownedCard(userId, cardId);
     const idx = monthIndex(referenceDate.getFullYear(), referenceDate.getMonth() + 1);
-    await ensureSubscriptionInstallments(userId, referenceDate.getMonth() + 1, referenceDate.getFullYear(), { cardId });
-    const purchases = await Purchase.find({ userId, cardId })
+    const cardIds = card.limitGroupId
+      ? (await Card.find({ userId, limitGroupId: card.limitGroupId }).select('_id').lean()).map(({ _id }) => _id)
+      : [cardId];
+    await Promise.all(cardIds.map((id) => ensureSubscriptionInstallments(
+      userId, referenceDate.getMonth() + 1, referenceDate.getFullYear(), { cardId: id },
+    )));
+    const purchases = await Purchase.find({ userId, cardId: { $in: cardIds } })
       .select('_id isSubscription subscriptionStatus canceledAt subscriptionEndAt').lean();
     const installments = purchases.length ? await Installment.find({
       userId, purchaseId: { $in: purchases.map((purchase) => purchase._id) },
@@ -350,7 +357,12 @@ export function createCardBilling() {
   }
 
   async function listCards(userId, month, year, withImages = false) {
-    const cards = await Card.find({ userId }).populate('ownerId', 'name').sort({ name: 1 }).lean();
+    const cards = await Card.find({ userId })
+      .populate([
+        { path: 'ownerId', select: 'name' },
+        { path: 'limitGroupId', select: 'name institution limit' },
+      ])
+      .sort({ name: 1 }).lean();
     if (!cards.length) return [];
     const now = new Date();
     const currentMonth = now.getMonth() + 1;
@@ -376,9 +388,14 @@ export function createCardBilling() {
       installmentsByCard.set(cardId, rows);
     }
 
-    return cards.map((card) => {
+    const results = cards.map((card) => {
+      const limitGroup = card.limitGroupId;
       const shaped = {
-        id: String(card._id), name: card.name, limit: card.limit, issuer: card.issuer, brand: card.brand,
+        id: String(card._id), name: card.name, limit: limitGroup?.limit ?? card.limit,
+        individualLimit: card.limit,
+        limitGroupId: limitGroup?._id ? String(limitGroup._id) : null,
+        limitGroupName: limitGroup?.name ?? null, limitGroupInstitution: limitGroup?.institution ?? null,
+        issuer: card.issuer, brand: card.brand,
         lastFour: card.lastDigits, color: card.color, imageData: withImages ? card.imageData : null,
         ownerId: card.ownerId ? String(card.ownerId._id) : null, owner: card.ownerId?.name ?? null,
         dueDay: card.dueDay, closingDay: card.closingDay, closingDayEqual: card.closingDayEqual,
@@ -417,6 +434,21 @@ export function createCardBilling() {
         ...shaped,
         invoice: fromCents(invoiceCents),
         invoiceDueDate: getInvoiceDueDate(shaped, year, month),
+        used,
+        available: shaped.limit > 0 ? round2(shaped.limit - used) : 0,
+        percentUsed: shaped.limit > 0 ? (used / shaped.limit) * 100 : 0,
+      };
+    });
+    const usedByGroup = new Map();
+    for (const card of results) {
+      if (!card.limitGroupId) continue;
+      usedByGroup.set(card.limitGroupId, (usedByGroup.get(card.limitGroupId) ?? 0) + Math.round(card.used * 100));
+    }
+    return results.map((card) => {
+      if (!card.limitGroupId) return card;
+      const used = fromCents(usedByGroup.get(card.limitGroupId) ?? 0);
+      return {
+        ...card,
         used,
         available: card.limit > 0 ? round2(card.limit - used) : 0,
         percentUsed: card.limit > 0 ? (used / card.limit) * 100 : 0,

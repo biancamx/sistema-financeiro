@@ -162,6 +162,9 @@ export const pushApi = {
 };
 export const cardsApi = {
   ...crud('/cards', 'cards'),
+  limitGroups: () => get('/cards/limit-groups').then((r) => r.data),
+  createLimitGroup: (body) => post('/cards/limit-groups', body).then((r) => r.data),
+  updateLimitGroup: (id, body) => put(`/cards/limit-groups/${id}`, body).then((r) => r.data),
   payInvoice: (id, b) => post(`/cards/${id}/payments`, b).then((r) => r.data),
 };
 export const categoriesApi = {

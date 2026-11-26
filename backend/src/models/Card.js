@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import './CreditLimitGroup.js';
 
 const cardBrands = new Map([
   ['visa', 'Visa'],
@@ -16,6 +17,7 @@ export function normalizeCardBrand(value) {
 const cardSchema = new mongoose.Schema(
   {
     userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
+    limitGroupId: { type: mongoose.Schema.Types.ObjectId, ref: 'CreditLimitGroup', default: null, index: true },
     name: { type: String, required: true, trim: true },
     limit: { type: Number, default: 0 },
     color: { type: String, default: '#0f6b66' },

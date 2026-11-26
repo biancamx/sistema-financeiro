@@ -223,6 +223,11 @@ export function getInvoiceDueDate(card, year, month) {
   return `${dueYear}-${String(dueMonth).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 }
 
+export function getInvoiceDuePeriod(card, year, month) {
+  const dueDate = getInvoiceDueDate(card, year, month);
+  return { year: Number(dueDate.slice(0, 4)), month: Number(dueDate.slice(5, 7)) };
+}
+
 export function getInvoiceStatementPeriod(card, dueYear, dueMonth) {
   const closingDay = card.closingDay || card.closing_day || 3;
   const dueDay = card.dueDay || card.due_day || 10;

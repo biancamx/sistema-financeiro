@@ -1,6 +1,10 @@
 import { badRequest, notFound } from '../../lib/errors.js';
 import { round2 } from '../../lib/months.js';
-import { ensureSubscriptionInstallments, getInstallmentBalanceCents } from '../../lib/cardBilling.js';
+import {
+  ensureSubscriptionInstallments,
+  getInstallmentBalanceCents,
+  getInvoiceDuePeriod,
+} from '../../lib/cardBilling.js';
 import { SECTIONS, SECTION_KEYS, createDefaultRows } from './budgets.defaults.js';
 import { Person } from '../../models/Person.js';
 import { BudgetSheet } from '../../models/BudgetSheet.js';
@@ -51,9 +55,12 @@ export function createBudgetsService() {
     },
     async getSheet(userId, personId, year, selectedMonth = new Date().getMonth() + 1) {
       const sheet = await ensureBudgetSheet(userId, personId, year);
-      await Promise.all(Array.from({ length: 12 }, (_, index) =>
-        ensureSubscriptionInstallments(userId, index + 1, year, { personId }),
-      ));
+      await Promise.all([
+        ensureSubscriptionInstallments(userId, 12, year - 1, { personId }),
+        ...Array.from({ length: 12 }, (_, index) =>
+          ensureSubscriptionInstallments(userId, index + 1, year, { personId }),
+        ),
+      ]);
       const rows = sheet.rows.slice().sort((a, b) => a.position - b.position || String(a._id).localeCompare(String(b._id)));
       const byRow = new Map(rows.map((row) => [strId(row._id), {
         id: strId(row._id), section: row.section, label: row.label, position: row.position,
@@ -95,20 +102,31 @@ export function createBudgetsService() {
         }];
       });
 
-      const purchases = await Purchase.find({ userId, personId }).populate('cardId', 'name').populate('categoryId', 'name').lean();
+      const purchases = await Purchase.find({ userId, personId })
+        .populate('cardId', 'name dueDay closingDay')
+        .populate('categoryId', 'name')
+        .lean();
       const purchaseIds = purchases.map((purchase) => purchase._id);
-      const installments = purchaseIds.length ? await Installment.find({ userId, purchaseId: { $in: purchaseIds }, year }).lean() : [];
+      const installments = purchaseIds.length ? await Installment.find({
+        userId,
+        purchaseId: { $in: purchaseIds },
+        $or: [{ year }, { year: year - 1, month: 12 }],
+      }).lean() : [];
       const purchaseById = new Map(purchases.map((purchase) => [strId(purchase._id), purchase]));
       const cardMap = new Map();
       const monthPaymentStatuses = Array.from({ length: 12 }, () => ({ hasItems: false, paid: true }));
+      const installmentDuePeriods = new Map();
       for (const installment of installments) {
         const purchase = purchaseById.get(strId(installment.purchaseId));
         const card = purchase?.cardId;
         if (!card) continue;
+        const duePeriod = getInvoiceDuePeriod(card, installment.year, installment.month);
+        installmentDuePeriods.set(strId(installment._id), duePeriod);
+        if (duePeriod.year !== year) continue;
         const key = strId(card._id);
         if (!cardMap.has(key)) cardMap.set(key, { id: `card-${key}`, section: 'cards', label: card.name, computed: true, values: zeros() });
-        cardMap.get(key).values[installment.month - 1] += installment.amount;
-        const status = monthPaymentStatuses[installment.month - 1];
+        cardMap.get(key).values[duePeriod.month - 1] += installment.amount;
+        const status = monthPaymentStatuses[duePeriod.month - 1];
         status.hasItems = true;
         if (getInstallmentBalanceCents(installment.amount, installment.paidAmount, installment.paid) > 0) status.paid = false;
       }
@@ -161,7 +179,10 @@ export function createBudgetsService() {
       ));
       const balance = totalRevenue.map((amount, month) => round2(amount - spent[month]));
 
-      const monthPurchases = installments.filter((item) => item.month === selectedMonth).map((item) => {
+      const monthPurchases = installments.filter((item) => {
+        const duePeriod = installmentDuePeriods.get(strId(item._id));
+        return duePeriod?.year === year && duePeriod.month === selectedMonth;
+      }).map((item) => {
         const purchase = purchaseById.get(strId(item.purchaseId));
         const amountCents = Math.round(item.amount * 100);
         const paidCents = amountCents - getInstallmentBalanceCents(item.amount, item.paidAmount, item.paid);

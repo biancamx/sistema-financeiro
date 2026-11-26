@@ -553,7 +553,7 @@ export default function PurchasesPage() {
             <>
               <div className="table-wrap responsive-desktop-table">
                 <table className="table">
-                  <thead><tr><th>Descrição</th><th>Pessoa</th><th>Cartão</th><th className="num">Total</th><th>Parcelas</th><th>Período</th><th /></tr></thead>
+                  <thead><tr><th>Descrição</th><th>Pessoa</th><th>Cartão</th><th className="num">Total</th><th>Parcelas</th><th>Vencimentos</th><th /></tr></thead>
                   <tbody>
                     {all.data.data.map((p) => (
                       <tr key={p.id}>
@@ -568,7 +568,7 @@ export default function PurchasesPage() {
                         <td>{p.card}</td>
                         <td className="num"><Money value={p.total} /></td>
                         <td>{p.isSubscription ? <>Mensal · <Money value={p.total} /></> : <>{p.count}x <span className="muted">de</span> <Money value={p.perInstallment} /></>}</td>
-                        <td className="muted">{p.isSubscription ? 'Recorrente' : p.first ? `${MONTHS_SHORT[p.first.month - 1]}/${p.first.year} → ${MONTHS_SHORT[p.last.month - 1]}/${p.last.year}` : '—'}</td>
+                        <td className="muted">{p.isSubscription ? 'Recorrente' : p.firstDue ? `${MONTHS_SHORT[p.firstDue.month - 1]}/${p.firstDue.year} → ${MONTHS_SHORT[p.lastDue.month - 1]}/${p.lastDue.year}` : '—'}</td>
                         <td className="row-actions">
                           <div className="purchase-icon-actions">
                             <Button className="purchase-icon-action" variant="ghost" title="Editar" aria-label={`Editar ${p.description}`} disabled={Boolean(p.vehicleExpenseId)} onClick={() => openEdit(p.id, p.sharedGroup)}>
@@ -602,7 +602,7 @@ export default function PurchasesPage() {
                     <p className="muted small">
                       {p.isSubscription
                         ? <>Cobrança recorrente de <Money value={p.total} />/mês</>
-                        : <>{p.count}x de <Money value={p.perInstallment} />{p.first && <> · {MONTHS_SHORT[p.first.month - 1]}/{p.first.year} – {MONTHS_SHORT[p.last.month - 1]}/{p.last.year}</>}</>}
+                        : <>{p.count}x de <Money value={p.perInstallment} />{p.firstDue && <> · vence {MONTHS_SHORT[p.firstDue.month - 1]}/{p.firstDue.year} – {MONTHS_SHORT[p.lastDue.month - 1]}/{p.lastDue.year}</>}</>}
                     </p>
                     <div className="mobile-record-details">
                       {p.category && <span>{p.category}</span>}

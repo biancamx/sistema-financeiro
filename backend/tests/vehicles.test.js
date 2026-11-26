@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { clearMongoMemory, createApiClient, createTestAccount, startMongoMemory } from './helpers/mongo.js';
 import { Person } from '../src/models/Person.js';
 import { CashEntry } from '../src/models/CashEntry.js';
+import { getInvoiceDuePeriod } from '../src/lib/cardBilling.js';
 
 process.env.NODE_ENV = 'test';
 process.env.JWT_SECRET = 'test-secret-for-vehicles';
@@ -536,9 +537,9 @@ test('gasto no cartão cria compra vinculada, parcelas e atualiza limite sem dup
   assert.equal(purchases.json.data[0].count, 3);
   const cashEntries = await c('GET', '/cash-ledger/entries?all=true');
   assert.equal(cashEntries.json.data.some((item) => item.vehicleExpenseId === created.json.data.id), false);
-  const installments = await c('GET', '/purchases/installments?month=10&year=2026');
+  const installments = await c('GET', '/purchases/installments?month=11&year=2026');
   assert.deepEqual(installments.json.data.map((item) => item.amount), [33.34]);
-  const budget = await c(`GET`, `/budgets?personId=${ids['Pessoa 01']}&year=2026&month=10`);
+  const budget = await c(`GET`, `/budgets?personId=${ids['Pessoa 01']}&year=2026&month=11`);
   assert.equal(budget.json.data.monthly.purchases.length, 1);
   assert.equal(budget.json.data.monthly.purchases[0].amount, 33.34);
   assert.equal(budget.json.data.monthly.purchases[0].category, 'Vale combustível');
@@ -555,7 +556,7 @@ test('gasto no cartão cria compra vinculada, parcelas e atualiza limite sem dup
   assert.equal((await c('GET', '/purchases')).json.data[0].count, 2);
   assert.equal(updated.json.data.startMonth, 11);
   assert.equal(updated.json.data.startYear, 2026);
-  const rescheduled = await c('GET', '/purchases/installments?month=11&year=2026');
+  const rescheduled = await c('GET', '/purchases/installments?month=12&year=2026');
   assert.equal(rescheduled.json.data[0].paidAmount, 33.34);
   assert.equal((await c('GET', '/cards?month=11&year=2026')).json.data.find((item) => item.id === card.id).used, 56.66);
   assert.equal((await c('DELETE', `/vehicles/expenses/${created.json.data.id}`)).status, 204);
@@ -573,7 +574,7 @@ test('despesa compartilhada no cartão distribui cada parcela e não duplica o t
     paymentMethod: 'card', cardId: card.id, installmentCount: 2, startMonth: 10, startYear: 2026,
   });
   assert.equal(created.status, 201, created.text);
-  const installments = await c('GET', '/purchases/installments?month=10&year=2026');
+  const installments = await c('GET', '/purchases/installments?month=11&year=2026');
   assert.equal(installments.json.data.length, 2);
   assert.equal(installments.json.data.reduce((sum, row) => sum + row.amount, 0), 60);
   assert.ok(installments.json.data.every((row) => row.vehicleExpenseId === created.json.data.id));
@@ -592,6 +593,7 @@ test('gasto de veículo em 2x ocupa R$ 200 e pagar a primeira parcela libera R$ 
   const month = today.getMonth() + 1;
   const year = today.getFullYear();
   const closingDay = today.getDate();
+  const duePeriod = getInvoiceDuePeriod({ closingDay, dueDay: 5 }, year, month);
   const card = (await c('POST', '/cards', {
     name: 'Cartão óleo', limit: 500, ownerId: ids['Pessoa 01'], closingDay, dueDay: 5, closingDayEqual: 'current',
   })).json.data;
@@ -602,7 +604,7 @@ test('gasto de veículo em 2x ocupa R$ 200 e pagar a primeira parcela libera R$ 
   assert.equal(expense.status, 201, expense.text);
   assert.equal((await c('GET', `/cards?month=${month}&year=${year}`)).json.data.find((item) => item.id === card.id).used, 200);
 
-  const currentInstallments = await c('GET', `/purchases/installments?month=${month}&year=${year}`);
+  const currentInstallments = await c('GET', `/purchases/installments?month=${duePeriod.month}&year=${duePeriod.year}`);
   assert.equal(currentInstallments.json.data.length, 1);
   assert.equal(currentInstallments.json.data[0].amount, 100);
   assert.equal((await c('PATCH', `/purchases/installments/${currentInstallments.json.data[0].id}`, { paid: true })).status, 200);

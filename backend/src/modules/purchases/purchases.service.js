@@ -2,7 +2,17 @@ import { randomUUID } from 'node:crypto';
 import mongoose from 'mongoose';
 import { badRequest, conflict, notFound } from '../../lib/errors.js';
 import { monthIndex, round2 } from '../../lib/months.js';
-import { buildSharedInstallments, createCardBilling, ensureSubscriptionInstallments, generateCardInstallments, generateInstallments, getFirstStatementPeriod, splitWeighted, subscriptionActiveInPeriod } from '../../lib/cardBilling.js';
+import {
+  buildSharedInstallments,
+  createCardBilling,
+  ensureSubscriptionInstallments,
+  generateCardInstallments,
+  generateInstallments,
+  getFirstStatementPeriod,
+  getInvoiceDuePeriod,
+  splitWeighted,
+  subscriptionActiveInPeriod,
+} from '../../lib/cardBilling.js';
 import { Card } from '../../models/Card.js';
 import { Category } from '../../models/Category.js';
 import { Installment } from '../../models/Installment.js';
@@ -40,7 +50,7 @@ export function createPurchasesService() {
   };
   const populatePurchases = (filter, sort = { _id: -1 }) => Purchase.find(filter)
     .populate('personId', 'name')
-    .populate('cardId', 'name')
+    .populate('cardId', 'name dueDay closingDay')
     .populate('categoryId', 'name')
     .sort(sort)
     .lean();
@@ -77,6 +87,8 @@ export function createPurchasesService() {
       perInstallment: round2(total / purchase.totalInstallments),
       first: first ? { year: first.year, month: first.month } : null,
       last: last ? { year: last.year, month: last.month } : null,
+      firstDue: first ? getInvoiceDuePeriod(purchase.cardId, first.year, first.month) : null,
+      lastDue: last ? getInvoiceDuePeriod(purchase.cardId, last.year, last.month) : null,
       scheduled: installments.length,
       paidCount: installments.filter((item) => item.paid).length,
     };
@@ -109,7 +121,10 @@ export function createPurchasesService() {
   const installmentsFor = (purchaseId) => Installment.find({ purchaseId }).sort({ year: 1, month: 1, number: 1 }).lean();
   const get = async (userId, id) => {
     const purchase = await Purchase.findOne({ _id: id, userId })
-      .populate('personId', 'name').populate('cardId', 'name').populate('categoryId', 'name').lean();
+      .populate('personId', 'name')
+      .populate('cardId', 'name dueDay closingDay')
+      .populate('categoryId', 'name')
+      .lean();
     if (!purchase) throw notFound('Compra não encontrada');
     const installments = await installmentsFor(purchase._id);
     return {
@@ -158,16 +173,31 @@ export function createPurchasesService() {
 
   return {
     async listInstallments(userId, query) {
-      await ensureSubscriptionInstallments(userId, query.month, query.year);
+      const previousStatementPeriod = query.month === 1
+        ? { year: query.year - 1, month: 12 }
+        : { year: query.year, month: query.month - 1 };
+      await Promise.all([
+        ensureSubscriptionInstallments(userId, query.month, query.year),
+        ensureSubscriptionInstallments(userId, previousStatementPeriod.month, previousStatementPeriod.year),
+      ]);
       const filter = listFor(userId, query);
       const purchases = await populatePurchases(filter, { _id: 1 });
       const purchaseById = new Map(purchases.map((p) => [String(p._id), p]));
       const installments = purchases.length ? await Installment.find({
-        userId, purchaseId: { $in: purchases.map((p) => p._id) }, year: query.year, month: query.month,
+        userId,
+        purchaseId: { $in: purchases.map((p) => p._id) },
+        $or: [
+          { year: query.year, month: query.month },
+          { year: previousStatementPeriod.year, month: previousStatementPeriod.month },
+        ],
       }).sort({ number: 1 }).lean() : [];
       const data = installments.filter((item) => {
         const purchase = purchaseById.get(String(item.purchaseId));
-        return !purchase?.isSubscription || subscriptionActiveInPeriod(purchase, query.year, query.month);
+        const duePeriod = purchase?.cardId
+          ? getInvoiceDuePeriod(purchase.cardId, item.year, item.month)
+          : { year: item.year, month: item.month };
+        return duePeriod.year === query.year && duePeriod.month === query.month
+          && (!purchase?.isSubscription || subscriptionActiveInPeriod(purchase, item.year, item.month));
       }).map((item) => {
         const p = purchaseById.get(String(item.purchaseId));
         return {
@@ -480,8 +510,15 @@ export function createPurchasesService() {
     setManyPaid: (userId, ids, paid = true) => billing.recordBulkPayment(userId, ids, paid),
     async setMonthPaid(userId, personId, month, year, paid) {
       await assertOwned(Person, personId, userId, 'Pessoa');
-      const purchases = await Purchase.find({ userId, personId, cardId: { $ne: null } }).select('_id').lean();
+      const purchases = await Purchase.find({ userId, personId, cardId: { $ne: null } })
+        .select('_id cardId')
+        .populate('cardId', 'dueDay closingDay')
+        .lean();
       const purchaseIds = purchases.map((purchase) => purchase._id);
+      const purchaseById = new Map(purchases.map((purchase) => [String(purchase._id), purchase]));
+      const previousStatementPeriod = month === 1
+        ? { year: year - 1, month: 12 }
+        : { year, month: month - 1 };
 
       const session = await mongoose.startSession();
       let updated = 0;
@@ -489,14 +526,24 @@ export function createPurchasesService() {
       try {
         await session.withTransaction(async () => {
           const installments = await Installment.find({
-            userId, purchaseId: { $in: purchaseIds }, month, year,
+            userId,
+            purchaseId: { $in: purchaseIds },
+            $or: [
+              { year, month },
+              { year: previousStatementPeriod.year, month: previousStatementPeriod.month },
+            ],
           }).session(session);
-          for (const installment of installments) {
+          const dueInstallments = installments.filter((installment) => {
+            const purchase = purchaseById.get(String(installment.purchaseId));
+            const duePeriod = getInvoiceDuePeriod(purchase?.cardId, installment.year, installment.month);
+            return duePeriod.year === year && duePeriod.month === month;
+          });
+          for (const installment of dueInstallments) {
             installment.paid = paid;
             installment.paidAmount = paid ? installment.amount : 0;
             await installment.save({ session });
           }
-          updated = installments.length;
+          updated = dueInstallments.length;
 
           updatedBudgetCells = 0;
           const sheet = await BudgetSheet.findOne({ userId, personId, year }).session(session);

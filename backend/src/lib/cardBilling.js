@@ -223,6 +223,19 @@ export function getInvoiceDueDate(card, year, month) {
   return `${dueYear}-${String(dueMonth).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 }
 
+export function getInvoiceStatementPeriod(card, dueYear, dueMonth) {
+  const closingDay = card.closingDay || card.closing_day || 3;
+  const dueDay = card.dueDay || card.due_day || 10;
+  const idx = dueYear * 12 + dueMonth - 1 - (dueDay > closingDay ? 0 : 1);
+  return { year: Math.floor(idx / 12), month: (idx % 12) + 1 };
+}
+
+export function invoiceDueInPeriod(card, statementYear, statementMonth, dueYear, dueMonth) {
+  if (!card) return statementYear === dueYear && statementMonth === dueMonth;
+  const statementPeriod = getInvoiceStatementPeriod(card, dueYear, dueMonth);
+  return statementYear === statementPeriod.year && statementMonth === statementPeriod.month;
+}
+
 export function createCardBilling() {
   function ownedCard(userId, cardId, session = null) {
     let query = Card.findOne({ _id: cardId, userId });

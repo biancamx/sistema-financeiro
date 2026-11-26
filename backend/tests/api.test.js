@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { clearMongoMemory, createApiClient, createTestAccount, startMongoMemory } from './helpers/mongo.js';
 import { Installment } from '../src/models/Installment.js';
 import { Purchase } from '../src/models/Purchase.js';
+import { Card } from '../src/models/Card.js';
 
 process.env.NODE_ENV = 'test';
 process.env.JWT_SECRET = 'test-secret-for-api';
@@ -146,6 +147,75 @@ test('visualizar um alerta o remove da central até seu valor mudar', async () =
   const afterBalanceChange = await api('GET', '/reminders/alerts');
   assert.equal(afterBalanceChange.json.totalAlerts, 1);
   assert.notEqual(afterBalanceChange.json.alerts[0].alertKey, alert.alertKey);
+});
+
+test('demonstrativo e quitação agrupam parcelas pelo mês de vencimento da fatura', async () => {
+  const account = await createTestAccount({ email: 'billing-due-month@example.invalid' });
+  const api = createApiClient(baseUrl, account.cookie);
+  await Card.updateOne({ _id: account.card._id }, { $set: { dueDay: 5, closingDay: 22 } });
+
+  const novemberPurchase = await Purchase.create({
+    userId: account.user._id,
+    personId: account.person._id,
+    cardId: account.card._id,
+    description: 'Compra para vencer em dezembro',
+    totalAmount: 40,
+    totalInstallments: 1,
+  });
+  const decemberPurchase = await Purchase.create({
+    userId: account.user._id,
+    personId: account.person._id,
+    cardId: account.card._id,
+    description: 'Presente de Natal',
+    totalAmount: 75,
+    totalInstallments: 1,
+  });
+  const novemberInstallment = await Installment.create({
+    userId: account.user._id,
+    purchaseId: novemberPurchase._id,
+    number: 1,
+    year: 2026,
+    month: 11,
+    amount: 40,
+  });
+  const decemberInstallment = await Installment.create({
+    userId: account.user._id,
+    purchaseId: decemberPurchase._id,
+    number: 1,
+    year: 2026,
+    month: 12,
+    amount: 75,
+  });
+
+  const december = await api(
+    'GET',
+    `/reminders/billing/${account.person._id}?month=12&year=2026`,
+  );
+  assert.equal(december.status, 200, december.text);
+  assert.equal(december.json.grandTotal, 40);
+  assert.equal(december.json.cards[0].dueDate, '2026-12-05');
+  assert.deepEqual(december.json.cards[0].items.map((item) => item.description), [
+    'Compra para vencer em dezembro',
+  ]);
+
+  const january = await api(
+    'GET',
+    `/reminders/billing/${account.person._id}?month=1&year=2027`,
+  );
+  assert.equal(january.status, 200, january.text);
+  assert.equal(january.json.grandTotal, 75);
+  assert.equal(january.json.cards[0].dueDate, '2027-01-05');
+  assert.deepEqual(january.json.cards[0].items.map((item) => item.description), ['Presente de Natal']);
+
+  const settled = await api('POST', '/reminders/settle-person-month', {
+    personId: String(account.person._id),
+    month: 12,
+    year: 2026,
+  });
+  assert.equal(settled.status, 200, settled.text);
+  assert.equal(settled.json.settledCount, 1);
+  assert.equal((await Installment.findById(novemberInstallment._id)).paid, true);
+  assert.equal((await Installment.findById(decemberInstallment._id)).paid, false);
 });
 
 test('divisão de valores fecha em centavos e agenda períodos consecutivos', () => {

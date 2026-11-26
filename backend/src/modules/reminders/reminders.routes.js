@@ -3,6 +3,11 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { asyncHandler } from '../../lib/errors.js';
 import { validate } from '../../middleware/validate.js';
+import {
+  ensureSubscriptionInstallmentsForPeriods,
+  invoiceDueInPeriod,
+  subscriptionActiveInPeriod,
+} from '../../lib/cardBilling.js';
 import { Installment } from '../../models/Installment.js';
 import { MonthStatus } from '../../models/MonthStatus.js';
 import { Person } from '../../models/Person.js';
@@ -61,20 +66,44 @@ export function remindersRoutes() {
   router.post('/settle-person-month', validate({ body: settlePersonMonthBody }), asyncHandler(async (req, res) => {
     const { personId, month, year } = req.body;
     if (!await Person.exists({ _id: personId, userId: req.user._id })) return res.status(404).json({ error: 'Pessoa não encontrada' });
+    const previousMonth = month === 1 ? 12 : month - 1;
+    const previousYear = month === 1 ? year - 1 : year;
+    const statementPeriods = [{ month: previousMonth, year: previousYear }, { month, year }];
+    await ensureSubscriptionInstallmentsForPeriods(req.user._id, statementPeriods, { personId });
     const session = await mongoose.startSession();
     let settledCount = 0;
     try {
       await session.withTransaction(async () => {
-        const purchases = await Purchase.find({ userId: req.user._id, personId }).select('_id').session(session);
+        const purchases = await Purchase.find({ userId: req.user._id, personId })
+          .select('_id').populate('cardId', 'dueDay closingDay').session(session);
         const installments = purchases.length ? await Installment.find({
-          userId: req.user._id, purchaseId: { $in: purchases.map((purchase) => purchase._id) }, month, year, paid: false,
+          userId: req.user._id,
+          purchaseId: { $in: purchases.map((purchase) => purchase._id) },
+          $or: statementPeriods.map(({ month: periodMonth, year: periodYear }) => ({
+            month: periodMonth, year: periodYear,
+          })),
+          paid: false,
         }).session(session) : [];
-        for (const installment of installments) {
+        const purchaseById = new Map(purchases.map((purchase) => [String(purchase._id), purchase]));
+        const dueInstallments = installments.filter((installment) => {
+          const purchase = purchaseById.get(String(installment.purchaseId));
+          return purchase
+            && (!purchase.isSubscription
+              || subscriptionActiveInPeriod(purchase, installment.year, installment.month))
+            && invoiceDueInPeriod(
+              purchase.cardId,
+              installment.year,
+              installment.month,
+              year,
+              month,
+            );
+        });
+        for (const installment of dueInstallments) {
           installment.paid = true;
           installment.paidAmount = installment.amount;
           await installment.save({ session });
         }
-        settledCount = installments.length;
+        settledCount = dueInstallments.length;
         await MonthStatus.findOneAndUpdate(
           { userId: req.user._id, personId, year, month },
           { $set: { status: 'paid' }, $setOnInsert: { userId: req.user._id, personId, year, month } },

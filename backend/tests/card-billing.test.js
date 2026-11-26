@@ -6,6 +6,8 @@ import {
   generateCardInstallments,
   getFirstStatementPeriod,
   getInvoiceDueDate,
+  getInvoiceStatementPeriod,
+  invoiceDueInPeriod,
   subscriptionActiveInPeriod,
 } from '../src/lib/cardBilling.js';
 import { Installment } from '../src/models/Installment.js';
@@ -51,6 +53,15 @@ test('dia de fechamento é configurável com padrão na próxima fatura; vencime
     startMonth: 10, startYear: 2026,
   }), { year: 2026, month: 10 });
   assert.equal(getInvoiceDueDate({ closingDay: 22, dueDay: 31 }, 2025, 2), '2025-02-28');
+});
+
+test('faturas são agrupadas pelo mês em que vencem, inclusive na virada do ano', () => {
+  const nubank = { closingDay: 22, dueDay: 5 };
+  assert.deepEqual(getInvoiceStatementPeriod(nubank, 2026, 12), { year: 2026, month: 11 });
+  assert.equal(invoiceDueInPeriod(nubank, 2026, 11, 2026, 12), true);
+  assert.equal(invoiceDueInPeriod(nubank, 2026, 12, 2026, 12), false);
+  assert.deepEqual(getInvoiceStatementPeriod(nubank, 2027, 1), { year: 2026, month: 12 });
+  assert.equal(invoiceDueInPeriod(nubank, 2026, 12, 2027, 1), true);
 });
 
 test('assinaturas canceladas permanecem na fatura do mês do cancelamento e param no mês seguinte', () => {

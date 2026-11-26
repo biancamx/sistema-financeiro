@@ -568,8 +568,8 @@ export default function PeoplePage({
         </>}
       >
         <div className="billing-period">
-          <span className="muted small">Período</span>
-          <select className="input" aria-label="Mês do demonstrativo" value={modalMonth} onChange={changeBillingMonth}>
+          <span className="muted small">Mês de vencimento</span>
+          <select className="input" aria-label="Mês de vencimento do demonstrativo" value={modalMonth} onChange={changeBillingMonth}>
             {['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'].map((name, index) => (
               <option key={name} value={index + 1}>{name}</option>
             ))}
@@ -582,7 +582,7 @@ export default function PeoplePage({
         </div>
         {billingLoading ? <Spinner label="Gerando demonstrativo…" /> : billing ? (
           <div className="billing-preview">
-            <p className="muted small">{`Referência: ${String(modalMonth).padStart(2, '0')}/${modalYear}`}</p>
+            <p className="muted small">{`Vencimentos: ${String(modalMonth).padStart(2, '0')}/${modalYear}`}</p>
             {!billingPerson?.phone && <p className="billing-warning">Sem telefone cadastrado. Você ainda pode copiar a mensagem e enviá-la manualmente.</p>}
             <div className="billing-totals">
               <span>Total do mês <Money value={billing.grandTotal ?? billing.totalAmount} strong /></span>

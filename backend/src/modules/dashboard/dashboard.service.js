@@ -1,6 +1,6 @@
 import { monthIndex, round2 } from '../../lib/months.js';
 import { badRequest } from '../../lib/errors.js';
-import { createCardBilling, ensureSubscriptionInstallmentsForPeriods, getInstallmentBalanceCents, getInvoiceDueDate, subscriptionActiveInPeriod } from '../../lib/cardBilling.js';
+import { createCardBilling, ensureSubscriptionInstallmentsForPeriods, getInstallmentBalanceCents, getInvoiceDueDate, getInvoiceDuePeriod, subscriptionActiveInPeriod } from '../../lib/cardBilling.js';
 import { createBudgetsService } from '../budgets/budgets.service.js';
 import { createCashLedgerService } from '../cashLedger/cashLedger.service.js';
 import { BudgetSheet } from '../../models/BudgetSheet.js';
@@ -10,6 +10,9 @@ import { Installment } from '../../models/Installment.js';
 import { MonthStatus } from '../../models/MonthStatus.js';
 import { Person } from '../../models/Person.js';
 import { Purchase } from '../../models/Purchase.js';
+import { CashEntry } from '../../models/CashEntry.js';
+import { VehicleExpense } from '../../models/VehicleExpense.js';
+import { vehicleExpenseBudgetRows } from '../vehicles/vehicle-expense-budget.js';
 
 export function createDashboardService() {
   const budgets = createBudgetsService();
@@ -21,7 +24,7 @@ export function createDashboardService() {
       const sum = (rows) => round2(rows.reduce((total, row) => total + row.amount, 0));
       await ensureSubscriptionInstallmentsForPeriods(
         userId,
-        Array.from({ length: 12 }, (_, index) => ({ month: index + 1, year })),
+        [{ month: 12, year: year - 1 }, ...Array.from({ length: 12 }, (_, index) => ({ month: index + 1, year }))],
       );
       const [cardDocs, cash, peopleDocs, purchases, installments] = await Promise.all([
         Card.find({ userId })
@@ -35,6 +38,7 @@ export function createDashboardService() {
         Installment.find({ userId }).select('purchaseId year month amount paidAmount paid').lean(),
       ]);
       const purchaseMap = new Map(purchases.map((purchase) => [String(purchase._id), purchase]));
+      const cardById = new Map(cardDocs.map((card) => [String(card._id), card]));
       const byPersonInstallments = new Map();
       const seriesByMonth = Array(12).fill(0);
       const categoryTotals = new Map();
@@ -49,10 +53,11 @@ export function createDashboardService() {
         const remainingCents = getInstallmentBalanceCents(installment.amount, installment.paidAmount, installment.paid);
         const periodIndex = installment.year * 12 + installment.month;
         const cardKey = String(purchase.cardId);
+        const card = cardById.get(cardKey) ?? { closingDay: 3, dueDay: 10 };
+        const duePeriod = getInvoiceDuePeriod(card, installment.year, installment.month);
         const subscription = Boolean(purchase.isSubscription);
         if (subscription && !subscriptionActiveInPeriod(purchase, installment.year, installment.month)) continue;
-        if (subscription && installment.year !== year) continue;
-        if (installment.year === year && installment.month === month) {
+        if (duePeriod.year === year && duePeriod.month === month) {
           invoiceByCard.set(cardKey, (invoiceByCard.get(cardKey) ?? 0) + remainingCents);
           const personCardKey = `${purchase.personId}:${cardKey}`;
           invoiceByPersonCard.set(personCardKey, (invoiceByPersonCard.get(personCardKey) ?? 0) + remainingCents);
@@ -61,20 +66,21 @@ export function createDashboardService() {
           || (subscription && periodIndex === currentIndex)) {
           usedByCard.set(cardKey, (usedByCard.get(cardKey) ?? 0) + remainingCents);
         }
-        if (installment.year === year) seriesByMonth[installment.month - 1] += installment.amount;
-        if (installment.year === year && installment.month === month) {
+        if (duePeriod.year === year) seriesByMonth[duePeriod.month - 1] += installment.amount;
+        if (duePeriod.year === year && duePeriod.month === month) {
           const key = purchase.categoryId ? String(purchase.categoryId) : 'none';
           categoryTotals.set(key, (categoryTotals.get(key) ?? 0) + installment.amount);
         }
         const personKey = String(purchase.personId);
         const data = byPersonInstallments.get(personKey) ?? { month: 0, owed: 0, lastIndex: 0 };
         const remaining = remainingCents / 100;
-        if (installment.year === year && installment.month === month) {
+        if (duePeriod.year === year && duePeriod.month === month) {
           data.month += remaining;
           if (subscription) data.owed += remaining;
         }
-        if (!subscription && installment.year * 12 + installment.month >= idx) data.owed += remaining;
-        if (!subscription) data.lastIndex = Math.max(data.lastIndex, installment.year * 12 + installment.month);
+        const dueIndex = monthIndex(duePeriod.year, duePeriod.month);
+        if (!subscription && dueIndex >= idx) data.owed += remaining;
+        if (!subscription) data.lastIndex = Math.max(data.lastIndex, dueIndex);
         byPersonInstallments.set(personKey, data);
       }
       const people = peopleDocs.map((person) => {
@@ -167,20 +173,34 @@ export function createDashboardService() {
           for (const cell of row.cells) values[cell.month - 1] = cell.value;
           return { id: String(row._id), label: row.label, values, total: round2(values.reduce((a, b) => a + b, 0)) };
         });
+      const vehicleExpenses = await VehicleExpense.find({
+        userId, paymentMethod: 'cash', expenseDate: { $lte: `${year}-12-31` },
+      }).populate('vehicleId', 'model').lean();
+      const vehicleRows = vehicleExpenseBudgetRows(vehicleExpenses, personId, year);
       const totals = Array.from({ length: 12 }, (_, month) => round2(
-        cards.reduce((sum, card) => sum + card.values[month], 0) + fixedRows.reduce((sum, row) => sum + row.values[month], 0),
+        cards.reduce((sum, card) => sum + card.values[month], 0)
+          + fixedRows.reduce((sum, row) => sum + row.values[month], 0)
+          + vehicleRows.reduce((sum, row) => sum + row.values[month], 0),
       ));
-      const [cashFlow, currentCash] = await Promise.all([
+      const [cashFlow, currentCash, linkedCashExpenses] = await Promise.all([
         cashLedger.yearSummary(userId, year),
         cashLedger.summary(userId, new Date().getMonth() + 1, new Date().getFullYear()),
+        CashEntry.find({
+          userId, kind: 'expense', vehicleExpenseId: { $ne: null },
+          entryDate: { $gte: `${year}-01-01`, $lte: `${year}-12-31` },
+        }).select('entryDate totalCents').lean(),
       ]);
+      for (const expense of linkedCashExpenses) {
+        const month = Number(expense.entryDate.slice(5, 7)) - 1;
+        cashFlow.expenses[month] = round2(cashFlow.expenses[month] - expense.totalCents / 100);
+      }
       cashFlow.expenses.forEach((amount, month) => { totals[month] = round2(totals[month] + amount); });
       const statusDocs = await MonthStatus.find({ userId, personId, year }).lean();
       const status = Array(12).fill('pending');
       for (const item of statusDocs) status[item.month - 1] = item.status;
       return {
         person: { id: String(person._id), name: person.name }, year, sheetId: sheet ? String(sheet._id) : null,
-        cards, fixed: fixedRows, totals,
+        cards, fixed: fixedRows, vehicleExpenses: vehicleRows, totals,
         cashFlow: {
           ...cashFlow, monthSpent: currentCash.spent, monthReceipts: currentCash.received,
           totalReceivable: currentCash.totalReceivable, overdue: currentCash.overdue, overdueCount: currentCash.overdueCount,

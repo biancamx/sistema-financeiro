@@ -141,6 +141,12 @@ export default function OverviewPage() {
                     <td className="num"><MoneyCell value={row.values[selectedMonth - 1]} onSave={(value) => saveCell(row, selectedMonth, value)} /></td>
                   </tr>
                 ))}
+                {d.vehicleExpenses.map((row) => (
+                  <tr key={row.id}>
+                    <td className="budget-month-label">{row.label}<span className="pill">automático</span></td>
+                    <td className="num">{row.values[selectedMonth - 1] ? moneyPlain(row.values[selectedMonth - 1]) : ''}</td>
+                  </tr>
+                ))}
                 <tr>
                   <td className="budget-month-label">
                     {newLabel === null ? <button className="link-btn" onClick={() => setNewLabel('')}>+ conta fixa</button>
@@ -197,6 +203,13 @@ export default function OverviewPage() {
                     {r.values.map((v, i) => <td key={i} className="num"><MoneyCell value={v} onSave={(n) => saveCell(r, i + 1, n)} /></td>)}
                     <td className="num total">{moneyPlain(r.total)}</td>
                     <td className="row-actions"><button className="icon-btn" onClick={() => removeRow(r)} aria-label={`Remover ${r.label}`}>×</button></td>
+                  </tr>
+                ))}
+                {d.vehicleExpenses.map((row) => (
+                  <tr key={row.id}>
+                    <td className="sticky-col">{row.label}<span className="pill">automático</span></td>
+                    {row.values.map((value, index) => <td key={index} className="num">{value ? moneyPlain(value) : ''}</td>)}
+                    <td className="num total">{moneyPlain(row.total)}</td><td />
                   </tr>
                 ))}
                 <tr className="sec-head"><th colSpan={15} className="sticky-col">Caixa avulso</th></tr>

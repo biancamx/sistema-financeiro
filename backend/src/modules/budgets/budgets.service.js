@@ -14,7 +14,7 @@ import { Installment } from '../../models/Installment.js';
 import { VehicleExpense } from '../../models/VehicleExpense.js';
 import { Vehicle } from '../../models/Vehicle.js';
 import { createCashLedgerService } from '../cashLedger/cashLedger.service.js';
-import { EXPENSE_CATEGORIES } from '../vehicles/vehicles.categories.js';
+import { vehicleExpenseBudgetRows } from '../vehicles/vehicle-expense-budget.js';
 
 const zeros = () => Array(12).fill(0);
 const sum12 = (arr) => round2(arr.reduce((a, b) => a + b, 0));
@@ -76,31 +76,7 @@ export function createBudgetsService() {
       const vehicleExpenses = await VehicleExpense.find({
         userId, paymentMethod: 'cash', expenseDate: { $lte: `${year}-12-31` },
       }).populate('vehicleId', 'model').lean();
-      const vehicleRows = vehicleExpenses.flatMap((expense) => {
-        const share = expense.shares.find((item) => strId(item.personId) === strId(personId));
-        if (!share) return [];
-        const startYear = Number(expense.expenseDate.slice(0, 4));
-        const startMonth = Number(expense.expenseDate.slice(5, 7));
-        const recurrenceType = expense.recurrenceType ?? 'once';
-        const values = zeros();
-        for (let month = 1; month <= 12; month++) {
-          const offset = (year - startYear) * 12 + month - startMonth;
-          const occurs = offset >= 0 && (
-            recurrenceType === 'ongoing'
-            || (recurrenceType === 'installments' && offset < (expense.recurrenceCount ?? 0))
-            || (recurrenceType === 'once' && offset === 0)
-          );
-          if (occurs) values[month - 1] = share.amount;
-        }
-        if (!values.some((value) => value > 0)) return [];
-        const categoryLabel = EXPENSE_CATEGORIES.find((item) => item.key === expense.category)?.label ?? expense.category;
-        const label = expense.description?.trim() || categoryLabel;
-        return [{
-          id: `vehicle-expense-${strId(expense._id)}`, section: 'vehicle',
-          label: expense.vehicleId?.model ? `${label} · ${expense.vehicleId.model}` : label,
-          computed: true, values, paidMonths: Array(12).fill(false), enteredValues: values,
-        }];
-      });
+      const vehicleRows = vehicleExpenseBudgetRows(vehicleExpenses, personId, year);
 
       const purchases = await Purchase.find({ userId, personId })
         .populate('cardId', 'name dueDay closingDay')

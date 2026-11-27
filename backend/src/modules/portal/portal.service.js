@@ -6,6 +6,8 @@ import { Installment } from '../../models/Installment.js';
 import { MonthStatus } from '../../models/MonthStatus.js';
 import { Person } from '../../models/Person.js';
 import { User } from '../../models/User.js';
+import { VehicleExpense } from '../../models/VehicleExpense.js';
+import { vehicleExpenseBudgetRows } from '../vehicles/vehicle-expense-budget.js';
 
 const expenseSections = new Set(
   SECTIONS.filter((section) => section.kind === 'expense' && !section.computed).map((section) => section.key),
@@ -15,7 +17,7 @@ export async function getParticipantPortal(token) {
   const person = await Person.findOne({ shareToken: token }).lean();
   if (!person) return null;
 
-  const [admin, installmentsWithPurchase, sheets, statuses] = await Promise.all([
+  const [admin, installmentsWithPurchase, sheets, statuses, vehicleExpenses] = await Promise.all([
     User.findById(person.userId).select('name portalContactPersonId').lean(),
     Installment.find({ userId: person.userId })
       .populate({
@@ -28,6 +30,9 @@ export async function getParticipantPortal(token) {
       .lean(),
     BudgetSheet.find({ userId: person.userId, personId: person._id }).lean(),
     MonthStatus.find({ userId: person.userId, personId: person._id }).lean(),
+    VehicleExpense.find({
+      userId: person.userId, paymentMethod: 'cash', 'shares.personId': person._id,
+    }).populate('vehicleId', 'model').lean(),
   ]);
   const contact = admin?.portalContactPersonId
     ? await Person.findOne({ _id: admin.portalContactPersonId, userId: person.userId }).select('phone').lean()
@@ -80,8 +85,35 @@ export async function getParticipantPortal(token) {
         month: null,
         amount: null,
         monthStatus: 'pending',
-      }]))
-    .sort((a, b) => a.year - b.year || a.position - b.position || a.rowId.localeCompare(b.rowId));
+      }]));
+  const currentYear = new Date().getFullYear();
+  const vehicleYears = new Set();
+  for (const expense of vehicleExpenses) {
+    const startYear = Number(expense.expenseDate.slice(0, 4));
+    const startMonth = Number(expense.expenseDate.slice(5, 7));
+    const recurrenceType = expense.recurrenceType ?? 'once';
+    const endYear = recurrenceType === 'ongoing'
+      ? Math.max(startYear, currentYear)
+      : recurrenceType === 'installments'
+        ? startYear + Math.floor((startMonth - 1 + (expense.recurrenceCount ?? 0) - 1) / 12)
+        : startYear;
+    for (let year = startYear; year <= endYear; year++) vehicleYears.add(year);
+  }
+  for (const year of vehicleYears) {
+    const rows = vehicleExpenseBudgetRows(vehicleExpenses, person._id, year);
+    const position = Math.max(0, ...sheets
+      .filter((sheet) => sheet.year === year)
+      .flatMap((sheet) => sheet.rows.map((row) => row.position))) + 1;
+    for (const row of rows) {
+      row.values.forEach((amount, index) => {
+        if (amount > 0) budgetRows.push({
+          year, rowId: row.id, section: row.section, label: row.label, position,
+          month: index + 1, amount, monthStatus: statusByPeriod.get(`${year}-${index + 1}`) || 'pending',
+        });
+      });
+    }
+  }
+  budgetRows.sort((a, b) => a.year - b.year || a.position - b.position || a.rowId.localeCompare(b.rowId));
 
   const detailedMonths = new Set(
     budgetRows

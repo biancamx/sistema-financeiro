@@ -102,10 +102,24 @@ test('despesas de veículo em dinheiro permanecem sincronizadas e aparecem em Ve
   assert.equal(mirrored.personId, ids['Pessoa 01']);
   assert.equal(mirrored.vehicleName, car.model);
   assert.equal((await c('GET', '/cash-ledger/summary?month=3&year=2026')).json.data.spent, 125.5);
+  const dashboardSummary = await c('GET', `/dashboard/summary?month=3&year=2026&personId=${ids['Pessoa 01']}`);
+  assert.equal(dashboardSummary.json.data.totals.cash.spent, 125.5);
+  const cashDashboard = await c('GET', '/cash-ledger/dashboard?period=month&month=3&year=2026');
+  assert.equal(cashDashboard.json.data.totals.spentCents, 12550);
+  assert.equal(cashDashboard.json.data.byCategory.find((item) => item.label === 'Vale combustível').amountCents, 12550);
   const budget = await c('GET', `/budgets?personId=${ids['Pessoa 01']}&year=2026&month=3`);
   assert.equal(budget.json.data.monthly.cash.expense, 0);
   const vehicleRow = budget.json.data.sections.find((section) => section.key === 'vehicle').rows.find((row) => row.computed);
   assert.equal(vehicleRow.values[2], 125.5);
+  const overview = await c('GET', `/dashboard/person-overview?personId=${ids['Pessoa 01']}&year=2026`);
+  assert.equal(overview.json.data.vehicleExpenses.find((row) => row.id === `vehicle-expense-${expenseId}`).values[2], 125.5);
+  assert.equal(overview.json.data.cashFlow.expenses[2], 0);
+  assert.equal(overview.json.data.totals[2], 125.5);
+  const person = await Person.findById(ids['Pessoa 01']).select('shareToken').lean();
+  const portal = await c('GET', `/portal/${person.shareToken}`);
+  const portalMonth = portal.json.data.months.find((month) => month.year === 2026 && month.month === 3);
+  assert.equal(portalMonth.fixedExpenses.find((item) => item.description.includes('Abastecimento')).amount, 125.5);
+  assert.equal(portalMonth.total, 125.5);
 
   const rejectedDelete = await c('DELETE', `/cash-ledger/entries/${mirrored.id}`);
   assert.equal(rejectedDelete.status, 409);
@@ -182,6 +196,17 @@ test('despesa em dinheiro compartilhada repete a parte de cada pessoa na planilh
   assert.equal(financedRow(lastFinancedYear).values[0], 40);
   assert.equal(financedRow(lastFinancedYear).values[1], 40);
   assert.equal(financedRow(lastFinancedYear).values[2], 0);
+  for (const personId of [ids['Pessoa 01'], ids['Pessoa 02'], ids['Pessoa 03']]) {
+    const person = await Person.findById(personId).select('shareToken').lean();
+    const portal = await c('GET', `/portal/${person.shareToken}`);
+    const portalMonth = portal.json.data.months.find((month) => month.year === 2026 && month.month === 3);
+    assert.equal(portalMonth.fixedExpenses.find((item) => item.description.includes('Financiamento')).amount, 40);
+    const futurePortalMonth = portal.json.data.months.find((month) => month.year === 2027 && month.month === 3);
+    assert.equal(futurePortalMonth.fixedExpenses.find((item) => item.description.includes('Financiamento')).amount, 40);
+    const overview = await c('GET', `/dashboard/person-overview?personId=${personId}&year=2026`);
+    assert.equal(overview.json.data.vehicleExpenses.find((row) => row.id === `vehicle-expense-${financed.json.data.id}`).values[2], 40);
+    assert.equal(overview.json.data.totals[2], 40);
+  }
   assert.equal((await c('POST', '/vehicles/expenses', {
     vehicleId: vehicle.id, date: '2026-03-10', category: 'financing', amount: 120,
     payerId: ids['Pessoa 01'], recurrenceType: 'installments',
@@ -544,6 +569,13 @@ test('gasto no cartão cria compra vinculada, parcelas e atualiza limite sem dup
   assert.equal(budget.json.data.monthly.purchases[0].amount, 33.34);
   assert.equal(budget.json.data.monthly.purchases[0].category, 'Vale combustível');
   assert.equal(budget.json.data.sections.find((section) => section.key === 'vehicle').rows.some((row) => row.computed), false);
+  const dashboardNovember = (await c('GET', `/dashboard/summary?month=11&year=2026&personId=${ids['Pessoa 01']}`)).json.data;
+  assert.equal(dashboardNovember.totals.month, 33.34);
+  assert.equal(dashboardNovember.people.find((person) => person.id === ids['Pessoa 01']).month, 33.34);
+  assert.equal(dashboardNovember.series[10].amount, 33.34);
+  assert.equal(dashboardNovember.byCategory.find((category) => category.name === 'Vale combustível').amount, 33.34);
+  const dashboardOctober = (await c('GET', `/dashboard/summary?month=10&year=2026&personId=${ids['Pessoa 01']}`)).json.data;
+  assert.equal(dashboardOctober.totals.month, 0);
   const cards = await c('GET', '/cards?month=10&year=2026');
   assert.equal(cards.json.data.find((item) => item.id === card.id).used, 66.67);
 

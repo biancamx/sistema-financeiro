@@ -14,17 +14,11 @@ const querySchema = z.object({
 
 export function auditRoutes() {
   const router = Router();
+  router.use(requireAdmin());
 
   router.get('/access', validate({ query: querySchema }), asyncHandler(async (req, res) => {
     const { page, limit, event, outcome } = req.query;
-    const isAdmin = req.user.role === 'admin';
     const filter = {
-      ...(!isAdmin && {
-        $or: [
-          { userId: req.user._id },
-          { email: req.user.email.toLowerCase() },
-        ],
-      }),
       ...(event && { event }),
       ...(outcome && { outcome }),
     };
@@ -43,7 +37,7 @@ export function auditRoutes() {
       data: {
         events: events.map((entry) => ({ ...entry, id: String(entry._id) })),
         pagination: { page, limit, total, pages: Math.ceil(total / limit) },
-        scope: isAdmin ? 'all' : 'account',
+        scope: 'all',
       },
     });
   }));

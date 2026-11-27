@@ -146,7 +146,7 @@ test('email registration creates a session that can log in and access authentica
   assert.equal(auditEvents[2].outcome, 'success');
 });
 
-test('access audit only returns records related to the signed-in account', async () => {
+test('non-admin users cannot access access-audit records', async () => {
   auditEvents.push({
     _id: 'foreign-record',
     event: 'login',
@@ -162,11 +162,7 @@ test('access audit only returns records related to the signed-in account', async
   const response = await fetch(`${baseUrl}/audit/access`, {
     headers: { Cookie: registeredCookie },
   });
-  assert.equal(response.status, 200);
-  const result = await response.json();
-  assert.equal(result.data.scope, 'account');
-  assert.ok(result.data.events.length >= 2);
-  assert.equal(result.data.events.some((event) => event.email === 'another@example.com'), false);
+  assert.equal(response.status, 403);
 });
 
 test('administrators can review access records across accounts', async () => {

@@ -18,7 +18,10 @@
 .help-area { scroll-margin-top: 82px; }
 .help-area-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 12px; }
 .help-open-link { flex: 0 0 auto; }
-.help-details { display: grid; gap: 8px; margin: 0; padding-left: 20px; color: var(--muted); font-size: 13px; line-height: 1.55; }
+.help-interactions { display: grid; gap: 10px; margin: 0; padding-left: 22px; color: var(--muted); font-size: 13px; line-height: 1.55; }
+.help-interactions li { padding-left: 3px; }
+.help-interactions strong { color: var(--ink); }
+.help-interactions p { margin: 2px 0 0; }
 .help-subareas { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .help-subarea { padding: 12px; border: 1px solid var(--line); border-radius: 9px; }
 .help-subarea p { font-size: 13px; }

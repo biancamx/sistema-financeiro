@@ -29,6 +29,7 @@ import {
 import { version } from '../../../package.json';
 import { Button, Card, EmptyState, Field, Modal, PageHeader } from '../../components/ui/ui.jsx';
 import { useAppBusy } from '../../context/BusyContext.jsx';
+import { useAuth } from '../../context/AuthContext.jsx';
 import { useToast } from '../../context/ToastContext.jsx';
 import { notifyFinanceChanged } from '../../hooks/useFinanceRefresh.js';
 import { refreshAllLookups } from '../../services/lookupRefresh.js';
@@ -88,7 +89,6 @@ const accessEventIcons = {
 function AccessAuditPanel() {
   const [events, setEvents] = useState([]);
   const [pagination, setPagination] = useState({ page: 1, limit: 25, total: 0, pages: 0 });
-  const [scope, setScope] = useState('account');
   const [eventFilter, setEventFilter] = useState('');
   const [outcomeFilter, setOutcomeFilter] = useState('');
   const [refreshKey, setRefreshKey] = useState(0);
@@ -109,7 +109,6 @@ function AccessAuditPanel() {
         if (!active) return;
         setEvents(result.events);
         setPagination(result.pagination);
-        setScope(result.scope);
       })
       .catch((requestError) => {
         if (active) setError(requestError.message);
@@ -135,11 +134,7 @@ function AccessAuditPanel() {
           <p>Histórico de logins, tentativas de acesso, cadastros e saídas do sistema.</p>
         </div>
       </header>
-      <p className="settings-audit-scope">
-        {scope === 'all'
-          ? 'Como administrador, você está vendo os acessos de todas as contas.'
-          : 'Você está vendo os acessos relacionados à sua conta.'}
-      </p>
+      <p className="settings-audit-scope">Como administrador, você está vendo os acessos de todas as contas.</p>
       <p className="settings-audit-scope">Os registros começam a partir desta atualização; acessos anteriores não estão disponíveis.</p>
 
       <div className="settings-audit-filters">
@@ -190,7 +185,7 @@ function AccessAuditPanel() {
                 <tr>
                   <th>Data e hora</th>
                   <th>Evento</th>
-                  {scope === 'all' && <th>Conta</th>}
+                  <th>Conta</th>
                   <th>Resultado</th>
                   <th>Método</th>
                   <th>IP</th>
@@ -204,7 +199,7 @@ function AccessAuditPanel() {
                     <tr key={entry.id}>
                       <td>{new Date(entry.createdAt).toLocaleString('pt-BR')}</td>
                       <td><span className="settings-audit-event"><EventIcon aria-hidden="true" />{accessEventLabels[entry.event] || entry.event}</span></td>
-                      {scope === 'all' && <td>{entry.email || 'Não identificado'}</td>}
+                      <td>{entry.email || 'Não identificado'}</td>
                       <td><span className={`settings-audit-result is-${entry.outcome}`}>{entry.outcome === 'success' ? 'Sucesso' : 'Falha'}</span></td>
                       <td>{entry.provider === 'password' ? 'E-mail e senha' : entry.provider === 'google' ? 'Google' : entry.provider === 'local' ? 'Local' : 'Outro'}</td>
                       <td>{entry.ipAddress || '—'}</td>
@@ -239,7 +234,10 @@ function AccessAuditPanel() {
 }
 
 export default function SettingsPage({ initialSection = 'categories', standaloneImport = false } = {}) {
-  const [activeSection, setActiveSection] = useState(initialSection);
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
+  const settingsTabs = isAdmin ? SETTINGS_TABS : SETTINGS_TABS.filter((tab) => tab !== 'audit');
+  const [activeSection, setActiveSection] = useState(initialSection === 'audit' && !isAdmin ? 'categories' : initialSection);
   const [previewData, setPreviewData] = useState(null);
   const [confirmation, setConfirmation] = useState(null);
   const [resetPhrase, setResetPhrase] = useState('');
@@ -609,13 +607,13 @@ export default function SettingsPage({ initialSection = 'categories', standalone
     if (!['ArrowRight', 'ArrowLeft', 'Home', 'End'].includes(event.key)) return;
     event.preventDefault();
 
-    const currentIndex = SETTINGS_TABS.indexOf(activeSection);
+    const currentIndex = settingsTabs.indexOf(activeSection);
     const nextIndex = event.key === 'Home'
       ? 0
       : event.key === 'End'
-        ? SETTINGS_TABS.length - 1
-        : (currentIndex + (event.key === 'ArrowRight' ? 1 : -1) + SETTINGS_TABS.length) % SETTINGS_TABS.length;
-    const nextSection = SETTINGS_TABS[nextIndex];
+        ? settingsTabs.length - 1
+        : (currentIndex + (event.key === 'ArrowRight' ? 1 : -1) + settingsTabs.length) % settingsTabs.length;
+    const nextSection = settingsTabs[nextIndex];
     setActiveSection(nextSection);
     document.getElementById(`settings-tab-${nextSection}`)?.focus();
   }
@@ -923,26 +921,28 @@ export default function SettingsPage({ initialSection = 'categories', standalone
               </div>
             </section>
 
-            <section className="settings-group">
-              <h2>Segurança</h2>
-              <div className="settings-group-card">
-                <button
-                  id="settings-tab-audit"
-                  type="button"
-                  className="settings-option-row"
-                  aria-haspopup="dialog"
-                  aria-expanded={activeSection === 'audit'}
-                  onClick={() => setActiveSection('audit')}
-                >
-                  <span className="settings-option-icon"><ClipboardList aria-hidden="true" /></span>
-                  <span className="settings-option-copy">
-                    <strong>Auditoria e logs</strong>
-                    <small>Logins, tentativas e cadastros</small>
-                  </span>
-                  <ChevronRight className="settings-option-chevron" aria-hidden="true" />
-                </button>
-              </div>
-            </section>
+            {isAdmin && (
+              <section className="settings-group">
+                <h2>Segurança</h2>
+                <div className="settings-group-card">
+                  <button
+                    id="settings-tab-audit"
+                    type="button"
+                    className="settings-option-row"
+                    aria-haspopup="dialog"
+                    aria-expanded={activeSection === 'audit'}
+                    onClick={() => setActiveSection('audit')}
+                  >
+                    <span className="settings-option-icon"><ClipboardList aria-hidden="true" /></span>
+                    <span className="settings-option-copy">
+                      <strong>Auditoria e logs</strong>
+                      <small>Logins, tentativas e cadastros</small>
+                    </span>
+                    <ChevronRight className="settings-option-chevron" aria-hidden="true" />
+                  </button>
+                </div>
+              </section>
+            )}
 
             <section className="settings-group">
               <h2>Conta</h2>
@@ -979,7 +979,8 @@ export default function SettingsPage({ initialSection = 'categories', standalone
         )}
         <SettingsPanels
           standaloneImport={standaloneImport}
-          open={['import', 'ai', 'vehicle-reminders', 'push', 'about', 'audit'].includes(activeSection)}
+          open={['import', 'ai', 'vehicle-reminders', 'push', 'about'].includes(activeSection)
+            || (activeSection === 'audit' && isAdmin)}
           className={activeSection === 'audit' ? 'settings-audit-dialog' : ''}
           title={activeSection === 'import'
             ? 'Importador de planilhas e faturas'
@@ -1133,16 +1134,18 @@ export default function SettingsPage({ initialSection = 'categories', standalone
         </Card>
       </section>
 
-      <section
-        id="settings-audit"
-        className="settings-section"
-        role="tabpanel"
-        aria-labelledby="settings-tab-audit"
-        tabIndex="0"
-        hidden={activeSection !== 'audit'}
-      >
-        {activeSection === 'audit' && <AccessAuditPanel />}
-      </section>
+      {isAdmin && (
+        <section
+          id="settings-audit"
+          className="settings-section"
+          role="tabpanel"
+          aria-labelledby="settings-tab-audit"
+          tabIndex="0"
+          hidden={activeSection !== 'audit'}
+        >
+          {activeSection === 'audit' && <AccessAuditPanel />}
+        </section>
+      )}
 
       <section
         id="settings-danger"

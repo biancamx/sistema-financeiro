@@ -12,6 +12,8 @@ import { Installment } from '../../models/Installment.js';
 import { MonthStatus } from '../../models/MonthStatus.js';
 import { Person } from '../../models/Person.js';
 import { Purchase } from '../../models/Purchase.js';
+import { VehicleExpense } from '../../models/VehicleExpense.js';
+import { vehicleExpenseBudgetRows } from '../vehicles/vehicle-expense-budget.js';
 
 const brl = (value) => Number(value).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const capitalize = (value) => value.charAt(0).toLocaleUpperCase('pt-BR') + value.slice(1);
@@ -51,8 +53,17 @@ export async function getPersonBillingSummary(userId, personId, month, year) {
   const budgetRows = (sheet?.rows ?? []).filter((row) => expenses.has(row.section)).flatMap((row) => row.cells.map((cell) => ({
     section: row.section, label: row.label, month: cell.month, amount: cell.value,
   })));
-  const detailedBudget = budgetRows.some((row) => row.section !== 'fixed' && row.amount !== 0);
-  const fixedExpenses = budgetRows.filter((row) => expenses.has(row.section)
+  const vehicleExpenses = await VehicleExpense.find({
+    userId, paymentMethod: 'cash', expenseDate: { $lte: `${year}-12-31` }, 'shares.personId': personId,
+  }).populate('vehicleId', 'model').lean();
+  const vehicleRows = vehicleExpenseBudgetRows(vehicleExpenses, personId, year).flatMap((row) =>
+    row.values.flatMap((amount, index) => amount > 0
+      ? [{ section: row.section, label: row.label, month: index + 1, amount }]
+      : []),
+  );
+  const allBudgetRows = [...budgetRows, ...vehicleRows];
+  const detailedBudget = allBudgetRows.some((row) => row.section !== 'fixed' && row.amount !== 0);
+  const fixedExpenses = allBudgetRows.filter((row) => expenses.has(row.section)
     && !(detailedBudget && row.section === 'fixed') && row.month === month && row.amount > 0)
     .map(({ section, label, amount }) => ({ category: section, label, amount }));
   const monthStatus = await MonthStatus.findOne({ userId, personId, year, month }).select('status').lean();

@@ -120,6 +120,15 @@ test('despesas de veículo em dinheiro permanecem sincronizadas e aparecem em Ve
   const portalMonth = portal.json.data.months.find((month) => month.year === 2026 && month.month === 3);
   assert.equal(portalMonth.fixedExpenses.find((item) => item.description.includes('Abastecimento')).amount, 125.5);
   assert.equal(portalMonth.total, 125.5);
+  const fixedRow = await c('POST', `/budgets/${budget.json.data.sheetId}/rows`, { section: 'fixed', label: 'Conta fixa de teste' });
+  assert.equal(fixedRow.status, 201, fixedRow.text);
+  assert.equal((await c('PUT', `/budgets/rows/${fixedRow.json.data.id}/cells/3`, { value: 150 })).status, 200);
+  const billing = await c('GET', `/reminders/billing/${ids['Pessoa 01']}?month=3&year=2026`);
+  assert.equal(billing.json.grandTotal, 125.5);
+  assert.equal(billing.json.totalFixedExpenses, 125.5);
+  assert.equal(billing.json.grandTotalPending, 125.5);
+  assert.ok(billing.json.formattedMessage.includes('Abastecimento'));
+  assert.ok(!billing.json.formattedMessage.includes('Conta fixa de teste'));
 
   const rejectedDelete = await c('DELETE', `/cash-ledger/entries/${mirrored.id}`);
   assert.equal(rejectedDelete.status, 409);
@@ -203,6 +212,8 @@ test('despesa em dinheiro compartilhada repete a parte de cada pessoa na planilh
     assert.equal(portalMonth.fixedExpenses.find((item) => item.description.includes('Financiamento')).amount, 40);
     const futurePortalMonth = portal.json.data.months.find((month) => month.year === 2027 && month.month === 3);
     assert.equal(futurePortalMonth.fixedExpenses.find((item) => item.description.includes('Financiamento')).amount, 40);
+    const billing = await c('GET', `/reminders/billing/${personId}?month=3&year=2026`);
+    assert.equal(billing.json.grandTotal, 40);
     const overview = await c('GET', `/dashboard/person-overview?personId=${personId}&year=2026`);
     assert.equal(overview.json.data.vehicleExpenses.find((row) => row.id === `vehicle-expense-${financed.json.data.id}`).values[2], 40);
     assert.equal(overview.json.data.totals[2], 40);
